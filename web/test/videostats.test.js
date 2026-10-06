@@ -14,22 +14,52 @@ test('picks the inbound video stream out of a stats report', () => {
   assert.equal(videoStats([{ type: 'transport' }]), null);
 });
 
-test('summary passes a clean 5-minute run and fails freezes or drops', () => {
+// One sample per second, like watch.js: `frame(i)` gives the counters at second i.
+function record(seconds, frame = (i) => ({ framesDecoded: 30 * i }), session = () => 1) {
   const log = new StatsLog();
-  log.add(0, videoStats([inbound({ framesDecoded: 10 })]));
-  log.add(300000, videoStats([inbound({ framesDecoded: 9010 })]));
-  assert.deepEqual(log.summary(), { seconds: 300, framesDecoded: 9000, framesDropped: 0, freezes: 0, packetsLost: 0, pass: true });
+  for (let i = 0; i <= seconds; i++) log.add(i * 1000, videoStats([inbound({ framesDecoded: 0, ...frame(i) })]), session(i));
+  return log;
+}
 
-  const bad = new StatsLog();
-  bad.add(0, videoStats([inbound({})]));
-  bad.add(300000, videoStats([inbound({ framesDecoded: 9000, freezeCount: 1 })]));
-  assert.equal(bad.summary().pass, false);
-
-  const short = new StatsLog();
-  short.add(0, videoStats([inbound({})]));
-  short.add(60000, videoStats([inbound({ framesDecoded: 2000 })]));
-  assert.equal(short.summary().pass, false);
+test('summary passes a clean 5-minute run and fails freezes, drops or short runs', () => {
+  assert.deepEqual(record(300).summary(), { seconds: 300, framesDecoded: 9000, framesDropped: 0, freezes: 0, packetsLost: 0, problems: [], pass: true });
+  assert.equal(record(300, (i) => ({ framesDecoded: 30 * i, freezeCount: i > 100 ? 1 : 0 })).summary().pass, false);
+  assert.equal(record(300, (i) => ({ framesDecoded: 30 * i, framesDropped: i > 200 ? 3 : 0 })).summary().pass, false);
+  assert.equal(record(60).summary().pass, false);
   assert.equal(new StatsLog().summary(), null);
+});
+
+test('a reconnect during the run fails it (counters of a new connection start from zero)', () => {
+  const log = record(300, (i) => ({ framesDecoded: i < 70 ? 30 * i : 30 * (i - 70), freezeCount: i < 70 && i > 50 ? 2 : 0 }),
+    (i) => (i < 70 ? 1 : 2));
+  const s = log.summary();
+  assert.equal(s.pass, false);
+  assert.match(s.problems.join(' '), /reconnect/);
+});
+
+test('video that stalls with the connection still up fails the run', () => {
+  // Chrome counts a freeze only when frames resume: a stall at the end shows no freeze.
+  const s = record(300, (i) => ({ framesDecoded: 30 * Math.min(i, 200) })).summary();
+  assert.equal(s.pass, false);
+  assert.match(s.problems.join(' '), /no new frames/);
+});
+
+test('missing samples (no video, background tab) fail the run', () => {
+  const log = record(300);
+  log.rows.splice(100, 5);                         // 6 s without a sample
+  const s = log.summary();
+  assert.equal(s.pass, false);
+  assert.match(s.problems.join(' '), /gap/);
+});
+
+test('a browser without freeze or drop counters cannot pass', () => {
+  const log = new StatsLog();
+  for (let i = 0; i <= 300; i++) {
+    log.add(i * 1000, videoStats([inbound({ framesDecoded: 30 * i, freezeCount: undefined, framesDropped: undefined })]), 1);
+  }
+  const s = log.summary();
+  assert.equal(s.pass, false);
+  assert.match(s.problems.join(' '), /unknown/);
 });
 
 test('CSV has a header and one line per sample', () => {
@@ -39,5 +69,5 @@ test('CSV has a header and one line per sample', () => {
   const lines = log.toCsv().trim().split('\n');
   assert.equal(lines.length, 2);
   assert.match(lines[0], /^t,framesReceived,framesDecoded,framesDropped,freezeCount/);
-  assert.match(lines[1], /^1000,100,98,0,0,0,0,30,30,1280,720$/);
+  assert.match(lines[1], /^1000,100,98,0,0,0,0,30,30,1280,720,0$/);
 });
