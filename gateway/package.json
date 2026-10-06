@@ -1,0 +1,19 @@
+{
+  "name": "gcs-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "HTTPS + WebSocket gateway between the pilot web app and crsf-core",
+  "type": "module",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "node src/main.js",
+    "test": "node --test \"test/*.test.js\" \"../web/test/*.test.js\"",
+    "e2e": "node --test \"e2e/*.e2e.js\""
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "ws": "8.22.0"
+  }
+}
