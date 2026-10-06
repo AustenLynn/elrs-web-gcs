@@ -1,0 +1,26 @@
+[Unit]
+Description=crsf-core: real-time bridge to the ELRS TX module
+Documentation=file:///opt/gcs/docs/superpowers/specs/2026-10-05-elrs-web-gcs-design.md
+
+[Service]
+Type=simple
+User=gcs
+Group=gcs
+SupplementaryGroups=dialout
+ExecStart=/usr/local/bin/crsf-core -c /etc/gcs/crsf-core.conf
+RuntimeDirectory=crsf-core
+RuntimeDirectoryMode=0750
+LogsDirectory=crsf-core
+# SCHED_FIFO and mlockall() without running as root
+AmbientCapabilities=CAP_SYS_NICE CAP_IPC_LOCK
+CapabilityBoundingSet=CAP_SYS_NICE CAP_IPC_LOCK
+LimitRTPRIO=90
+LimitMEMLOCK=infinity
+NoNewPrivileges=yes
+# Deliberately no automatic restart. If the core dies in flight, the module stops
+# getting frames and Betaflight runs its own failsafe. A restarted core would send
+# ARM low, which Betaflight treats as a disarm (the drone drops).
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

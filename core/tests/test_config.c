@@ -116,6 +116,17 @@ static void test_missing_file(void)
     CHECK(strstr(err, "No such file") != NULL);
 }
 
+static void test_production_config_is_valid(void)
+{
+    /* `make test` runs from core/, so the shipped config is one level up. */
+    config_t c;
+    config_defaults(&c);
+    CHECK_EQ_INT(config_load(&c, "../deploy/crsf-core.conf", err, sizeof err), 0);
+    CHECK(c.rt_required);
+    CHECK_EQ_INT(c.ch_failsafe, 6);
+    CHECK_STR(c.timing_log, "");
+}
+
 int main(void)
 {
     RUN(test_defaults_are_valid);
@@ -125,5 +136,6 @@ int main(void)
     RUN(test_bad_values_are_rejected);
     RUN(test_validation_rules);
     RUN(test_missing_file);
+    RUN(test_production_config_is_valid);
     return CHECK_EXIT();
 }
