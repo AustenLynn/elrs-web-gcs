@@ -29,3 +29,10 @@ test('bad values are reported together', () => {
   assert.throws(() => validateConfig({ ...DEFAULTS, listen: { host: 1, port: 70000 }, maxCommandAgeMs: 5000, tls: {} }),
     /listen.port.*listen.host.*tls.*maxCommandAgeMs/);
 });
+
+test('relay settings need a wss/ws URL, a room and a hex token', () => {
+  const good = { url: 'wss://relay.example.org/relay', room: 'pi1', token: 'ab'.repeat(32) };
+  assert.equal(validateConfig({ ...DEFAULTS, relay: good }).relay.room, 'pi1');
+  assert.throws(() => validateConfig({ ...DEFAULTS, relay: { ...good, token: 'REPLACE with: openssl rand -hex 32' } }), /relay/);
+  assert.throws(() => validateConfig({ ...DEFAULTS, relay: { ...good, url: 'https://x' } }), /relay/);
+});

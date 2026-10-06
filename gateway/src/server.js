@@ -5,6 +5,7 @@ import https from 'node:https';
 import { WebSocketServer, WebSocket } from 'ws';
 import { ControlHub } from './hub.js';
 import { CoreClient } from './ipc.js';
+import { RelayClient } from './relayClient.js';
 import { staticHandler } from './static.js';
 import { whepProxy } from './whep.js';
 
@@ -105,17 +106,21 @@ export async function startGateway(cfg, { core = new CoreClient(cfg.coreSocket) 
     }
   }, 1000);
   const tsync = setInterval(() => hub.tick(), 2000);
+  const relay = cfg.relay ? new RelayClient({ ...cfg.relay, hub }) : null;
+  relay?.start();
 
   await new Promise((resolve) => server.listen(cfg.listen.port, cfg.listen.host, resolve));
 
   return {
     hub,
     core,
+    relay,
     server,
     port: server.address().port,
     async close() {
       clearInterval(heartbeat);
       clearInterval(tsync);
+      relay?.stop();
       for (const ws of wss.clients) ws.terminate();
       core.stop();
       await new Promise((resolve) => server.close(resolve));
