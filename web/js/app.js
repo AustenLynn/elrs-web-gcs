@@ -2,13 +2,22 @@
 // ?observe in the URL opens a read-only view.
 import { Deadman, DEADMAN_TEXT } from './deadman.js';
 import { bindHold } from './hold.js';
-import { REFUSAL_TEXT, RATE_HZ, controlMessage, helloMessage, shouldReclaimPilotSeat, tsyncReply } from './protocol.js';
+import { REFUSAL_TEXT, RATE_HZ, connectionTarget, controlMessage, shouldReclaimPilotSeat, tsyncReply } from './protocol.js';
 import { StickModel, bindStick, padsMoved, sticksToCommand } from './sticks.js';
 import { LinkTracker, failsafeDetail, formatBattery, formatLink, formatMs, segments, stateLabel } from './view.js';
 import { keepPlaying } from './whep.js';
 
 const $ = (id) => document.getElementById(id);
 const wantRole = new URLSearchParams(location.search).has('observe') ? 'observer' : 'pilot';
+const tokenKey = (room) => `gcs-token-${room}`;
+const getToken = (room) => {
+  let token = sessionStorage.getItem(tokenKey(room));
+  if (!token) {
+    token = prompt(`Clave de piloto para «${room}»`) ?? '';
+    sessionStorage.setItem(tokenKey(room), token);
+  }
+  return token;
+};
 
 const left = new StickModel({ springX: true, springY: false, initial: { x: 0, y: 1 } }); // throttle starts at 0
 const right = new StickModel();
@@ -35,16 +44,21 @@ function toast(text) {
 }
 
 function connect() {
-  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+  const target = connectionTarget(location, wantRole, getToken);
+  ws = new WebSocket(target.url);
   ws.onopen = () => {
     seq = 0;                       // a new connection is a new session: never resend old commands
-    send(helloMessage(wantRole));
+    send(target.hello);
   };
   ws.onmessage = (ev) => {
     lastMsgAt = performance.now();
     handle(JSON.parse(ev.data));
   };
-  ws.onclose = () => {
+  ws.onclose = (ev) => {
+    if (ev.code === 4003 && target.room) {
+      sessionStorage.removeItem(tokenKey(target.room));   // wrong token: ask again
+      toast('Clave de piloto incorrecta');
+    }
     role = null;
     status = null;
     deadman.disengage('disconnected');
@@ -157,5 +171,6 @@ for (const type of ['resize', 'orientationchange', 'fullscreenchange']) {
 }
 
 connect();
-keepPlaying($('video'));
+// Video stays on the local network (charter: no video over the internet).
+if (!connectionTarget(location, wantRole, () => '').relay) keepPlaying($('video'));
 requestAnimationFrame(render);

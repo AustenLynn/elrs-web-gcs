@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { REFUSAL_TEXT, controlMessage, helloMessage, shouldReclaimPilotSeat, tsyncReply } from '../js/protocol.js';
+import { REFUSAL_TEXT, connectionTarget, controlMessage, helloMessage, shouldReclaimPilotSeat, tsyncReply } from '../js/protocol.js';
 
 test('messages match what the gateway hub expects', () => {
   assert.deepEqual(helloMessage('pilot'), { t: 'hello', role: 'pilot' });
@@ -13,6 +13,17 @@ test('every refusal the core can send has a text', () => {
   for (const r of ['wrong_session', 'not_disarmed', 'not_in_failsafe', 'link_stale', 'throttle_high', 'fc_still_armed']) {
     assert.ok(REFUSAL_TEXT[r], r);
   }
+});
+
+test('connects to the Pi directly, or through the relay with ?room=', () => {
+  const local = connectionTarget({ protocol: 'https:', host: 'pi.local:8443', search: '' }, 'pilot', () => 'unused');
+  assert.deepEqual(local, { url: 'wss://pi.local:8443/ws', hello: { t: 'hello', role: 'pilot' }, relay: false, room: null });
+  const asked = [];
+  const remote = connectionTarget({ protocol: 'https:', host: 'relay.example.org', search: '?room=pi1' }, 'pilot',
+    (room) => { asked.push(room); return 'secret'; });
+  assert.deepEqual(remote, { url: 'wss://relay.example.org/relay', hello: { t: 'hello', role: 'pilot', room: 'pi1', token: 'secret' }, relay: true, room: 'pi1' });
+  assert.deepEqual(asked, ['pi1']);
+  assert.equal(connectionTarget({ protocol: 'http:', host: 'h', search: '' }, 'observer', () => '').url, 'ws://h/ws');
 });
 
 test('a page that wanted to fly reclaims the pilot seat once it is free', () => {

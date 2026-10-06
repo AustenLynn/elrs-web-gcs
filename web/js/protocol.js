@@ -3,6 +3,15 @@ export const RATE_HZ = 50;
 
 export const helloMessage = (role) => ({ t: 'hello', role });
 
+/** Where the page connects: the Pi's own gateway, or the internet relay when the page
+ *  was opened with ?room=<name> (then a pilot token is needed). */
+export function connectionTarget(loc, role, getToken) {
+  const scheme = loc.protocol === 'https:' ? 'wss' : 'ws';
+  const room = new URLSearchParams(loc.search).get('room');
+  if (!room) return { url: `${scheme}://${loc.host}/ws`, hello: helloMessage(role), relay: false, room: null };
+  return { url: `${scheme}://${loc.host}/relay`, hello: { t: 'hello', role, room, token: getToken(room) }, relay: true, room };
+}
+
 /** The page wanted to fly but got the observer seat (e.g. its new connection arrived
  *  while the old one still held the seat): ask again as soon as the seat is free. */
 export const shouldReclaimPilotSeat = (wantRole, role, status) =>
