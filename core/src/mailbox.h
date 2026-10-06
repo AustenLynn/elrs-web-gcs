@@ -89,7 +89,9 @@ typedef struct {
 int mailbox_init(mailbox_t *m);
 void mailbox_destroy(mailbox_t *m);
 
-/* IPC thread -> frame loop. Returns false (and counts a drop) if the queue is full. */
+/* IPC thread -> frame loop. A CONTROL right behind a CONTROL of the same session replaces
+ * it (order with other commands is kept). The last slot is reserved for GATEWAY_LOST, so
+ * losing the gateway is always delivered. Returns false (and counts a drop) if full. */
 bool mailbox_push_cmd(mailbox_t *m, const core_cmd_t *c);
 size_t mailbox_take_cmds(mailbox_t *m, core_cmd_t *out, size_t max);
 

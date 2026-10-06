@@ -7,7 +7,7 @@ import tempfile
 import time
 import unittest
 
-from core_client import ACK, ARM, FAILSAFE, CoreClient, Pilot
+from core_client import ACK, ARM, CONTROL, FAILSAFE, CoreClient, Pilot, msg
 from fake_tx import FakeTx
 
 CORE_DIR = os.path.join(os.path.dirname(__file__), "..", "..")
@@ -116,6 +116,21 @@ class SafetyTest(CoreHarness):
         pilot.stop()
         self.client.close()
         self.assertIsNotNone(self.tx.wait_for(lambda ch: ch[CH_FAILSAFE] == HIGH, timeout=1))
+        self.client = CoreClient(self.sock)
+        self.assertTrue(self.client.wait(lambda c: c.status is not None and c.status["reason_name"] == "gateway_lost"))
+
+    def test_burst_then_disconnect_fails_safe_at_once(self):
+        # A gateway that flushes a backlog and then dies must still be reported as lost at
+        # once (gateway_lost), not 300 ms later by the command timeout.
+        pilot = Pilot(self.client, session=13)
+        self.arm(pilot)
+        pilot.stop()
+        burst = b"".join(msg(CONTROL, struct.pack("<IIhhhHB", 13, 10000 + i, 0, 0, 0, 0, 0)) for i in range(2000))
+        self.client.sock.sendall(burst)
+        self.client.close()
+        t0 = time.monotonic()
+        self.assertIsNotNone(self.tx.wait_for(lambda ch: ch[CH_FAILSAFE] == HIGH, timeout=1))
+        self.assertLess(time.monotonic() - t0, 0.15)
         self.client = CoreClient(self.sock)
         self.assertTrue(self.client.wait(lambda c: c.status is not None and c.status["reason_name"] == "gateway_lost"))
 

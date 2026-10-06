@@ -80,11 +80,8 @@ static void on_msg(uint8_t type, const uint8_t *p, size_t n, void *user)
         default:             ok = 0; break;
         }
     }
-    if (!ok) {
-        s->bad_msg = true;
-        return;
-    }
-    mailbox_push_cmd(s->mb, &c);
+    if (!ok || !mailbox_push_cmd(s->mb, &c))
+        s->bad_msg = true;      /* malformed, or a command we could not queue: drop the gateway */
 }
 
 static void accept_client(ipcserver_t *s)

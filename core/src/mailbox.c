@@ -27,13 +27,18 @@ void mailbox_destroy(mailbox_t *m)
 
 bool mailbox_push_cmd(mailbox_t *m, const core_cmd_t *c)
 {
-    bool ok;
+    bool ok = true;
     pthread_mutex_lock(&m->mu);
-    ok = m->cmd_w - m->cmd_r < MB_CMD_CAP;
-    if (ok)
+    unsigned count = m->cmd_w - m->cmd_r;
+    core_cmd_t *newest = count > 0 ? &m->cmds[(m->cmd_w - 1) % MB_CMD_CAP] : NULL;
+    if (c->kind == CMD_CONTROL && newest && newest->kind == CMD_CONTROL && newest->session == c->session)
+        *newest = *c;                    /* only the latest stick position matters */
+    else if (count < MB_CMD_CAP - 1 || (c->kind == CMD_GATEWAY_LOST && count < MB_CMD_CAP))
         m->cmds[m->cmd_w++ % MB_CMD_CAP] = *c;
-    else
+    else {
+        ok = false;
         m->cmd_dropped++;
+    }
     pthread_mutex_unlock(&m->mu);
     return ok;
 }
