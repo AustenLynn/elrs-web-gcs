@@ -1,0 +1,7 @@
+{
+  "listen": { "host": "0.0.0.0", "port": 8443 },
+  "tls": { "cert": "/etc/gcs/tls/cert.pem", "key": "/etc/gcs/tls/key.pem" },
+  "coreSocket": "/run/crsf-core/core.sock",
+  "webRoot": "/opt/gcs/web",
+  "maxCommandAgeMs": 200
+}
