@@ -6,6 +6,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { ControlHub } from './hub.js';
 import { CoreClient } from './ipc.js';
 import { staticHandler } from './static.js';
+import { whepProxy } from './whep.js';
 
 /** Request path, or null when the request line is not a parsable URL (never throw here:
  *  an exception in the upgrade handler would take the whole gateway down). */
@@ -39,9 +40,14 @@ export async function startGateway(cfg, { core = new CoreClient(cfg.coreSocket) 
   core.start();
 
   const files = staticHandler(cfg.webRoot);
+  const video = cfg.video ? whepProxy(cfg.video.whep) : null;
+  const handler = async (req, res) => {
+    if (video && (await video(req, res))) return;
+    files(req, res);
+  };
   const server = cfg.tls
-    ? https.createServer({ cert: readFileSync(cfg.tls.cert), key: readFileSync(cfg.tls.key) }, files)
-    : http.createServer(files);
+    ? https.createServer({ cert: readFileSync(cfg.tls.cert), key: readFileSync(cfg.tls.key) }, handler)
+    : http.createServer(handler);
 
   const wss = new WebSocketServer({ noServer: true, maxPayload: 4096 });
   server.on('upgrade', (req, socket, head) => {

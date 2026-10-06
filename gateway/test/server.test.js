@@ -214,3 +214,25 @@ test('an exception while handling one message does not take the gateway down', a
   good.ws.close();
   bad.ws.close();
 });
+
+test('with video configured, the gateway serves WHEP at /video/whep and static files elsewhere', async (t) => {
+  const up = http.createServer((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(201, { 'Content-Type': 'application/sdp', Location: '/fpv/whep/s1' });
+      res.end('v=0 answer');
+    });
+  });
+  await new Promise((resolve) => up.listen(0, '127.0.0.1', resolve));
+  t.after(() => up.close());
+  const dir = mkdtempSync(path.join(tmpdir(), 'gcs-gw-'));
+  writeFileSync(path.join(dir, 'index.html'), '<h1>pilot</h1>');
+  const gw = await startGateway({ ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 }, coreSocket: path.join(dir, 'none.sock'),
+    webRoot: dir, video: { whep: `http://127.0.0.1:${up.address().port}/fpv/whep` } });
+  t.after(() => gw.close());
+  const base = `http://127.0.0.1:${gw.port}`;
+  const res = await fetch(`${base}/video/whep`, { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: 'v=0 offer' });
+  assert.equal(res.status, 201);
+  assert.equal(res.headers.get('location'), '/video/whep/s1');
+  assert.equal(await (await fetch(`${base}/`)).text(), '<h1>pilot</h1>');
+});
