@@ -12,6 +12,7 @@ from fake_tx import FakeTx
 
 CORE_DIR = os.path.join(os.path.dirname(__file__), "..", "..")
 CORE = os.path.join(CORE_DIR, "build", "crsf-core")
+CTL = os.path.join(CORE_DIR, "build", "crsf-ctl")
 CH_ARM, CH_FAILSAFE, CH_THROTTLE = 4, 6, 2
 HIGH, LOW = 1792, 192
 
@@ -74,6 +75,15 @@ class FrameTimingTest(CoreHarness):
         self.assertTrue(self.client.wait(lambda c: c.device is not None))
         self.assertEqual(self.client.device["name"], "FAKE TX")
         self.assertGreaterEqual(self.tx.model_selects, 1)
+
+
+class CtlTest(CoreHarness):
+    def test_status_prints_one_line(self):
+        out = subprocess.run([CTL, "-s", self.sock, "status"], capture_output=True, text=True, timeout=10)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertTrue(out.stdout.startswith("DISARMED"), out.stdout)
+        self.assertIn("serial=ok", out.stdout)
+        self.assertIn("ch5=192 ch7=192", out.stdout)
 
 
 class SafetyTest(CoreHarness):
