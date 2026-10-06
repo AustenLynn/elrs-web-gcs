@@ -33,6 +33,7 @@ export async function startGateway(cfg, { core = new CoreClient(cfg.coreSocket) 
   const hub = new ControlHub({ core, maxCommandAgeMs: cfg.maxCommandAgeMs });
   core.on('status', (s) => hub.onCoreStatus(s));
   core.on('down', () => hub.onCoreDown());
+  core.on('up', () => hub.onCoreUp());
   core.on('telemetry', (kind, value) => hub.onCoreTelemetry(kind, value));
   core.on('event', (ev) => hub.onCoreEvent(ev));
   core.start();

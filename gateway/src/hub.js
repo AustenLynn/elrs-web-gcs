@@ -72,7 +72,10 @@ export class ControlHub {
       case 'disarm': this.core.disarm(c.session); break;
       case 'ack': this.core.ack(c.session); break;
       case 'failsafe': this.core.failsafe(c.session); break;
-      default: client.send({ t: 'error', msg: `unknown message type "${String(msg.t).slice(0, 20)}"` });
+      default: {
+        const t = typeof msg.t === 'string' ? msg.t.slice(0, 20) : typeof msg.t;   // never String(object)
+        client.send({ t: 'error', msg: `unknown message type "${t}"` });
+      }
     }
   }
 
@@ -89,6 +92,18 @@ export class ControlHub {
   onCoreDown() {
     this.lastStatus = null;
     this.#broadcast(this.#statusMsg());
+  }
+
+  /** The core (re)connected. It forgot our session when it lost us (and a pilot who joined
+   *  while it was down never registered), so the pilot gets a fresh session. Any latched
+   *  failsafe stays: the pilot still has to clear it and re-arm explicitly. */
+  onCoreUp() {
+    if (!this.pilot) return;
+    const c = this.clients.get(this.pilot);
+    c.session = this.newSession();
+    c.lastSeq = 0;
+    this.core.sessionStart(c.session);
+    this.pilot.send({ t: 'welcome', role: 'pilot', session: c.session });
   }
 
   onCoreTelemetry(kind, value) {

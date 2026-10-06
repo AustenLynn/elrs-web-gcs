@@ -178,3 +178,19 @@ test('WebSocket connections from another web origin are refused', async (t) => {
   const tool = await connect(wsUrl);                 // non-browser clients send no Origin
   tool.ws.close();
 });
+
+test('after the core reconnects, the connected pilot is given a new session', async (t) => {
+  const { core, wsUrl } = await setup(t);
+  const pilot = await connect(wsUrl);
+  pilot.send({ t: 'hello', role: 'pilot' });
+  await waitFor(() => core.received.some((m) => m.type === MSG.SESSION));
+  const first = core.received.find((m) => m.type === MSG.SESSION).payload.readUInt32LE(0);
+  core.received.length = 0;
+  core.conn.destroy();                               // crsf-core restarted or another client took the socket
+  await waitFor(() => core.received.some((m) => m.type === MSG.SESSION), 3000);
+  const second = core.received.find((m) => m.type === MSG.SESSION).payload.readUInt32LE(0);
+  assert.notEqual(second, first);
+  await waitFor(() => pilot.msgs.filter((m) => m.t === 'welcome').length === 2);
+  assert.equal(pilot.msgs.filter((m) => m.t === 'welcome').at(-1).session, second);
+  pilot.ws.close();
+});

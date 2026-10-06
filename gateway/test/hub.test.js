@@ -152,3 +152,33 @@ test('a flooding client is rate limited', () => {
   hub.handle(p, ctl(201));
   assert.equal(core.calls.filter((c) => c[0] === 'control').length, 120);
 });
+
+test('a message type that is not a string cannot crash the gateway', () => {
+  const { hub } = setup();
+  const pilot = join(hub);
+  assert.doesNotThrow(() => hub.handle(pilot, { t: { toString: 1 } }));
+  assert.match(pilot.last('error').msg, /unknown message type/);
+});
+
+test('when the core comes back, the pilot gets a fresh session the core knows', () => {
+  // The core drops its session when it loses the gateway (and a pilot that joined while the
+  // core was down never registered). Without a new SESSION, every arm/ack is refused.
+  const { hub, core } = setup();
+  const pilot = join(hub);
+  assert.equal(pilot.last('welcome').session, 42);
+  hub.onCoreDown();
+  hub.onCoreUp();
+  assert.deepEqual(core.calls.filter((c) => c[0] === 'sessionStart'), [['sessionStart', 42], ['sessionStart', 43]]);
+  assert.deepEqual(pilot.last('welcome'), { t: 'welcome', role: 'pilot', session: 43 });
+  hub.handle(pilot, ctl(1));
+  assert.deepEqual(core.calls.at(-1)[1], 43);
+  hub.handle(pilot, { t: 'ack' });
+  assert.deepEqual(core.calls.at(-1), ['ack', 43]);
+});
+
+test('core coming back with no pilot connected changes nothing', () => {
+  const { hub, core } = setup();
+  join(hub, 'observer');
+  hub.onCoreUp();
+  assert.equal(core.calls.length, 0);
+});
