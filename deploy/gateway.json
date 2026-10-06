@@ -3,5 +3,6 @@
   "tls": { "cert": "/etc/gcs/tls/cert.pem", "key": "/etc/gcs/tls/key.pem" },
   "coreSocket": "/run/crsf-core/core.sock",
   "webRoot": "/opt/gcs/web",
-  "maxCommandAgeMs": 200
+  "maxCommandAgeMs": 200,
+  "video": { "whep": "http://127.0.0.1:8889/fpv/whep" }
 }

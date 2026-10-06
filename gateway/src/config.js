@@ -11,6 +11,7 @@ export const DEFAULTS = Object.freeze({
   coreSocket: '/run/crsf-core/core.sock',
   webRoot: path.resolve(here, '../../web'),
   maxCommandAgeMs: 200,
+  video: null, // { whep: 'http://127.0.0.1:8889/fpv/whep' }; null = no video
 });
 
 export function validateConfig(cfg) {
@@ -21,6 +22,7 @@ export function validateConfig(cfg) {
   if (typeof cfg.coreSocket !== 'string') problems.push('coreSocket must be a path');
   if (typeof cfg.webRoot !== 'string') problems.push('webRoot must be a path');
   if (typeof cfg.maxCommandAgeMs !== 'number' || cfg.maxCommandAgeMs < 20 || cfg.maxCommandAgeMs > 1000) problems.push('maxCommandAgeMs must be 20..1000');
+  if (cfg.video !== null && !/^http:\/\/[^/]+\/.+/.test(cfg.video?.whep ?? '')) problems.push('video must be null or { whep: "http://host:port/path/whep" }');
   if (problems.length) throw new Error(`invalid gateway config: ${problems.join('; ')}`);
   return cfg;
 }
