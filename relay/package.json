@@ -1,0 +1,18 @@
+{
+  "name": "gcs-relay",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Internet relay between remote pilot browsers and the Pi's gateway (experimental, cuttable)",
+  "type": "module",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "node src/main.js",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "ws": "8.22.0"
+  }
+}
