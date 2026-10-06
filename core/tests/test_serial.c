@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <sys/file.h>
 #include <unistd.h>
 
 /* Uses a pseudo-terminal pair so the test runs without hardware. */
@@ -56,6 +57,24 @@ static void test_second_open_is_refused(void)
     close(master);
 }
 
+static void test_port_locked_by_another_program_is_refused(void)
+{
+    /* root bypasses TIOCEXCL, so the port is also flock()ed: e.g. sudo crsf-param while
+     * crsf-core runs. Here another descriptor holds the lock, as such a program would. */
+    char name[64];
+    int master = open_pty(name, sizeof name);
+    int other = open(name, O_RDWR | O_NOCTTY);
+    CHECK(other >= 0);
+    CHECK_EQ_INT(flock(other, LOCK_EX | LOCK_NB), 0);
+    CHECK_EQ_INT(serial_open(name, 921600), -1);
+    CHECK_EQ_INT(errno, EBUSY);
+    close(other);
+    int fd = serial_open(name, 921600);              /* lock released: opens again */
+    CHECK(fd >= 0);
+    close(fd);
+    close(master);
+}
+
 static void test_missing_device_fails(void)
 {
     CHECK_EQ_INT(serial_open("/dev/does-not-exist", 921600), -1);
@@ -66,6 +85,7 @@ int main(void)
 {
     RUN(test_open_configures_raw_port);
     RUN(test_second_open_is_refused);
+    RUN(test_port_locked_by_another_program_is_refused);
     RUN(test_missing_device_fails);
     return CHECK_EXIT();
 }

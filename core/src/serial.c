@@ -3,6 +3,7 @@
 #include <asm/termbits.h>   /* struct termios2 and BOTHER; do not mix with <termios.h> */
 #include <errno.h>
 #include <fcntl.h>
+#include <sys/file.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 
@@ -12,6 +13,13 @@ int serial_open(const char *path, int baud)
     if (fd < 0)
         return -1;
 
+    /* TIOCEXCL keeps other users out; flock() also stops root, which bypasses TIOCEXCL
+     * (e.g. "sudo crsf-param" while crsf-core is flying). */
+    if (flock(fd, LOCK_EX | LOCK_NB) < 0) {
+        if (errno == EWOULDBLOCK)
+            errno = EBUSY;
+        goto fail;
+    }
     struct termios2 tio;
     if (ioctl(fd, TIOCEXCL) < 0 || ioctl(fd, TCGETS2, &tio) < 0)
         goto fail;
