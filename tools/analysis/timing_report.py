@@ -42,14 +42,18 @@ def analyse(rows):
     lateness = [(r["write_start_ns"] - r["deadline_ns"]) / 1000 for r in rows]
     missed = 0
     for prev, cur in zip(rows, rows[1:]):
+        # cur's period is the one the scheduler used to reach cur's deadline: the row's period
+        # is read before that tick's telemetry, i.e. after the previous tick's change
         step = cur["deadline_ns"] - prev["deadline_ns"] - prev["shift_ns"]
-        missed += max(0, round(step / prev["period_ns"]) - 1)
+        missed += max(0, round(step / cur["period_ns"]) - 1)
     duration = (rows[-1]["deadline_ns"] - rows[0]["deadline_ns"]) / 1e9
     return {
         "frames": len(rows),
         "duration_s": duration,
         "rate_hz": (len(rows) - 1) / duration if duration > 0 else 0.0,
         "missed_slots": missed,
+        # crsf-core logs every tick; while the port is down nothing is written (end == start)
+        "not_sent": sum(1 for r in rows if r["write_end_ns"] == r["write_start_ns"]),
         "lateness": summary(lateness),
         "wake": summary([(r["wake_ns"] - r["deadline_ns"]) / 1000 for r in rows]),
         "write": summary([(r["write_end_ns"] - r["write_start_ns"]) / 1000 for r in rows]),
@@ -74,6 +78,8 @@ def verdict(result, max_p99_us, max_us):
         problems.append("max lateness %.1f us > %.0f us" % (result["lateness"]["max"], max_us))
     if result["missed_slots"] > 0:
         problems.append("%d missed frame slots" % result["missed_slots"])
+    if result["not_sent"] > 0:
+        problems.append("%d ticks sent nothing (module port down)" % result["not_sent"])
     return problems
 
 

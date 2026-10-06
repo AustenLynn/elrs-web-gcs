@@ -65,6 +65,35 @@ class TimingReportTest(unittest.TestCase):
             w.writerows(rows)
         self.assertEqual(timing_report.analyse(timing_report.load(self.csv))["missed_slots"], 0)
 
+    def rows_csv(self, rows):
+        with open(self.csv, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(timing_report.FIELDS)
+            w.writerows(rows)
+
+    def test_ticks_without_a_write_fail_the_run(self):
+        # crsf-core logs every tick; with the module gone it writes nothing (end == start).
+        rows = []
+        for i in range(100):
+            d = i * 4_000_000
+            end = d + 1000 if i < 50 else d + 1000 + 30_000      # first half: nothing written
+            rows.append([d, d, d + 1000, end, 4_000_000, 0])
+        self.rows_csv(rows)
+        code, out = self.run_main()
+        self.assertEqual(code, 1)
+        self.assertIn("50 ticks sent nothing", out)
+
+    def test_missed_slots_use_the_period_the_scheduler_used(self):
+        # Module switches 250 Hz -> 50 Hz: no slot is missed. Then 50 -> 500 Hz with one skip.
+        rows, d = [], 0
+        periods = [4_000_000] * 5 + [20_000_000] * 5 + [2_000_000] * 5
+        for i, p in enumerate(periods):
+            rows.append([d, d, d + 1000, d + 30000, p, 0])
+            nxt = periods[i + 1] if i + 1 < len(periods) else p
+            d += nxt * (2 if i == 12 else 1)                     # one skipped 2 ms slot
+        self.rows_csv(rows)
+        self.assertEqual(timing_report.analyse(timing_report.load(self.csv))["missed_slots"], 1)
+
     def test_histogram_and_bad_input(self):
         write_timing(self.csv, [5, 15, 15, 25])
         hist = os.path.join(self.dir.name, "h.csv")
