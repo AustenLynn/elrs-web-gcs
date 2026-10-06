@@ -26,8 +26,15 @@ install -d -m 0755 /etc/gcs
 [[ -f /etc/gcs/gateway.json ]] || install -m 0644 "$repo/deploy/gateway.json" /etc/gcs/
 [[ -f /etc/gcs/tls/cert.pem ]] || "$repo/deploy/make-cert.sh" /etc/gcs/tls
 
+echo "== video: MediaMTX + capture script"
+[[ -x /opt/mediamtx/mediamtx ]] || "$repo/deploy/video/install-mediamtx.sh"
+install -d /opt/gcs/video
+install -m 0755 "$repo/deploy/video/capture.sh" /opt/gcs/video/
+[[ -f /etc/gcs/mediamtx.yml ]] || install -m 0644 "$repo/deploy/video/mediamtx.yml" /etc/gcs/
+[[ -f /etc/gcs/video.env ]] || install -m 0644 "$repo/deploy/video/video.env" /etc/gcs/
+
 echo "== systemd units"
-install -m 0644 "$repo/deploy/crsf-core.service" "$repo/deploy/gcs-gateway.service" /etc/systemd/system/
+install -m 0644 "$repo/deploy/crsf-core.service" "$repo/deploy/gcs-gateway.service" "$repo/deploy/gcs-video.service" /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable crsf-core.service gcs-gateway.service
-echo "installed. start with: sudo systemctl restart crsf-core gcs-gateway"
+systemctl enable crsf-core.service gcs-gateway.service gcs-video.service
+echo "installed. start with: sudo systemctl restart crsf-core gcs-gateway gcs-video"

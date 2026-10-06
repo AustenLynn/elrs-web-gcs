@@ -1,0 +1,23 @@
+[Unit]
+Description=GCS video: MediaMTX + FPV capture (kept away from the real-time core)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gcs
+Group=gcs
+SupplementaryGroups=video
+WorkingDirectory=/var/lib/gcs
+EnvironmentFile=/etc/gcs/video.env
+ExecStart=/opt/mediamtx/mediamtx /etc/gcs/mediamtx.yml
+Restart=on-failure
+RestartSec=2
+# Video must never compete with crsf-core: never on CPU 3, lower CPU weight, nicer.
+AllowedCPUs=0-2
+CPUWeight=50
+Nice=10
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

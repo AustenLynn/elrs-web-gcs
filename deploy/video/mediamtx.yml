@@ -1,0 +1,40 @@
+# /etc/gcs/mediamtx.yml - MediaMTX v1.21.1 for the FPV feed. Keys not listed keep
+# MediaMTX's defaults. Only the gateway (same machine) talks to the HTTP side; browsers
+# reach the WHEP endpoint through the gateway at /video/whep, and the media itself
+# flows directly over UDP 8189.
+logLevel: info
+
+api: true
+apiAddress: 127.0.0.1:9997
+metrics: false
+pprof: false
+playback: false
+
+rtsp: true
+rtspAddress: 127.0.0.1:8554
+rtspTransports: [tcp]
+rtmp: false
+hls: false
+srt: false
+moq: false        # v1.21 adds a Media-over-QUIC server on all interfaces; not needed
+
+webrtc: true
+webrtcAddress: 127.0.0.1:8889
+webrtcLocalUDPAddress: :8189
+webrtcIPsFromInterfaces: true
+
+authInternalUsers:
+  - user: any
+    pass:
+    ips: ["127.0.0.1", "::1"]
+    permissions:
+      - action: publish
+        path: fpv
+      - action: read
+        path: fpv
+      - action: api
+
+paths:
+  fpv:
+    runOnInit: /opt/gcs/video/capture.sh
+    runOnInitRestart: true
