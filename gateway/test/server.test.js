@@ -149,3 +149,32 @@ test('only /ws accepts WebSocket upgrades', async (t) => {
   const { gw } = await setup(t);
   await assert.rejects(connect(`ws://127.0.0.1:${gw.port}/other`));
 });
+
+test('a malformed upgrade request is refused and the gateway keeps running', async (t) => {
+  // "GET http://[" is not a parsable URL: it must not crash the process (anyone on the LAN
+  // could otherwise kill the gateway and fail safe a flying aircraft).
+  const { gw, wsUrl } = await setup(t);
+  await new Promise((resolve) => {
+    const s = net.connect(gw.port, '127.0.0.1', () => {
+      s.write('GET http://[ HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n' +
+        'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n');
+    });
+    s.on('close', resolve);
+    s.on('error', resolve);
+    s.resume();
+  });
+  const good = await connect(wsUrl);
+  good.send({ t: 'hello', role: 'observer' });
+  await waitFor(() => good.msgs.some((m) => m.t === 'welcome'));
+  good.ws.close();
+});
+
+test('WebSocket connections from another web origin are refused', async (t) => {
+  // Any web page a LAN browser opens could otherwise take a free pilot seat.
+  const { gw, wsUrl } = await setup(t);
+  await assert.rejects(connect(wsUrl, { origin: 'https://evil.example' }));
+  const same = await connect(wsUrl, { origin: `http://127.0.0.1:${gw.port}` });
+  same.ws.close();
+  const tool = await connect(wsUrl);                 // non-browser clients send no Origin
+  tool.ws.close();
+});

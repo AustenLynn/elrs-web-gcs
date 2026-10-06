@@ -7,6 +7,28 @@ import { ControlHub } from './hub.js';
 import { CoreClient } from './ipc.js';
 import { staticHandler } from './static.js';
 
+/** Request path, or null when the request line is not a parsable URL (never throw here:
+ *  an exception in the upgrade handler would take the whole gateway down). */
+function pathOf(url) {
+  try {
+    return new URL(url, 'http://local').pathname;
+  } catch {
+    return null;
+  }
+}
+
+/** Browsers always send Origin: only pages served by this gateway may open /ws, so another
+ *  web site open in a LAN browser cannot take the pilot seat. Tools send no Origin. */
+function sameOrigin(req) {
+  const origin = req.headers.origin;
+  if (origin === undefined) return true;
+  try {
+    return new URL(origin).host === req.headers.host;
+  } catch {
+    return false;
+  }
+}
+
 export async function startGateway(cfg, { core = new CoreClient(cfg.coreSocket) } = {}) {
   const hub = new ControlHub({ core, maxCommandAgeMs: cfg.maxCommandAgeMs });
   core.on('status', (s) => hub.onCoreStatus(s));
@@ -22,7 +44,7 @@ export async function startGateway(cfg, { core = new CoreClient(cfg.coreSocket) 
 
   const wss = new WebSocketServer({ noServer: true, maxPayload: 4096 });
   server.on('upgrade', (req, socket, head) => {
-    if (new URL(req.url, 'http://local').pathname !== '/ws') {
+    if (pathOf(req.url) !== '/ws' || !sameOrigin(req)) {
       socket.destroy();
       return;
     }
