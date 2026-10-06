@@ -1,0 +1,19 @@
+[Unit]
+Description=GCS gateway: pilot web app and WebSocket control for crsf-core
+After=crsf-core.service
+Wants=crsf-core.service
+
+[Service]
+Type=simple
+User=gcs
+Group=gcs
+WorkingDirectory=/opt/gcs/gateway
+ExecStart=/usr/bin/node /opt/gcs/gateway/src/main.js /etc/gcs/gateway.json
+# Safe to restart: while the gateway is down the core sees "gateway lost" and fails safe;
+# the pilot reconnects with a new session and must clear the failsafe and re-arm.
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target
