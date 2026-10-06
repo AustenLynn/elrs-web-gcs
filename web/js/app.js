@@ -4,7 +4,7 @@ import { Deadman, DEADMAN_TEXT } from './deadman.js';
 import { bindHold } from './hold.js';
 import { REFUSAL_TEXT, RATE_HZ, controlMessage, helloMessage, shouldReclaimPilotSeat, tsyncReply } from './protocol.js';
 import { StickModel, bindStick, padsMoved, sticksToCommand } from './sticks.js';
-import { failsafeDetail, formatBattery, formatLink, formatMs, segments, stateLabel } from './view.js';
+import { LinkTracker, failsafeDetail, formatBattery, formatLink, formatMs, segments, stateLabel } from './view.js';
 
 const $ = (id) => document.getElementById(id);
 const wantRole = new URLSearchParams(location.search).has('observe') ? 'observer' : 'pilot';
@@ -12,6 +12,7 @@ const wantRole = new URLSearchParams(location.search).has('observe') ? 'observer
 const left = new StickModel({ springX: true, springY: false, initial: { x: 0, y: 1 } }); // throttle starts at 0
 const right = new StickModel();
 const deadman = new Deadman();
+const links = new LinkTracker();
 const telem = { link: null, linkAt: 0, battery: null, flightMode: null, device: null };
 let ws = null;
 let role = null;
@@ -59,6 +60,7 @@ function handle(msg) {
       break;
     case 'status':
       status = msg;
+      links.update(status, performance.now());
       if (shouldReclaimPilotSeat(wantRole, role, status)) ws.close();   // reconnects with hello pilot
       break;
     case 'telem':
@@ -110,9 +112,9 @@ async function takeControl() {
 
 function render() {
   const now = performance.now();
-  const seg = segments({ wsOpen: wsOpen(), lastMsgAt, status, telem, now });
+  const seg = segments({ wsOpen: wsOpen(), lastMsgAt, status, links, telem, now });
   for (const [name, health] of Object.entries(seg)) $(`seg-${name}`).dataset.health = health;
-  $('state').textContent = stateLabel(status, wsOpen());
+  $('state').textContent = stateLabel(status, wsOpen(), seg.core === 'ok' || !status?.core);
   $('state').dataset.state = status?.state ?? 'none';
   $('t-battery').textContent = formatBattery(telem.battery);
   $('t-link').textContent = formatLink(telem.link);

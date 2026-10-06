@@ -48,7 +48,8 @@ test('pilot page arms the aircraft and fails safe when the page loses control', 
   // the page connects and shows state and telemetry from the (fake) aircraft
   await waitFor(() => page.evaluate("document.getElementById('state').textContent === 'DESARMADO'"), 10000, 'DESARMADO on the page');
   await waitFor(() => page.evaluate("document.getElementById('t-battery').textContent.startsWith('16.5 V')"), 5000, 'battery telemetry');
-  assert.equal(await page.evaluate("document.getElementById('seg-tx').dataset.health"), 'ok');
+  // TX turns green once the module's timing-frame count is seen growing (a few statuses)
+  await waitFor(() => page.evaluate("document.getElementById('seg-tx').dataset.health === 'ok'"), 2000, 'TX link green');
 
   // A headless window never has focus, and the dead-man (correctly) refuses to fly without
   // it, so the test stands in for the window manager: focused now, unfocused later.
