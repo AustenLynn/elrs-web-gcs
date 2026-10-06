@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { Deadman } from '../js/deadman.js';
+import { DEADMAN_TEXT, Deadman } from '../js/deadman.js';
 
 const ok = { visible: true, focused: true, wsOpen: true };
 
@@ -22,4 +22,12 @@ test('hiding the page, losing focus or the connection disengages, and it stays o
     d.engage();
     assert.equal(d.canSend(ok), true);
   }
+});
+
+test('a layout change under the fingers ends control and says why', () => {
+  const d = new Deadman();
+  d.engage();
+  d.disengage('layout');
+  assert.equal(d.canSend(ok), false);
+  assert.match(DEADMAN_TEXT.layout, /pantalla/);
 });

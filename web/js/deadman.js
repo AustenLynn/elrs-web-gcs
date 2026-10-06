@@ -32,4 +32,5 @@ export const DEADMAN_TEXT = {
   hidden: 'Control perdido: la página dejó de estar visible',
   blur: 'Control perdido: la ventana perdió el foco',
   disconnected: 'Control perdido: se cortó la conexión',
+  layout: 'Control perdido: la pantalla cambió de tamaño o de orientación',
 };

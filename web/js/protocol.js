@@ -3,6 +3,11 @@ export const RATE_HZ = 50;
 
 export const helloMessage = (role) => ({ t: 'hello', role });
 
+/** The page wanted to fly but got the observer seat (e.g. its new connection arrived
+ *  while the old one still held the seat): ask again as soon as the seat is free. */
+export const shouldReclaimPilotSeat = (wantRole, role, status) =>
+  wantRole === 'pilot' && role === 'observer' && status?.pilot === false;
+
 export const controlMessage = (seq, ts, cmd) => ({
   t: 'ctl', seq, ts, r: cmd.roll, p: cmd.pitch, y: cmd.yaw, th: cmd.throttle, m: cmd.mode,
 });

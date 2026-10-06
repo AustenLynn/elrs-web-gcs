@@ -2,8 +2,8 @@
 // ?observe in the URL opens a read-only view.
 import { Deadman, DEADMAN_TEXT } from './deadman.js';
 import { bindHold } from './hold.js';
-import { REFUSAL_TEXT, RATE_HZ, controlMessage, helloMessage, tsyncReply } from './protocol.js';
-import { StickModel, bindStick, sticksToCommand } from './sticks.js';
+import { REFUSAL_TEXT, RATE_HZ, controlMessage, helloMessage, shouldReclaimPilotSeat, tsyncReply } from './protocol.js';
+import { StickModel, bindStick, padsMoved, sticksToCommand } from './sticks.js';
 import { failsafeDetail, formatBattery, formatLink, formatMs, segments, stateLabel } from './view.js';
 
 const $ = (id) => document.getElementById(id);
@@ -59,6 +59,7 @@ function handle(msg) {
       break;
     case 'status':
       status = msg;
+      if (shouldReclaimPilotSeat(wantRole, role, status)) ws.close();   // reconnects with hello pilot
       break;
     case 'telem':
       if (msg.link) telem.linkAt = performance.now();
@@ -89,13 +90,19 @@ setInterval(() => {
   if (canSend) send(controlMessage(++seq, performance.now(), sticksToCommand(left, right, mode)));
 }, 1000 / RATE_HZ);
 
+// Where the stick pads are while flying: if the layout moves them (browser bars come back,
+// rotation, leaving full screen) the stick values under the fingers would jump.
+const padBoxes = () => [$('stick-left'), $('stick-right')].map((p) => p.getBoundingClientRect());
+let padsAtEngage = null;
+
 async function takeControl() {
   if (role !== 'pilot') return;
-  deadman.engage();
   try {
     await document.documentElement.requestFullscreen?.();
     await screen.orientation?.lock?.('landscape');
   } catch { /* not supported (desktop browsers): fine */ }
+  deadman.engage();                // after the layout settled in full screen
+  padsAtEngage = padBoxes();
   try {
     wakeLock = await navigator.wakeLock?.request('screen');
   } catch { /* needs HTTPS; the screen may sleep, which disengages the dead-man */ }
@@ -137,6 +144,11 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') deadman.disengage('hidden');
 });
 window.addEventListener('blur', () => deadman.disengage('blur'));
+for (const type of ['resize', 'orientationchange', 'fullscreenchange']) {
+  window.addEventListener(type, () => {
+    if (deadman.engaged && padsAtEngage && padsMoved(padsAtEngage, padBoxes())) deadman.disengage('layout');
+  });
+}
 
 connect();
 requestAnimationFrame(render);

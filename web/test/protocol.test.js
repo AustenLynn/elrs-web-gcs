@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { REFUSAL_TEXT, controlMessage, helloMessage, tsyncReply } from '../js/protocol.js';
+import { REFUSAL_TEXT, controlMessage, helloMessage, shouldReclaimPilotSeat, tsyncReply } from '../js/protocol.js';
 
 test('messages match what the gateway hub expects', () => {
   assert.deepEqual(helloMessage('pilot'), { t: 'hello', role: 'pilot' });
@@ -13,4 +13,13 @@ test('every refusal the core can send has a text', () => {
   for (const r of ['wrong_session', 'not_disarmed', 'not_in_failsafe', 'link_stale', 'throttle_high', 'fc_still_armed']) {
     assert.ok(REFUSAL_TEXT[r], r);
   }
+});
+
+test('a page that wanted to fly reclaims the pilot seat once it is free', () => {
+  // e.g. after a Wi-Fi blip the new connection arrived while the old one still held the seat
+  assert.equal(shouldReclaimPilotSeat('pilot', 'observer', { pilot: false }), true);
+  assert.equal(shouldReclaimPilotSeat('pilot', 'observer', { pilot: true }), false);
+  assert.equal(shouldReclaimPilotSeat('pilot', 'pilot', { pilot: true }), false);
+  assert.equal(shouldReclaimPilotSeat('observer', 'observer', { pilot: false }), false);
+  assert.equal(shouldReclaimPilotSeat('pilot', 'observer', null), false);
 });
