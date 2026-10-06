@@ -45,8 +45,13 @@ export async function startGateway(cfg, { core = new CoreClient(cfg.coreSocket) 
 
   const wss = new WebSocketServer({ noServer: true, maxPayload: 4096 });
   server.on('upgrade', (req, socket, head) => {
-    if (pathOf(req.url) !== '/ws' || !sameOrigin(req)) {
+    if (pathOf(req.url) !== '/ws') {
       socket.destroy();
+      return;
+    }
+    if (!sameOrigin(req)) {
+      socket.once('finish', () => socket.destroy());
+      socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws));
@@ -68,7 +73,13 @@ export async function startGateway(cfg, { core = new CoreClient(cfg.coreSocket) 
       } catch {
         return;
       }
-      hub.handle(client, msg);
+      try {
+        hub.handle(client, msg);
+      } catch (err) {
+        // Backstop: a bug triggered by one message must not kill the process (that would
+        // fail safe the aircraft and drop every browser).
+        console.error('gateway: error handling a message:', err);
+      }
     });
     ws.on('close', () => hub.detach(client));
     // Oversized frames (maxPayload) and protocol errors arrive here; ws then closes the

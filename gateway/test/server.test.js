@@ -172,7 +172,7 @@ test('a malformed upgrade request is refused and the gateway keeps running', asy
 test('WebSocket connections from another web origin are refused', async (t) => {
   // Any web page a LAN browser opens could otherwise take a free pilot seat.
   const { gw, wsUrl } = await setup(t);
-  await assert.rejects(connect(wsUrl, { origin: 'https://evil.example' }));
+  await assert.rejects(connect(wsUrl, { origin: 'https://evil.example' }), /403/);
   const same = await connect(wsUrl, { origin: `http://127.0.0.1:${gw.port}` });
   same.ws.close();
   const tool = await connect(wsUrl);                 // non-browser clients send no Origin
@@ -193,4 +193,24 @@ test('after the core reconnects, the connected pilot is given a new session', as
   await waitFor(() => pilot.msgs.filter((m) => m.t === 'welcome').length === 2);
   assert.equal(pilot.msgs.filter((m) => m.t === 'welcome').at(-1).session, second);
   pilot.ws.close();
+});
+
+test('an exception while handling one message does not take the gateway down', async (t) => {
+  // Backstop: whatever a bug in the hub throws, the other browsers and the core link survive.
+  const { gw, wsUrl } = await setup(t);
+  const bad = await connect(wsUrl);
+  bad.send({ t: 'hello', role: 'pilot' });
+  await waitFor(() => bad.msgs.some((m) => m.t === 'welcome'));
+  bad.send({ t: { toString: 1 } });
+  await waitFor(() => bad.msgs.some((m) => m.t === 'error'));
+  const handle = gw.hub.handle;
+  gw.hub.handle = () => { throw new Error('bug'); };
+  bad.send({ t: 'ping', id: 1, ts: 0 });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  gw.hub.handle = handle;
+  const good = await connect(wsUrl);
+  good.send({ t: 'hello', role: 'observer' });
+  await waitFor(() => good.msgs.some((m) => m.t === 'welcome'));
+  good.ws.close();
+  bad.ws.close();
 });
