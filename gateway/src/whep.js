@@ -26,11 +26,18 @@ function readBody(req, limit) {
   });
 }
 
-/** Returns a handler(req, res) -> true if it handled the request. */
+/** Returns a handler(req, res) -> true if it handled the request. It never throws: an
+ *  exception here would take the whole gateway down and fail safe a flying aircraft. */
 export function whepProxy(upstream) {
   const base = new URL(upstream);
   return async (req, res) => {
-    const { pathname } = new URL(req.url, 'http://local');
+    let pathname;
+    try {
+      ({ pathname } = new URL(req.url, 'http://local'));
+    } catch {
+      res.writeHead(400).end();                              // e.g. "GET //": not a URL
+      return true;
+    }
     if (pathname !== PREFIX && !pathname.startsWith(`${PREFIX}/`)) return false;
     const id = pathname.slice(PREFIX.length);               // '' or '/<session id>'
     const allowed = id === '' ? ['POST'] : ['PATCH', 'DELETE'];
@@ -49,30 +56,36 @@ export function whepProxy(upstream) {
       res.writeHead(413).end();
       return true;
     }
-    let up;
+    // Everything from the video server is read and checked before we answer, so a server
+    // that dies, hangs or sends garbage gives a clean 502 (5 s at most).
+    let status;
+    let headers;
+    let answer;
     try {
-      up = await fetch(new URL(base.pathname + id, base), {
+      const up = await fetch(new URL(base.pathname + id, base), {
         method: req.method,
         headers: req.headers['content-type'] ? { 'content-type': req.headers['content-type'] } : {},
         body: body.length ? body : undefined,
         signal: AbortSignal.timeout(5000),
       });
+      answer = Buffer.from(await up.arrayBuffer());
+      status = up.status;
+      headers = {};
+      for (const h of PASS_HEADERS) {
+        const v = up.headers.get(h);
+        if (v) headers[h] = v;
+      }
+      const location = up.headers.get('location');
+      if (location) {
+        const path = new URL(location, base).pathname;
+        if (path.startsWith(base.pathname)) headers.location = PREFIX + path.slice(base.pathname.length);
+      }
     } catch {
       res.writeHead(502, { 'Content-Type': 'text/plain' }).end('video server unavailable');
       return true;
     }
-    const headers = {};
-    for (const h of PASS_HEADERS) {
-      const v = up.headers.get(h);
-      if (v) headers[h] = v;
-    }
-    const location = up.headers.get('location');
-    if (location) {
-      const path = new URL(location, base).pathname;
-      if (path.startsWith(base.pathname)) headers.location = PREFIX + path.slice(base.pathname.length);
-    }
-    res.writeHead(up.status, headers);
-    res.end(Buffer.from(await up.arrayBuffer()));
+    res.writeHead(status, headers);
+    res.end(answer);
     return true;
   };
 }

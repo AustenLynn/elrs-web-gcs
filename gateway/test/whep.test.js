@@ -70,3 +70,59 @@ test('MediaMTX down gives 502', async (t) => {
   const gw = await gateway(t, 'http://127.0.0.1:1/fpv/whep');
   assert.equal((await fetch(`${gw}/video/whep`, { method: 'POST', body: 'v=0' })).status, 502);
 });
+
+// A misbehaving request or video server must get an error answer, never crash the gateway
+// (that would latch failsafe on a flying aircraft).
+async function rawUpstream(t, onRequest) {
+  const srv = http.createServer(onRequest);
+  await new Promise((resolve) => srv.listen(0, '127.0.0.1', resolve));
+  t.after(() => { srv.closeAllConnections(); srv.close(); });
+  return `http://127.0.0.1:${srv.address().port}/fpv/whep`;
+}
+
+function rawRequest(base, rawPath) {
+  const { port } = new URL(base);
+  return new Promise((resolve, reject) => {
+    http.get({ host: '127.0.0.1', port, path: rawPath }, (res) => { res.resume(); resolve(res.statusCode); }).on('error', reject);
+  });
+}
+
+test('a request target that is not a URL is answered, not fatal', async (t) => {
+  const up = await fakeMediamtx(t);
+  const gw = await gateway(t, up.url);
+  assert.equal(await rawRequest(gw, '//'), 400);
+  assert.equal((await fetch(`${gw}/video/whep`, { method: 'POST', body: 'v=0' })).status, 201);
+});
+
+test('a video server that dies mid-answer gives 502', async (t) => {
+  const url = await rawUpstream(t, (req, res) => {
+    req.resume();
+    res.writeHead(201, { 'Content-Type': 'application/sdp', 'Content-Length': '100' });
+    res.write('v=0 part');
+    setTimeout(() => res.socket.destroy(), 20);
+  });
+  const gw = await gateway(t, url);
+  assert.equal((await fetch(`${gw}/video/whep`, { method: 'POST', body: 'v=0' })).status, 502);
+});
+
+test('a video server that hangs after its headers gives 502 after the timeout', async (t) => {
+  const url = await rawUpstream(t, (req, res) => {
+    req.resume();
+    res.writeHead(201, { 'Content-Type': 'application/sdp', 'Content-Length': '100' });
+    res.write('v=0');                                  // and never finishes
+  });
+  const gw = await gateway(t, url);
+  assert.equal((await fetch(`${gw}/video/whep`, { method: 'POST', body: 'v=0' })).status, 502);
+});
+
+test('an unparsable Location from the video server gives 502', async (t) => {
+  const url = await rawUpstream(t, (req, res) => {
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(201, { 'Content-Type': 'application/sdp', Location: 'http://[' });
+      res.end('v=0 answer');
+    });
+  });
+  const gw = await gateway(t, url);
+  assert.equal((await fetch(`${gw}/video/whep`, { method: 'POST', body: 'v=0' })).status, 502);
+});
