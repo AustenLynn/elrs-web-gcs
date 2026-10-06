@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GCS ELRS · Reloj de latencia</title>
+  <style>
+    html, body { margin: 0; height: 100%; display: grid; place-items: center; background: #000; color: #fff; }
+    #clock { font: 700 18vw/1 ui-monospace, monospace; letter-spacing: .02em; }
+  </style>
+</head>
+<body>
+  <!-- Criterion C2: point the FPV camera at this screen, put the viewer next to it, and
+       photograph both. Latency = time on this screen - time shown inside the video. -->
+  <div id="clock">0.000</div>
+  <script>
+    const el = document.getElementById('clock');
+    const tick = () => {
+      el.textContent = ((performance.now() / 1000) % 1000).toFixed(3);
+      requestAnimationFrame(tick);
+    };
+    tick();
+  </script>
+</body>
+</html>

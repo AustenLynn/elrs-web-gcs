@@ -5,6 +5,7 @@ import { bindHold } from './hold.js';
 import { REFUSAL_TEXT, RATE_HZ, controlMessage, helloMessage, shouldReclaimPilotSeat, tsyncReply } from './protocol.js';
 import { StickModel, bindStick, padsMoved, sticksToCommand } from './sticks.js';
 import { LinkTracker, failsafeDetail, formatBattery, formatLink, formatMs, segments, stateLabel } from './view.js';
+import { keepPlaying } from './whep.js';
 
 const $ = (id) => document.getElementById(id);
 const wantRole = new URLSearchParams(location.search).has('observe') ? 'observer' : 'pilot';
@@ -156,4 +157,5 @@ for (const type of ['resize', 'orientationchange', 'fullscreenchange']) {
 }
 
 connect();
+keepPlaying($('video'));
 requestAnimationFrame(render);
