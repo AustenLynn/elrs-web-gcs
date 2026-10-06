@@ -1,0 +1,6 @@
+{
+  "name": "gcs-web",
+  "private": true,
+  "type": "module",
+  "description": "Pilot web app (static files served by the gateway). No build step."
+}
