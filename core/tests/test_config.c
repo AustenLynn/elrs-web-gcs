@@ -29,6 +29,19 @@ static void test_defaults_are_valid(void)
     CHECK_EQ_INT(c.cmd_timeout_ms, 300);
 }
 
+static void test_status_socket_is_separate_from_the_control_socket(void)
+{
+    /* Read-only tools (crsf-ctl status/watch) use their own socket, so they can never
+     * replace the gateway on the control socket. */
+    config_t c;
+    config_defaults(&c);
+    CHECK_STR(c.status_socket_path, "");                  /* off unless configured */
+    CHECK_EQ_INT(config_set(&c, "status_socket_path", "/run/crsf-core/core.sock", err, sizeof err), 0);
+    CHECK_EQ_INT(config_validate(&c, err, sizeof err), -1);
+    CHECK_EQ_INT(config_set(&c, "status_socket_path", "/run/crsf-core/status.sock", err, sizeof err), 0);
+    CHECK_EQ_INT(config_validate(&c, err, sizeof err), 0);
+}
+
 static void test_load_file_with_comments_and_spaces(void)
 {
     const char *path = write_temp(
@@ -125,11 +138,13 @@ static void test_production_config_is_valid(void)
     CHECK(c.rt_required);
     CHECK_EQ_INT(c.ch_failsafe, 6);
     CHECK_STR(c.timing_log, "");
+    CHECK_STR(c.status_socket_path, "/run/crsf-core/status.sock");
 }
 
 int main(void)
 {
     RUN(test_defaults_are_valid);
+    RUN(test_status_socket_is_separate_from_the_control_socket);
     RUN(test_load_file_with_comments_and_spaces);
     RUN(test_windows_line_endings);
     RUN(test_unknown_key_reports_line);

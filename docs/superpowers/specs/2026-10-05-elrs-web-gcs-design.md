@@ -114,6 +114,10 @@ golden bytes in both test suites.
 | 0x86 EVENT | core → gw | u8 kind (1 arm refused, 2 ack refused), u8 refusal, u32 session |
 
 One gateway at a time; a new connection replaces the old one (= gateway lost).
+Read-only tools use a second socket (`status_socket_path`, `/run/crsf-core/status.sock` in
+the shipped config): up to 4 observers receive the same core → gw messages, anything they
+send is ignored, and they never replace the gateway. So `crsf-ctl status`/`watch` are safe
+while flying; only `crsf-ctl pilot` takes the control socket.
 
 ### 4.2 Browser ↔ gateway (WebSocket `/ws`, JSON, ≤ 4 KiB, ≤ 120 msg/s)
 
@@ -205,7 +209,8 @@ FAILSAFE it lowers ARM but stays latched. Refusals go back to the pilot as event
 ### 6.1 Tools (`core/tools`)
 `crsf-probe` (does the module answer? which firmware? timing frames with `--rc`),
 `crsf-param` (ELRS settings without a radio: list / set text selections, chunked
-parameter protocol), `crsf-ctl` (status, watch, keyboard pilot for bench tests).
+parameter protocol), `crsf-ctl` (status and watch on the read-only status socket; keyboard pilot for bench
+tests on the control socket).
 
 ### 6.2 Gateway (`gateway/`, Node 22, one dependency: `ws` 8.22.0)
 HTTPS with a self-signed certificate (`deploy/make-cert.sh`; browsers accept it once).

@@ -25,11 +25,13 @@ class CoreHarness(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.sock = os.path.join(self.tmp.name, "core.sock")
+        self.status_sock = os.path.join(self.tmp.name, "status.sock")
         self.events = os.path.join(self.tmp.name, "events.jsonl")
         conf = os.path.join(self.tmp.name, "crsf-core.conf")
         with open(conf, "w") as f:
             f.write("serial_device = %s\n" % self.tx.path)
             f.write("socket_path = %s\n" % self.sock)
+            f.write("status_socket_path = %s\n" % self.status_sock)
             f.write("event_log = %s\n" % self.events)
             f.write("rt_priority = 0\nrt_cpu = -1\n")
         self.proc = subprocess.Popen([CORE, "-c", conf], stderr=subprocess.DEVNULL)
@@ -79,11 +81,37 @@ class FrameTimingTest(CoreHarness):
 
 class CtlTest(CoreHarness):
     def test_status_prints_one_line(self):
-        out = subprocess.run([CTL, "-s", self.sock, "status"], capture_output=True, text=True, timeout=10)
+        out = subprocess.run([CTL, "-s", self.status_sock, "status"], capture_output=True, text=True, timeout=10)
         self.assertEqual(out.returncode, 0, out.stderr)
         self.assertTrue(out.stdout.startswith("DISARMED"), out.stdout)
         self.assertIn("serial=ok", out.stdout)
         self.assertIn("ch5=192 ch7=192", out.stdout)
+
+    def test_status_while_flying_does_not_take_over_the_gateway(self):
+        # crsf-ctl status/watch connect to the read-only status socket: checking on a flying
+        # drone must never look like a new gateway (which would fail safe).
+        pilot = Pilot(self.client, session=31)
+        self.addCleanup(pilot.stop)
+        self.arm(pilot)
+        for _ in range(3):
+            out = subprocess.run([CTL, "-s", self.status_sock, "status"], capture_output=True, text=True, timeout=10)
+            self.assertEqual(out.returncode, 0, out.stderr)
+            self.assertTrue(out.stdout.startswith("ARMED"), out.stdout)
+        time.sleep(0.3)
+        self.assertEqual(self.tx.last_channels()[CH_FAILSAFE], LOW)
+        self.assertEqual(self.tx.last_channels()[CH_ARM], HIGH)
+        self.assertTrue(self.client.wait(lambda c: c.status["state_name"] == "ARMED"))
+
+    def test_observers_cannot_send_commands(self):
+        observer = CoreClient(self.status_sock)
+        self.addCleanup(observer.close)
+        self.assertTrue(observer.wait(lambda c: c.status is not None), "observers get status")
+        observer.send(ARM, 1)                              # ignored, never reaches the core
+        observer.control(1, 1)
+        time.sleep(0.3)
+        self.assertEqual(self.tx.last_channels()[CH_ARM], LOW)
+        self.assertTrue(self.client.wait(lambda c: c.status["state_name"] == "DISARMED"))
+        self.assertTrue(observer.wait(lambda c: c.status["state_name"] == "DISARMED"))
 
 
 class SafetyTest(CoreHarness):

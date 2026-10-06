@@ -263,7 +263,10 @@ static int cmd_pilot(int fd)
 
 int main(int argc, char **argv)
 {
-    const char *path = "/run/crsf-core/core.sock";
+    /* status and watch only read, so they use crsf-core's read-only status socket and are
+     * safe while flying. pilot is a gateway: it takes over the control socket, and an
+     * armed aircraft fails safe when it does. */
+    const char *path = NULL;
     int opt;
     while ((opt = getopt(argc, argv, "s:")) != -1) {
         if (opt != 's') {
@@ -276,12 +279,14 @@ int main(int argc, char **argv)
         fprintf(stderr, "usage: crsf-ctl [-s socket] status|watch|pilot\n");
         return 2;
     }
+    const char *cmd = argv[optind];
+    if (!path)
+        path = strcmp(cmd, "pilot") == 0 ? "/run/crsf-core/core.sock" : "/run/crsf-core/status.sock";
     signal(SIGINT, on_sigint);
     signal(SIGPIPE, SIG_IGN);
     int fd = connect_core(path);
     if (fd < 0)
         return 1;
-    const char *cmd = argv[optind];
     int rc;
     if (!strcmp(cmd, "status"))
         rc = cmd_status(fd);

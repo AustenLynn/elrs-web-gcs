@@ -69,6 +69,7 @@ int config_set(config_t *c, const char *key, const char *value, char *err, size_
     static const struct { const char *key; size_t off; } strings[] = {
         { "serial_device", offsetof(config_t, serial_device) },
         { "socket_path", offsetof(config_t, socket_path) },
+        { "status_socket_path", offsetof(config_t, status_socket_path) },
         { "event_log", offsetof(config_t, event_log) },
         { "timing_log", offsetof(config_t, timing_log) },
     };
@@ -143,6 +144,8 @@ int config_validate(const config_t *c, char *err, size_t errlen)
 {
     if (c->serial_device[0] == '\0' || c->socket_path[0] == '\0')
         return fail(err, errlen, "serial_device and socket_path must be set");
+    if (strcmp(c->status_socket_path, c->socket_path) == 0)
+        return fail(err, errlen, "status_socket_path must differ from socket_path");
     if (c->baud <= 0)
         return fail(err, errlen, "baud must be positive");
     if (c->default_period_us < 500 || c->default_period_us > 50000)

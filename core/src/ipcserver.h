@@ -1,7 +1,10 @@
 /* ipcserver.h - Unix-socket server for the gateway (runs in the main, non-real-time
  * thread). Forwards gateway commands into the mailbox; sends status (10 Hz),
  * telemetry and refusals back; writes the event and timing logs. One gateway at a
- * time: a new connection replaces the old one (treated as "gateway lost"). */
+ * time: a new connection replaces the old one (treated as "gateway lost").
+ * A second, read-only socket (status_socket_path) serves up to IPC_MAX_OBSERVERS
+ * observers such as crsf-ctl status/watch: they get the same status, telemetry and
+ * events, anything they send is ignored, and they never affect the gateway. */
 #ifndef IPCSERVER_H
 #define IPCSERVER_H
 
@@ -12,12 +15,16 @@
 #include "ipc_proto.h"
 #include "mailbox.h"
 
+#define IPC_MAX_OBSERVERS 4
+
 typedef struct {
     const config_t *cfg;
     mailbox_t *mb;
     evlog_t *log;
     int listen_fd;
     int client_fd;
+    int status_fd;                   /* read-only observer socket; -1 = disabled */
+    int obs_fd[IPC_MAX_OBSERVERS];
     ipc_reader_t reader;
     bool bad_msg;
     crsf_link_stats_t link;          /* last telemetry, replayed to a new gateway */

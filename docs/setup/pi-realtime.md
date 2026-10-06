@@ -27,7 +27,7 @@ sudo deploy/install.sh
 sudo systemctl start crsf-core
 systemctl status crsf-core --no-pager
 journalctl -u crsf-core -n 20 --no-pager
-crsf-ctl status
+crsf-ctl status        # read-only status socket: safe even while flying
 ```
 
 ## 3. Check the real-time settings took effect

@@ -10,7 +10,8 @@
 typedef struct {
     char serial_device[CONFIG_PATH_MAX];
     int baud;
-    char socket_path[CONFIG_PATH_MAX];
+    char socket_path[CONFIG_PATH_MAX];          /* the gateway: one controller at a time */
+    char status_socket_path[CONFIG_PATH_MAX];   /* read-only observers (crsf-ctl status/watch); "" = off */
     char event_log[CONFIG_PATH_MAX];   /* JSON lines; "" = disabled */
     char timing_log[CONFIG_PATH_MAX];  /* per-frame CSV; "" = disabled */
     int default_period_us;             /* frame period until the module sends timing frames */
