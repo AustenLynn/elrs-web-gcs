@@ -1,0 +1,84 @@
+// End-to-end: the real pilot page in headless Firefox -> gateway -> crsf-core -> fake TX
+// module. Needs: core built (make -C core), python3, firefox.   Run: npm run e2e
+import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import readline from 'node:readline';
+import { fileURLToPath } from 'node:url';
+import { after, test } from 'node:test';
+import { DEFAULTS } from '../src/config.js';
+import { startGateway } from '../src/server.js';
+import { firefox, start, waitFor } from './helpers.js';
+
+const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const tmp = mkdtempSync(path.join(tmpdir(), 'gcs-e2e-'));
+const procs = [];
+const ARM = 4;
+const FAILSAFE = 6;
+const HIGH = 1792;
+const LOW = 192;
+
+after(() => { for (const p of procs) p.kill('SIGKILL'); });
+
+test('pilot page arms the aircraft and fails safe when the page loses control', { timeout: 90000 }, async () => {
+  // 1. fake TX module on a pseudo-terminal
+  const fake = start(procs, 'python3', ['-u', 'fake_tx_cli.py'], { cwd: path.join(repo, 'core/tests/integration') });
+  let channels = null;
+  const lines = readline.createInterface({ input: fake.stdout });
+  const ptyPath = await new Promise((resolve) => lines.once('line', (l) => resolve(JSON.parse(l).path)));
+  lines.on('line', (l) => { const m = JSON.parse(l); if (m.ch) channels = m.ch; });
+
+  // 2. crsf-core on that pty (no real-time settings needed for the test)
+  const sock = path.join(tmp, 'core.sock');
+  writeFileSync(path.join(tmp, 'core.conf'), `serial_device = ${ptyPath}\nsocket_path = ${sock}\nrt_priority = 0\nrt_cpu = -1\n`);
+  start(procs, path.join(repo, 'core/build/crsf-core'), ['-c', path.join(tmp, 'core.conf')]);
+  await waitFor(() => channels !== null, 5000, 'RC frames from crsf-core');
+
+  // 3. gateway serving the real web app
+  const gw = await startGateway({ ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 }, coreSocket: sock, webRoot: path.join(repo, 'web') });
+  after(() => gw.close());
+  await waitFor(() => gw.core.connected, 5000, 'gateway -> core');
+
+  // 4. headless Firefox
+  const page = await firefox(procs, tmp);
+  after(() => page.close());
+  await page.open(`http://127.0.0.1:${gw.port}/`);
+
+  // the page connects and shows state and telemetry from the (fake) aircraft
+  await waitFor(() => page.evaluate("document.getElementById('state').textContent === 'DESARMADO'"), 10000, 'DESARMADO on the page');
+  await waitFor(() => page.evaluate("document.getElementById('t-battery').textContent.startsWith('16.5 V')"), 5000, 'battery telemetry');
+  assert.equal(await page.evaluate("document.getElementById('seg-tx').dataset.health"), 'ok');
+
+  // A headless window never has focus, and the dead-man (correctly) refuses to fly without
+  // it, so the test stands in for the window manager: focused now, unfocused later.
+  await page.evaluate('document.hasFocus = () => true');
+
+  // take control, then press and hold ARM for 1.5 s with a real pointer
+  await page.evaluate("document.getElementById('btn-take').click()");
+  const box = JSON.parse(await page.evaluate("JSON.stringify(document.getElementById('btn-arm').getBoundingClientRect())"));
+  await page.call('input.performActions', {
+    context: page.context,
+    actions: [{
+      type: 'pointer', id: 'mouse', parameters: { pointerType: 'mouse' },
+      actions: [
+        { type: 'pointerMove', x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) },
+        { type: 'pointerDown', button: 0 },
+        { type: 'pause', duration: 1500 },
+        { type: 'pointerUp', button: 0 },
+      ],
+    }],
+  });
+  await waitFor(() => channels[ARM] === HIGH, 3000, 'ARM channel high');
+  assert.equal(channels[FAILSAFE], LOW, 'FAILSAFE must be low while flying');
+  await waitFor(() => page.evaluate("document.getElementById('state').textContent === 'ARMADO'"), 3000, 'ARMADO on the page');
+
+  // dead-man: the page loses focus -> it stops sending -> crsf-core fails safe
+  const t0 = Date.now();
+  await page.evaluate("document.hasFocus = () => false; window.dispatchEvent(new Event('blur'))");
+  await waitFor(() => channels[FAILSAFE] === HIGH, 3000, 'FAILSAFE channel high');
+  assert.ok(Date.now() - t0 < 1000, `failsafe took ${Date.now() - t0} ms`);
+  await waitFor(() => page.evaluate("!document.getElementById('banner').hidden"), 3000, 'failsafe banner');
+
+  assert.deepEqual(page.errors, [], 'no JavaScript errors on the page');
+});

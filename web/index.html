@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#111418">
+  <title>GCS ELRS · Piloto</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header class="bar">
+    <nav class="links" aria-label="Estado de los enlaces">
+      <span class="seg" id="seg-pc" title="Navegador ↔ Raspberry Pi">Navegador</span>
+      <span class="seg" id="seg-core" title="Gateway ↔ crsf-core">Núcleo</span>
+      <span class="seg" id="seg-tx" title="crsf-core ↔ módulo TX">TX</span>
+      <span class="seg" id="seg-drone" title="Módulo TX ↔ dron (radio)">Dron</span>
+    </nav>
+    <div id="state" class="state">SIN CONEXIÓN</div>
+  </header>
+
+  <main class="cockpit">
+    <div class="stick" id="stick-left"><div class="knob"></div><span class="label">Acelerador · Guiñada</span></div>
+    <section class="center">
+      <div class="video"><video id="video" autoplay muted playsinline></video></div>
+      <dl class="telemetry">
+        <dt>Batería</dt><dd id="t-battery">—</dd>
+        <dt>Enlace</dt><dd id="t-link">—</dd>
+        <dt>Modo FC</dt><dd id="t-mode">—</dd>
+        <dt>Latencia</dt><dd id="t-rtt">—</dd>
+        <dt>Comando</dt><dd id="t-age">—</dd>
+      </dl>
+      <p id="deadman" class="deadman"></p>
+      <div id="toast" class="toast" hidden></div>
+    </section>
+    <div class="stick" id="stick-right"><div class="knob"></div><span class="label">Cabeceo · Alabeo</span></div>
+  </main>
+
+  <footer class="controls pilot-only">
+    <button id="btn-take">Tomar control</button>
+    <button id="btn-arm" class="hold danger">Armar (mantener 1 s)</button>
+    <button id="btn-disarm" class="disarm">Desarmar</button>
+    <button id="btn-failsafe" class="warn">FAILSAFE</button>
+    <div class="modes">
+      <button data-mode="0" class="on">Modo 1</button>
+      <button data-mode="1">Modo 2</button>
+      <button data-mode="2">Modo 3</button>
+    </div>
+  </footer>
+
+  <div id="banner" class="banner" hidden>
+    <strong>FAILSAFE</strong> <span id="banner-detail"></span>
+    <button id="btn-ack" class="hold pilot-only">Limpiar failsafe (mantener 2 s)</button>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
