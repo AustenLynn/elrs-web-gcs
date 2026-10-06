@@ -55,6 +55,9 @@ function handle(msg) {
   switch (msg.t) {
     case 'welcome':
       role = msg.role;
+      // A pilot welcome (new connection, or the core came back) starts a new session in the
+      // hub with sequence 0: restart ours too.
+      if (role === 'pilot') seq = 0;
       document.body.classList.toggle('observer', role !== 'pilot');
       if (wantRole === 'pilot' && role !== 'pilot') toast('Ya hay un piloto conectado: modo observador');
       break;
