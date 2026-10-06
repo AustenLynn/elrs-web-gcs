@@ -599,7 +599,7 @@ The hub is pure: sockets, time and session numbers are injected, so every rule o
 
 **Interfaces:**
 - Consumes: `ClockSync`, the `ipc.js` encoders
-- Produces: `ControlHub({core, maxCommandAgeMs = 200, now, newSession})` with `.attach(client)`, `.detach(client)`, `.handle(client, msg)`, `.tick()` (tsync every 2 s), `.onCoreStatus(status)`, `.onCoreDown()`, `.onCoreTelemetry(kind, value)`, `.onCoreEvent(ev)`; a client is `{ send(obj), close(code, reason) }`
+- Produces: `ControlHub({core, maxCommandAgeMs = 200, now, newSession})` with `.attach(client)`, `.detach(client)`, `.handle(client, msg)`, `.tick()` (tsync every 2 s), `.onCoreStatus(status)`, `.onCoreDown()`, `.onCoreUp()` (fresh pilot session after a core reconnect), `.onCoreTelemetry(kind, value)`, `.onCoreEvent(ev)`; a client is `{ send(obj), close(code, reason) }`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -760,6 +760,36 @@ test('a flooding client is rate limited', () => {
   hub.handle(p, ctl(201));
   assert.equal(core.calls.filter((c) => c[0] === 'control').length, 120);
 });
+
+test('a message type that is not a string cannot crash the gateway', () => {
+  const { hub } = setup();
+  const pilot = join(hub);
+  assert.doesNotThrow(() => hub.handle(pilot, { t: { toString: 1 } }));
+  assert.match(pilot.last('error').msg, /unknown message type/);
+});
+
+test('when the core comes back, the pilot gets a fresh session the core knows', () => {
+  // The core drops its session when it loses the gateway (and a pilot that joined while the
+  // core was down never registered). Without a new SESSION, every arm/ack is refused.
+  const { hub, core } = setup();
+  const pilot = join(hub);
+  assert.equal(pilot.last('welcome').session, 42);
+  hub.onCoreDown();
+  hub.onCoreUp();
+  assert.deepEqual(core.calls.filter((c) => c[0] === 'sessionStart'), [['sessionStart', 42], ['sessionStart', 43]]);
+  assert.deepEqual(pilot.last('welcome'), { t: 'welcome', role: 'pilot', session: 43 });
+  hub.handle(pilot, ctl(1));
+  assert.deepEqual(core.calls.at(-1)[1], 43);
+  hub.handle(pilot, { t: 'ack' });
+  assert.deepEqual(core.calls.at(-1), ['ack', 43]);
+});
+
+test('core coming back with no pilot connected changes nothing', () => {
+  const { hub, core } = setup();
+  join(hub, 'observer');
+  hub.onCoreUp();
+  assert.equal(core.calls.length, 0);
+});
 ```
 
 - [ ] **Step 2: Run the tests to see them fail**
@@ -847,7 +877,10 @@ export class ControlHub {
       case 'disarm': this.core.disarm(c.session); break;
       case 'ack': this.core.ack(c.session); break;
       case 'failsafe': this.core.failsafe(c.session); break;
-      default: client.send({ t: 'error', msg: `unknown message type "${String(msg.t).slice(0, 20)}"` });
+      default: {
+        const t = typeof msg.t === 'string' ? msg.t.slice(0, 20) : typeof msg.t;   // never String(object)
+        client.send({ t: 'error', msg: `unknown message type "${t}"` });
+      }
     }
   }
 
@@ -864,6 +897,18 @@ export class ControlHub {
   onCoreDown() {
     this.lastStatus = null;
     this.#broadcast(this.#statusMsg());
+  }
+
+  /** The core (re)connected. It forgot our session when it lost us (and a pilot who joined
+   *  while it was down never registered), so the pilot gets a fresh session. Any latched
+   *  failsafe stays: the pilot still has to clear it and re-arm explicitly. */
+  onCoreUp() {
+    if (!this.pilot) return;
+    const c = this.clients.get(this.pilot);
+    c.session = this.newSession();
+    c.lastSeq = 0;
+    this.core.sessionStart(c.session);
+    this.pilot.send({ t: 'welcome', role: 'pilot', session: c.session });
   }
 
   onCoreTelemetry(kind, value) {
@@ -934,7 +979,7 @@ export class ControlHub {
 
 Run: `npm --prefix gateway test`
 
-Expected: PASS: `# tests 22`, `# pass 22`, `# fail 0`
+Expected: PASS: `# tests 25`, `# pass 25`, `# fail 0`
 
 - [ ] **Step 5: Commit**
 
@@ -996,7 +1041,7 @@ test('bad values are reported together', () => {
 
 Run: `npm --prefix gateway test`
 
-Expected: FAIL: `Cannot find module '…/gateway/src/config.js' imported from …/gateway/test/config.test.js`, then `# tests 23`, `# pass 22`, `# fail 1`
+Expected: FAIL: `Cannot find module '…/gateway/src/config.js' imported from …/gateway/test/config.test.js`, then `# tests 26`, `# pass 25`, `# fail 1`
 
 - [ ] **Step 3: Write the implementation**
 
@@ -1053,7 +1098,7 @@ Create `deploy/gateway.json`:
 
 Run: `npm --prefix gateway test`
 
-Expected: PASS: `# tests 25`, `# pass 25`, `# fail 0`
+Expected: PASS: `# tests 28`, `# pass 28`, `# fail 0`
 
 - [ ] **Step 5: Commit**
 
@@ -1074,7 +1119,7 @@ The tests start the real server on a free port with a fake core socket, then use
 
 **Interfaces:**
 - Consumes: `ControlHub`, `CoreClient`, `loadConfig`
-- Produces: `staticHandler(root)`, `startGateway(cfg, {core})` → `{hub, core, server, port, close()}`; `node gateway/src/main.js <gateway.json>`; WebSocket only on `/ws`
+- Produces: `staticHandler(root)`, `startGateway(cfg, {core})` → `{hub, core, server, port, close()}`; `node gateway/src/main.js <gateway.json>`; WebSocket only on `/ws`, and only from the gateway's own origin (or no Origin header; others get 403)
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1232,13 +1277,78 @@ test('only /ws accepts WebSocket upgrades', async (t) => {
   const { gw } = await setup(t);
   await assert.rejects(connect(`ws://127.0.0.1:${gw.port}/other`));
 });
+
+test('a malformed upgrade request is refused and the gateway keeps running', async (t) => {
+  // "GET http://[" is not a parsable URL: it must not crash the process (anyone on the LAN
+  // could otherwise kill the gateway and fail safe a flying aircraft).
+  const { gw, wsUrl } = await setup(t);
+  await new Promise((resolve) => {
+    const s = net.connect(gw.port, '127.0.0.1', () => {
+      s.write('GET http://[ HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n' +
+        'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n');
+    });
+    s.on('close', resolve);
+    s.on('error', resolve);
+    s.resume();
+  });
+  const good = await connect(wsUrl);
+  good.send({ t: 'hello', role: 'observer' });
+  await waitFor(() => good.msgs.some((m) => m.t === 'welcome'));
+  good.ws.close();
+});
+
+test('WebSocket connections from another web origin are refused', async (t) => {
+  // Any web page a LAN browser opens could otherwise take a free pilot seat.
+  const { gw, wsUrl } = await setup(t);
+  await assert.rejects(connect(wsUrl, { origin: 'https://evil.example' }), /403/);
+  const same = await connect(wsUrl, { origin: `http://127.0.0.1:${gw.port}` });
+  same.ws.close();
+  const tool = await connect(wsUrl);                 // non-browser clients send no Origin
+  tool.ws.close();
+});
+
+test('after the core reconnects, the connected pilot is given a new session', async (t) => {
+  const { core, wsUrl } = await setup(t);
+  const pilot = await connect(wsUrl);
+  pilot.send({ t: 'hello', role: 'pilot' });
+  await waitFor(() => core.received.some((m) => m.type === MSG.SESSION));
+  const first = core.received.find((m) => m.type === MSG.SESSION).payload.readUInt32LE(0);
+  core.received.length = 0;
+  core.conn.destroy();                               // crsf-core restarted or another client took the socket
+  await waitFor(() => core.received.some((m) => m.type === MSG.SESSION), 3000);
+  const second = core.received.find((m) => m.type === MSG.SESSION).payload.readUInt32LE(0);
+  assert.notEqual(second, first);
+  await waitFor(() => pilot.msgs.filter((m) => m.t === 'welcome').length === 2);
+  assert.equal(pilot.msgs.filter((m) => m.t === 'welcome').at(-1).session, second);
+  pilot.ws.close();
+});
+
+test('an exception while handling one message does not take the gateway down', async (t) => {
+  // Backstop: whatever a bug in the hub throws, the other browsers and the core link survive.
+  const { gw, wsUrl } = await setup(t);
+  const bad = await connect(wsUrl);
+  bad.send({ t: 'hello', role: 'pilot' });
+  await waitFor(() => bad.msgs.some((m) => m.t === 'welcome'));
+  bad.send({ t: { toString: 1 } });
+  await waitFor(() => bad.msgs.some((m) => m.t === 'error'));
+  const handle = gw.hub.handle;
+  gw.hub.handle = () => { throw new Error('bug'); };
+  bad.send({ t: 'ping', id: 1, ts: 0 });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  gw.hub.handle = handle;
+  const good = await connect(wsUrl);
+  good.send({ t: 'hello', role: 'observer' });
+  await waitFor(() => good.msgs.some((m) => m.t === 'welcome'));
+  good.ws.close();
+  bad.ws.close();
+});
 ```
 
 - [ ] **Step 2: Run the tests to see them fail**
 
 Run: `npm --prefix gateway test`
 
-Expected: FAIL: `Cannot find module '…/gateway/src/server.js' imported from …/gateway/test/server.test.js`, then `# tests 26`, `# pass 25`, `# fail 1`
+Expected: FAIL: `Cannot find module '…/gateway/src/server.js' imported from …/gateway/test/server.test.js`, then `# tests 29`, `# pass 28`, `# fail 1`
 
 - [ ] **Step 3: Write the implementation**
 
@@ -1306,10 +1416,33 @@ import { ControlHub } from './hub.js';
 import { CoreClient } from './ipc.js';
 import { staticHandler } from './static.js';
 
+/** Request path, or null when the request line is not a parsable URL (never throw here:
+ *  an exception in the upgrade handler would take the whole gateway down). */
+function pathOf(url) {
+  try {
+    return new URL(url, 'http://local').pathname;
+  } catch {
+    return null;
+  }
+}
+
+/** Browsers always send Origin: only pages served by this gateway may open /ws, so another
+ *  web site open in a LAN browser cannot take the pilot seat. Tools send no Origin. */
+function sameOrigin(req) {
+  const origin = req.headers.origin;
+  if (origin === undefined) return true;
+  try {
+    return new URL(origin).host === req.headers.host;
+  } catch {
+    return false;
+  }
+}
+
 export async function startGateway(cfg, { core = new CoreClient(cfg.coreSocket) } = {}) {
   const hub = new ControlHub({ core, maxCommandAgeMs: cfg.maxCommandAgeMs });
   core.on('status', (s) => hub.onCoreStatus(s));
   core.on('down', () => hub.onCoreDown());
+  core.on('up', () => hub.onCoreUp());
   core.on('telemetry', (kind, value) => hub.onCoreTelemetry(kind, value));
   core.on('event', (ev) => hub.onCoreEvent(ev));
   core.start();
@@ -1321,8 +1454,13 @@ export async function startGateway(cfg, { core = new CoreClient(cfg.coreSocket) 
 
   const wss = new WebSocketServer({ noServer: true, maxPayload: 4096 });
   server.on('upgrade', (req, socket, head) => {
-    if (new URL(req.url, 'http://local').pathname !== '/ws') {
+    if (pathOf(req.url) !== '/ws') {
       socket.destroy();
+      return;
+    }
+    if (!sameOrigin(req)) {
+      socket.once('finish', () => socket.destroy());
+      socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws));
@@ -1344,7 +1482,13 @@ export async function startGateway(cfg, { core = new CoreClient(cfg.coreSocket) 
       } catch {
         return;
       }
-      hub.handle(client, msg);
+      try {
+        hub.handle(client, msg);
+      } catch (err) {
+        // Backstop: a bug triggered by one message must not kill the process (that would
+        // fail safe the aircraft and drop every browser).
+        console.error('gateway: error handling a message:', err);
+      }
     });
     ws.on('close', () => hub.detach(client));
     // Oversized frames (maxPayload) and protocol errors arrive here; ws then closes the
@@ -1409,7 +1553,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
 
 Run: `npm --prefix gateway test`
 
-Expected: PASS: `# tests 31`, `# pass 31`, `# fail 0`
+Expected: PASS: `# tests 38`, `# pass 38`, `# fail 0`
 
 - [ ] **Step 5: Commit**
 
@@ -1431,7 +1575,7 @@ git commit -m "gateway: HTTPS + WebSocket server, static files, entry point"
 
 **Interfaces:**
 - Consumes: the browser messages of spec §4.2
-- Produces: `RATE_HZ`, `helloMessage(role)`, `controlMessage(seq, ts, cmd)`, `tsyncReply(msg, now)`, `STATE_TEXT`, `REASON_TEXT`, `REFUSAL_TEXT`; `StickModel({springX, springY, initial})` with `.move(px, py, r)`, `.release()`; `sticksToCommand(left, right, mode)` → `{roll, pitch, yaw, throttle, mode}`; `bindStick(pad, model)`
+- Produces: `RATE_HZ`, `helloMessage(role)`, `shouldReclaimPilotSeat(wantRole, role, status)`, `controlMessage(seq, ts, cmd)`, `tsyncReply(msg, now)`, `STATE_TEXT`, `REASON_TEXT`, `REFUSAL_TEXT`; `StickModel({springX, springY, initial})` with `.grab(id, px, py, r)` → bool, `.move(id, px, py, r)`, `.release(id)`, `.active` (one finger per stick; held axes follow the drag); `padsMoved(before, after, tolPx = 4)`; `sticksToCommand(left, right, mode)` → `{roll, pitch, yaw, throttle, mode}`; `bindStick(pad, model)`
 
 - [ ] **Step 1: Create the web package marker**
 
@@ -1453,7 +1597,7 @@ Create `web/test/protocol.test.js`:
 ```js
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { REFUSAL_TEXT, controlMessage, helloMessage, tsyncReply } from '../js/protocol.js';
+import { REFUSAL_TEXT, controlMessage, helloMessage, shouldReclaimPilotSeat, tsyncReply } from '../js/protocol.js';
 
 test('messages match what the gateway hub expects', () => {
   assert.deepEqual(helloMessage('pilot'), { t: 'hello', role: 'pilot' });
@@ -1467,6 +1611,15 @@ test('every refusal the core can send has a text', () => {
     assert.ok(REFUSAL_TEXT[r], r);
   }
 });
+
+test('a page that wanted to fly reclaims the pilot seat once it is free', () => {
+  // e.g. after a Wi-Fi blip the new connection arrived while the old one still held the seat
+  assert.equal(shouldReclaimPilotSeat('pilot', 'observer', { pilot: false }), true);
+  assert.equal(shouldReclaimPilotSeat('pilot', 'observer', { pilot: true }), false);
+  assert.equal(shouldReclaimPilotSeat('pilot', 'pilot', { pilot: true }), false);
+  assert.equal(shouldReclaimPilotSeat('observer', 'observer', { pilot: false }), false);
+  assert.equal(shouldReclaimPilotSeat('pilot', 'observer', null), false);
+});
 ```
 
 Create `web/test/sticks.test.js`:
@@ -1474,41 +1627,75 @@ Create `web/test/sticks.test.js`:
 ```js
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { StickModel, sticksToCommand } from '../js/sticks.js';
+import { StickModel, padsMoved, sticksToCommand } from '../js/sticks.js';
 
 test('moves are scaled to the pad radius and clamped (square gimbal)', () => {
   const s = new StickModel();
-  s.move(50, -25, 100);
+  s.grab(1, 50, -25, 100);
   assert.deepEqual([s.x, s.y], [0.5, -0.25]);
-  s.move(500, -500, 100);
+  s.move(1, 500, -500, 100);
   assert.deepEqual([s.x, s.y], [1, -1]);
 });
 
 test('right stick springs back on both axes; throttle axis holds', () => {
   const right = new StickModel();
-  right.move(80, 80, 100);
-  right.release();
+  right.grab(1, 80, 80, 100);
+  right.release(1);
   assert.deepEqual([right.x, right.y], [0, 0]);
   const left = new StickModel({ springX: true, springY: false, initial: { x: 0, y: 1 } });
-  left.move(60, -40, 100);
-  left.release();
-  assert.deepEqual([left.x, left.y], [0, -0.4]);
+  left.grab(1, 60, 100, 100);
+  left.move(1, 60, 50, 100);                    // dragged half the radius up
+  left.release(1);
+  assert.deepEqual([left.x, left.y], [0, 0.5]);
+});
+
+test('re-gripping the throttle does not move it: the held axis follows the drag, not the touch point', () => {
+  const left = new StickModel({ springX: true, springY: false, initial: { x: 0, y: 1 } });
+  left.grab(1, 0, 100, 100);
+  left.move(1, 0, 0, 100);                      // drag up to mid throttle
+  left.release(1);
+  assert.equal(left.y, 0);
+  left.grab(2, 0, -90, 100);                    // finger lands near the top of the pad
+  assert.equal(left.y, 0, 'touching must not jump the throttle');
+  left.move(2, 0, -70, 100);                    // drag 20 px down
+  assert.equal(left.y, 0.2);
+});
+
+test('a second finger on the same pad is ignored', () => {
+  const right = new StickModel();
+  assert.equal(right.grab(1, 50, 0, 100), true);
+  assert.equal(right.grab(2, -90, 90, 100), false);
+  right.move(2, -90, 90, 100);
+  assert.deepEqual([right.x, right.y], [0.5, 0]);
+  right.release(2);                             // lifting the other finger changes nothing
+  assert.deepEqual([right.x, right.y], [0.5, 0]);
+  assert.equal(right.active, true);
+  right.release(1);
+  assert.deepEqual([right.x, right.y], [0, 0]);
+});
+
+test('pads that moved under the fingers are detected', () => {
+  const box = (x, y) => ({ left: x, top: y, width: 144, height: 144 });
+  assert.equal(padsMoved([box(10, 50), box(600, 50)], [box(10, 52), box(600, 50)]), false);
+  assert.equal(padsMoved([box(10, 50), box(600, 50)], [box(10, 78), box(600, 50)]), true);
+  assert.equal(padsMoved([box(10, 50)], [{ ...box(10, 50), width: 120 }]), true);
 });
 
 test('mode 2 mapping: throttle at the bottom is 0, stick up is positive pitch', () => {
   const left = new StickModel({ springY: false, initial: { x: 0, y: 1 } });
   const right = new StickModel();
   assert.deepEqual(sticksToCommand(left, right, 0), { roll: 0, pitch: 0, yaw: 0, throttle: 0, mode: 0 });
-  left.move(-100, -100, 100);   // full up-left: throttle max, yaw left
-  right.move(100, -100, 100);   // full up-right: pitch forward, roll right
+  left.grab(1, -100, 100, 100);
+  left.move(1, -100, -100, 100); // drag from the bottom to full up-left: throttle max, yaw left
+  right.grab(1, 100, -100, 100); // full up-right: pitch forward, roll right
   assert.deepEqual(sticksToCommand(left, right, 2), { roll: 1000, pitch: 1000, yaw: -1000, throttle: 1000, mode: 2 });
-  left.move(0, 0, 100);
+  left.move(1, 0, 0, 100);
   assert.equal(sticksToCommand(left, right, 0).throttle, 500);
 });
 
 test('centred values are plain 0 (never -0)', () => {
   const s = new StickModel();
-  s.move(-0.0001, 0.0001, 100);
+  s.grab(1, -0.0001, 0.0001, 100);
   const c = sticksToCommand(s, s, 0);
   assert.ok(Object.is(c.roll, 0) && Object.is(c.pitch, 0) && Object.is(c.yaw, 0));
 });
@@ -1518,7 +1705,7 @@ test('centred values are plain 0 (never -0)', () => {
 
 Run: `npm --prefix gateway test`
 
-Expected: FAIL: `Cannot find module '…/web/js/protocol.js' imported from …/web/test/protocol.test.js`; `Cannot find module '…/web/js/sticks.js' imported from …/web/test/sticks.test.js`, then `# tests 33`, `# pass 31`, `# fail 2`
+Expected: FAIL: `Cannot find module '…/web/js/protocol.js' imported from …/web/test/protocol.test.js`; `Cannot find module '…/web/js/sticks.js' imported from …/web/test/sticks.test.js`, then `# tests 40`, `# pass 38`, `# fail 2`
 
 - [ ] **Step 4: Write the implementation**
 
@@ -1529,6 +1716,11 @@ Create `web/js/protocol.js`:
 export const RATE_HZ = 50;
 
 export const helloMessage = (role) => ({ t: 'hello', role });
+
+/** The page wanted to fly but got the observer seat (e.g. its new connection arrived
+ *  while the old one still held the seat): ask again as soon as the seat is free. */
+export const shouldReclaimPilotSeat = (wantRole, role, status) =>
+  wantRole === 'pilot' && role === 'observer' && status?.pilot === false;
 
 export const controlMessage = (seq, ts, cmd) => ({
   t: 'ctl', seq, ts, r: cmd.roll, p: cmd.pitch, y: cmd.yaw, th: cmd.throttle, m: cmd.mode,
@@ -1574,22 +1766,53 @@ export class StickModel {
     this.springY = springY;
     this.x = initial.x;
     this.y = initial.y;
-    this.active = false;
+    this.owner = null;      // pointerId of the finger that holds this stick
+    this.anchor = null;     // held (non-sprung) axes: where the drag started
   }
 
-  /** Pointer offset (px, py) from the pad centre; r = pad radius in the same units. */
-  move(px, py, r) {
-    this.x = clamp1(px / r);
-    this.y = clamp1(py / r);
-    this.active = true;
+  get active() {
+    return this.owner !== null;
   }
 
-  /** Finger lifted: sprung axes return to centre, the throttle axis stays where it is. */
-  release() {
+  /** A finger touches the pad at offset (px, py) from its centre; r = pad radius. Only the
+   *  first finger owns the stick. Sprung axes go to the finger; a held axis (throttle) does
+   *  not move until the finger drags, so re-gripping never jumps it. */
+  grab(id, px, py, r) {
+    if (this.owner !== null) return false;
+    this.owner = id;
+    this.anchor = { px, py, x: this.x, y: this.y };
+    this.#follow(px, py, r);
+    return true;
+  }
+
+  move(id, px, py, r) {
+    if (id === this.owner) this.#follow(px, py, r);
+  }
+
+  /** Only the owning finger lifting releases: sprung axes return to centre. */
+  release(id) {
+    if (id !== this.owner) return;
+    this.owner = null;
+    this.anchor = null;
     if (this.springX) this.x = 0;
     if (this.springY) this.y = 0;
-    this.active = false;
   }
+
+  #follow(px, py, r) {
+    const a = this.anchor;
+    this.x = clamp1(this.springX ? px / r : a.x + (px - a.px) / r);
+    this.y = clamp1(this.springY ? py / r : a.y + (py - a.py) / r);
+  }
+}
+
+/** True when a stick pad moved or resized by more than tolPx since `before` (browser bars
+ *  returning, rotation): the stick values under the fingers would jump. */
+export function padsMoved(before, after, tolPx = 4) {
+  return before.some((b, i) => {
+    const a = after[i];
+    return !a || Math.abs(a.left - b.left) > tolPx || Math.abs(a.top - b.top) > tolPx ||
+      Math.abs(a.width - b.width) > tolPx || Math.abs(a.height - b.height) > tolPx;
+  });
 }
 
 /** "Mode 2": left stick = throttle (vertical) + yaw, right stick = pitch + roll. */
@@ -1609,22 +1832,23 @@ export function bindStick(pad, model) {
     knob.style.setProperty('--x', model.x);
     knob.style.setProperty('--y', model.y);
   };
-  const update = (ev) => {
+  const offset = (ev) => {
     const box = pad.getBoundingClientRect();
     const r = Math.min(box.width, box.height) / 2;
-    model.move(ev.clientX - (box.left + box.width / 2), ev.clientY - (box.top + box.height / 2), r);
-    draw();
+    return [ev.clientX - (box.left + box.width / 2), ev.clientY - (box.top + box.height / 2), r];
   };
   pad.addEventListener('pointerdown', (ev) => {
+    if (!model.grab(ev.pointerId, ...offset(ev))) return;   // a second finger is ignored
     pad.setPointerCapture(ev.pointerId);
-    update(ev);
+    draw();
   });
   pad.addEventListener('pointermove', (ev) => {
-    if (pad.hasPointerCapture(ev.pointerId)) update(ev);
+    model.move(ev.pointerId, ...offset(ev));
+    draw();
   });
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
-    pad.addEventListener(type, () => {
-      model.release();
+    pad.addEventListener(type, (ev) => {
+      model.release(ev.pointerId);
       draw();
     });
   }
@@ -1636,7 +1860,7 @@ export function bindStick(pad, model) {
 
 Run: `npm --prefix gateway test`
 
-Expected: PASS: `# tests 37`, `# pass 37`, `# fail 0`
+Expected: PASS: `# tests 48`, `# pass 48`, `# fail 0`
 
 - [ ] **Step 6: Commit**
 
@@ -1657,7 +1881,7 @@ git commit -m "web: message helpers and virtual sticks (mode 2)"
 
 **Interfaces:**
 - Consumes: `STATE_TEXT`, `REASON_TEXT`
-- Produces: `Deadman` (`.engage()`, `.disengage(reason)`, `.canSend({visible, focused, wsOpen})`), `DEADMAN_TEXT`; `HoldGesture(ms, onComplete)` (`.press(t)`, `.release()`, `.update(t)` → 0..1), `bindHold(button, ms, onComplete)`; `segments(...)` → `{pc, core, tx, drone}` each `ok|warn|down`, `stateLabel`, `failsafeDetail`, `formatBattery`, `formatLink`, `formatMs`
+- Produces: `Deadman` (`.engage()`, `.disengage(reason)`, `.canSend({visible, focused, wsOpen})`), `DEADMAN_TEXT`; `HoldGesture(ms, onComplete)` (`.press(t)`, `.release()`, `.update(t)` → 0..1), `bindHold(button, ms, onComplete)`; `LinkTracker` (`.update(status, now)`), `segments({wsOpen, lastMsgAt, status, links, telem, now})` → `{pc, core, tx, drone}` each `ok|warn|down`, `stateLabel(status, wsOpen, statusFresh)`, `failsafeDetail`, `formatBattery`, `formatLink`, `formatMs`
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1666,7 +1890,7 @@ Create `web/test/deadman.test.js`:
 ```js
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { Deadman } from '../js/deadman.js';
+import { DEADMAN_TEXT, Deadman } from '../js/deadman.js';
 
 const ok = { visible: true, focused: true, wsOpen: true };
 
@@ -1688,6 +1912,14 @@ test('hiding the page, losing focus or the connection disengages, and it stays o
     d.engage();
     assert.equal(d.canSend(ok), true);
   }
+});
+
+test('a layout change under the fingers ends control and says why', () => {
+  const d = new Deadman();
+  d.engage();
+  d.disengage('layout');
+  assert.equal(d.canSend(ok), false);
+  assert.match(DEADMAN_TEXT.layout, /pantalla/);
 });
 ```
 
@@ -1726,25 +1958,57 @@ Create `web/test/view.test.js`:
 ```js
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { failsafeDetail, formatBattery, formatLink, formatMs, segments, stateLabel } from '../js/view.js';
+import { LinkTracker, failsafeDetail, formatBattery, formatLink, formatMs, segments, stateLabel } from '../js/view.js';
 
 const goodStatus = { core: true, serialOk: true, timingFrames: 10, state: 'ARMED', reason: 'none' };
 const link = { upLq: 100, upRssi1: -60, txPowerMw: 100 };
 
+// links: when the last core status arrived and when the module's timing-frame count last grew
+const fresh = (now) => ({ statusAt: now, timingAt: now });
+
 test('all links healthy', () => {
-  const s = segments({ wsOpen: true, lastMsgAt: 900, status: goodStatus, telem: { link, linkAt: 500 }, now: 1000 });
+  const s = segments({ wsOpen: true, lastMsgAt: 900, status: goodStatus, links: fresh(1000), telem: { link, linkAt: 500 }, now: 1000 });
   assert.deepEqual(s, { pc: 'ok', core: 'ok', tx: 'ok', drone: 'ok' });
 });
 
 test('each link degrades independently', () => {
   const now = 10000;
-  assert.equal(segments({ wsOpen: true, lastMsgAt: 8000, status: goodStatus, telem: {}, now }).pc, 'warn');
-  assert.equal(segments({ wsOpen: false, lastMsgAt: now, status: null, telem: {}, now }).pc, 'down');
-  assert.equal(segments({ wsOpen: true, lastMsgAt: now, status: { core: false }, telem: {}, now }).core, 'down');
-  assert.equal(segments({ wsOpen: true, lastMsgAt: now, status: { ...goodStatus, timingFrames: 0 }, telem: {}, now }).tx, 'warn');
-  assert.equal(segments({ wsOpen: true, lastMsgAt: now, status: { ...goodStatus, serialOk: false }, telem: {}, now }).tx, 'down');
-  assert.equal(segments({ wsOpen: true, lastMsgAt: now, status: goodStatus, telem: { link: { ...link, upLq: 40 }, linkAt: now }, now }).drone, 'warn');
-  assert.equal(segments({ wsOpen: true, lastMsgAt: now, status: goodStatus, telem: { link, linkAt: now - 2500 }, now }).drone, 'down');
+  const links = fresh(now);
+  assert.equal(segments({ wsOpen: true, lastMsgAt: 8000, status: goodStatus, links, telem: {}, now }).pc, 'warn');
+  assert.equal(segments({ wsOpen: false, lastMsgAt: now, status: null, links, telem: {}, now }).pc, 'down');
+  assert.equal(segments({ wsOpen: true, lastMsgAt: now, status: { core: false }, links, telem: {}, now }).core, 'down');
+  assert.equal(segments({ wsOpen: true, lastMsgAt: now, status: goodStatus, links: { statusAt: now, timingAt: 0 }, telem: {}, now }).tx, 'warn');
+  assert.equal(segments({ wsOpen: true, lastMsgAt: now, status: { ...goodStatus, serialOk: false }, links, telem: {}, now }).tx, 'down');
+  assert.equal(segments({ wsOpen: true, lastMsgAt: now, status: goodStatus, links, telem: { link: { ...link, upLq: 40 }, linkAt: now }, now }).drone, 'warn');
+  assert.equal(segments({ wsOpen: true, lastMsgAt: now, status: goodStatus, links, telem: { link, linkAt: now - 2500 }, now }).drone, 'down');
+});
+
+test('a core that stopped sending status is shown as down, never a frozen ARMADO', () => {
+  const now = 10000;
+  const links = { statusAt: now - 600, timingAt: now - 600 };
+  const s = segments({ wsOpen: true, lastMsgAt: now, status: goodStatus, links, telem: {}, now });
+  assert.equal(s.core, 'down');
+  assert.equal(s.tx, 'down');
+  assert.equal(stateLabel(goodStatus, true, false), 'NÚCLEO SIN RESPUESTA');
+});
+
+test('a module whose timing frames stopped is shown as down even if USB is still there', () => {
+  // e.g. the module browned out while its USB serial chip stayed enumerated
+  const now = 10000;
+  const s = segments({ wsOpen: true, lastMsgAt: now, status: goodStatus, links: { statusAt: now, timingAt: now - 1500 }, telem: {}, now });
+  assert.equal(s.tx, 'down');
+});
+
+test('the link tracker notices when status stops and when timing frames stop growing', () => {
+  const t = new LinkTracker();
+  t.update({ ...goodStatus, timingFrames: 10 }, 100);
+  assert.deepEqual([t.statusAt, t.timingAt], [100, 0]);           // no growth seen yet
+  t.update({ ...goodStatus, timingFrames: 12 }, 200);
+  assert.deepEqual([t.statusAt, t.timingAt], [200, 200]);
+  t.update({ ...goodStatus, timingFrames: 12 }, 300);              // frozen count
+  assert.deepEqual([t.statusAt, t.timingAt], [300, 200]);
+  t.update({ core: false }, 400);                                  // gateway says the core is gone
+  assert.equal(t.statusAt, 300);
 });
 
 test('labels and formatting', () => {
@@ -1765,7 +2029,7 @@ test('labels and formatting', () => {
 
 Run: `npm --prefix gateway test`
 
-Expected: FAIL: `Cannot find module '…/web/js/deadman.js' imported from …/web/test/deadman.test.js`; `Cannot find module '…/web/js/hold.js' imported from …/web/test/hold.test.js`; `Cannot find module '…/web/js/view.js' imported from …/web/test/view.test.js`, then `# tests 40`, `# pass 37`, `# fail 3`
+Expected: FAIL: `Cannot find module '…/web/js/deadman.js' imported from …/web/test/deadman.test.js`; `Cannot find module '…/web/js/hold.js' imported from …/web/test/hold.test.js`; `Cannot find module '…/web/js/view.js' imported from …/web/test/view.test.js`, then `# tests 51`, `# pass 48`, `# fail 3`
 
 - [ ] **Step 3: Write the implementation**
 
@@ -1806,6 +2070,7 @@ export const DEADMAN_TEXT = {
   hidden: 'Control perdido: la página dejó de estar visible',
   blur: 'Control perdido: la ventana perdió el foco',
   disconnected: 'Control perdido: se cortó la conexión',
+  layout: 'Control perdido: la pantalla cambió de tamaño o de orientación',
 };
 ```
 
@@ -1871,12 +2136,36 @@ Create `web/js/view.js`:
 import { REASON_TEXT, STATE_TEXT } from './protocol.js';
 
 const LINK_STALE_MS = 2000;
+const STATUS_STALE_MS = 500;    // the core sends status at 10 Hz
+const TIMING_STALE_MS = 1000;   // ELRS sends timing frames about every 200 ms
+
+/** When the last core status arrived, and when the module's timing-frame count last grew.
+ *  A counter that stops growing means the module stopped talking, even if USB is fine. */
+export class LinkTracker {
+  constructor() {
+    this.statusAt = 0;
+    this.timingAt = 0;
+    this.lastFrames = null;
+  }
+
+  update(status, now) {
+    if (!status?.core) return;
+    this.statusAt = now;
+    if (this.lastFrames !== null && status.timingFrames > this.lastFrames) this.timingAt = now;
+    this.lastFrames = status.timingFrames;
+  }
+}
 
 /** Health of the four links between the pilot and the drone: 'ok' | 'warn' | 'down'. */
-export function segments({ wsOpen, lastMsgAt, status, telem, now }) {
+export function segments({ wsOpen, lastMsgAt, status, links, telem, now }) {
   const pc = !wsOpen ? 'down' : now - lastMsgAt < 1000 ? 'ok' : 'warn';
-  const core = status?.core ? 'ok' : 'down';
-  const tx = !status?.core || !status.serialOk ? 'down' : status.timingFrames > 0 ? 'ok' : 'warn';
+  const coreUp = Boolean(status?.core) && now - links.statusAt < STATUS_STALE_MS;
+  const core = coreUp ? 'ok' : 'down';
+  let tx = 'down';
+  if (coreUp && status.serialOk) {
+    if (links.timingAt === 0) tx = 'warn';                       // no timing frame seen yet
+    else if (now - links.timingAt < TIMING_STALE_MS) tx = 'ok';
+  }
   let drone = 'down';
   if (telem.link && now - telem.linkAt < LINK_STALE_MS && telem.link.upLq > 0) {
     drone = telem.link.upLq >= 70 ? 'ok' : 'warn';
@@ -1884,9 +2173,10 @@ export function segments({ wsOpen, lastMsgAt, status, telem, now }) {
   return { pc, core, tx, drone };
 }
 
-export function stateLabel(status, wsOpen) {
+export function stateLabel(status, wsOpen, statusFresh = true) {
   if (!wsOpen) return 'SIN CONEXIÓN';
   if (!status?.core) return 'NÚCLEO APAGADO';
+  if (!statusFresh) return 'NÚCLEO SIN RESPUESTA';
   return STATE_TEXT[status.state] ?? status.state;
 }
 
@@ -1906,7 +2196,7 @@ export const formatMs = (v) => (v === null || v === undefined ? '—' : `${Math.
 
 Run: `npm --prefix gateway test`
 
-Expected: PASS: `# tests 44`, `# pass 44`, `# fail 0`
+Expected: PASS: `# tests 59`, `# pass 59`, `# fail 0`
 
 - [ ] **Step 5: Commit**
 
@@ -1926,6 +2216,7 @@ The test starts the fake module, the real crsf-core and the gateway, opens the p
 - Test: `core/tests/integration/fake_tx_cli.py`
 - Test: `gateway/e2e/helpers.js`
 - Test: `gateway/e2e/pilot.e2e.js`
+- Test: `gateway/e2e/layout.e2e.js`
 
 **Interfaces:**
 - Consumes: everything from Tasks 1–7, `crsf-core`, `FakeTx`
@@ -2096,7 +2387,8 @@ test('pilot page arms the aircraft and fails safe when the page loses control', 
   // the page connects and shows state and telemetry from the (fake) aircraft
   await waitFor(() => page.evaluate("document.getElementById('state').textContent === 'DESARMADO'"), 10000, 'DESARMADO on the page');
   await waitFor(() => page.evaluate("document.getElementById('t-battery').textContent.startsWith('16.5 V')"), 5000, 'battery telemetry');
-  assert.equal(await page.evaluate("document.getElementById('seg-tx').dataset.health"), 'ok');
+  // TX turns green once the module's timing-frame count is seen growing (a few statuses)
+  await waitFor(() => page.evaluate("document.getElementById('seg-tx').dataset.health === 'ok'"), 2000, 'TX link green');
 
   // A headless window never has focus, and the dead-man (correctly) refuses to fly without
   // it, so the test stands in for the window manager: focused now, unfocused later.
@@ -2132,11 +2424,59 @@ test('pilot page arms the aircraft and fails safe when the page loses control', 
 });
 ```
 
+Create `gateway/e2e/layout.e2e.js` (phone landscape sizes: no control button over the cockpit):
+
+```js
+// The pilot page at phone sizes (landscape): no control button may sit over the cockpit,
+// where a thumb working a stick could hit "Desarmar" or "FAILSAFE" by accident.
+import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { after, test } from 'node:test';
+import { DEFAULTS } from '../src/config.js';
+import { startGateway } from '../src/server.js';
+import { firefox } from './helpers.js';
+
+const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const procs = [];
+after(() => { for (const p of procs) p.kill('SIGKILL'); });
+
+test('control buttons stay out of the cockpit on landscape phone screens', { timeout: 90000 }, async () => {
+  const tmp = mkdtempSync(path.join(tmpdir(), 'gcs-layout-'));
+  const gw = await startGateway({ ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 },
+    coreSocket: path.join(tmp, 'no-core.sock'), webRoot: path.join(repo, 'web') });
+  after(() => gw.close());
+  const page = await firefox(procs, tmp);
+  after(() => page.close());
+  for (const [width, height] of [[800, 360], [740, 360], [640, 360]]) {
+    await page.call('browsingContext.setViewport', { context: page.context, viewport: { width, height } });
+    await page.open(`http://127.0.0.1:${gw.port}/`);
+    const m = JSON.parse(await page.evaluate(`JSON.stringify((() => {
+      const r = (el) => el.getBoundingClientRect();
+      const cockpit = r(document.querySelector('.cockpit'));
+      const buttons = [...document.querySelectorAll('.controls button')].map((b) => ({ id: b.id || b.textContent, ...r(b).toJSON() }));
+      const pads = ['stick-left', 'stick-right'].map((id) => r(document.getElementById(id)));
+      return { cockpitBottom: cockpit.bottom, cockpitTop: cockpit.top, buttons, pads, vh: innerHeight };
+    })())`));
+    for (const p of m.pads) {
+      assert.ok(p.top >= m.cockpitTop - 1 && p.bottom <= m.cockpitBottom + 1, `${width}x${height}: a stick pad does not fit the cockpit`);
+      assert.ok(p.height >= 100, `${width}x${height}: stick pad only ${p.height} px tall`);
+    }
+    for (const b of m.buttons) {
+      assert.ok(b.top >= m.cockpitBottom - 1, `${width}x${height}: "${b.id}" top ${b.top} is over the cockpit (ends ${m.cockpitBottom})`);
+      assert.ok(b.bottom <= m.vh + 1, `${width}x${height}: "${b.id}" bottom ${b.bottom} is off screen (${m.vh})`);
+    }
+  }
+});
+```
+
 - [ ] **Step 2: Run the browser test to see it fail**
 
 Run: `make -C core && npm --prefix gateway run e2e`
 
-Expected: FAIL: `not ok 1 - pilot page arms the aircraft and fails safe when the page loses control` with `script failed: "TypeError: can't access property \"textContent\", document.getElementById(...) is null"` (there is no page yet), then `# tests 1`, `# pass 0`, `# fail 1`
+Expected: FAIL: `not ok - control buttons stay out of the cockpit on landscape phone screens` and `not ok - pilot page arms the aircraft and fails safe when the page loses control` with `script failed: "TypeError: can't access property \"textContent\", document.getElementById(...) is null"` (there is no page yet), then `# tests 2`, `# pass 0`, `# fail 2`
 
 - [ ] **Step 3: Write the page**
 
@@ -2212,6 +2552,9 @@ Create `web/css/app.css`:
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
   font: 15px/1.3 system-ui, sans-serif; touch-action: none; user-select: none; overflow: hidden; }
+/* Header and footer take the height they need; the cockpit gets the rest, so footer
+   buttons can never wrap over the sticks. */
+body { display: flex; flex-direction: column; }
 .bar { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: var(--panel); }
 .links { display: flex; gap: 6px; }
 .seg { padding: 3px 8px; border-radius: 10px; font-size: 13px; background: #2a313a; }
@@ -2223,7 +2566,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 .state[data-state="ARMED"] { color: var(--warn); }
 .state[data-state="FAILSAFE"] { color: var(--down); }
 .cockpit { display: grid; grid-template-columns: 1fr minmax(220px, 1.2fr) 1fr; gap: 12px;
-  height: calc(100% - 44px - 64px); padding: 12px; }
+  flex: 1; min-height: 0; padding: 12px; }
 .stick { position: relative; align-self: center; justify-self: center; width: min(40vh, 28vw); aspect-ratio: 1;
   border-radius: 16px; background: radial-gradient(circle, #232a33 0 60%, #1b2027 61%); border: 1px solid #2f3843; }
 .knob { --x: 0; --y: 0; position: absolute; width: 22%; aspect-ratio: 1; border-radius: 50%; background: var(--accent);
@@ -2238,7 +2581,11 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 .telemetry dd { margin: 0; font-variant-numeric: tabular-nums; }
 .deadman { min-height: 1.3em; margin: 0; color: var(--warn); text-align: center; }
 .toast { padding: 8px; border-radius: 8px; background: #3a2a10; color: #ffd58a; text-align: center; }
-.controls { display: flex; gap: 8px; align-items: center; justify-content: center; height: 64px; padding: 8px; background: var(--panel); }
+.controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; padding: 6px; background: var(--panel); }
+.modes { display: flex; gap: 6px; }
+@media (max-height: 420px) {
+  .controls button { padding: 6px 10px; }
+}
 button { font: inherit; color: var(--text); background: #2a313a; border: 1px solid #3a4450; border-radius: 10px;
   padding: 10px 14px; touch-action: none; }
 button:disabled { opacity: .4; }
@@ -2262,9 +2609,9 @@ Create `web/js/app.js`:
 // ?observe in the URL opens a read-only view.
 import { Deadman, DEADMAN_TEXT } from './deadman.js';
 import { bindHold } from './hold.js';
-import { REFUSAL_TEXT, RATE_HZ, controlMessage, helloMessage, tsyncReply } from './protocol.js';
-import { StickModel, bindStick, sticksToCommand } from './sticks.js';
-import { failsafeDetail, formatBattery, formatLink, formatMs, segments, stateLabel } from './view.js';
+import { REFUSAL_TEXT, RATE_HZ, controlMessage, helloMessage, shouldReclaimPilotSeat, tsyncReply } from './protocol.js';
+import { StickModel, bindStick, padsMoved, sticksToCommand } from './sticks.js';
+import { LinkTracker, failsafeDetail, formatBattery, formatLink, formatMs, segments, stateLabel } from './view.js';
 
 const $ = (id) => document.getElementById(id);
 const wantRole = new URLSearchParams(location.search).has('observe') ? 'observer' : 'pilot';
@@ -2272,6 +2619,7 @@ const wantRole = new URLSearchParams(location.search).has('observe') ? 'observer
 const left = new StickModel({ springX: true, springY: false, initial: { x: 0, y: 1 } }); // throttle starts at 0
 const right = new StickModel();
 const deadman = new Deadman();
+const links = new LinkTracker();
 const telem = { link: null, linkAt: 0, battery: null, flightMode: null, device: null };
 let ws = null;
 let role = null;
@@ -2314,11 +2662,16 @@ function handle(msg) {
   switch (msg.t) {
     case 'welcome':
       role = msg.role;
+      // A pilot welcome (new connection, or the core came back) starts a new session in the
+      // hub with sequence 0: restart ours too.
+      if (role === 'pilot') seq = 0;
       document.body.classList.toggle('observer', role !== 'pilot');
       if (wantRole === 'pilot' && role !== 'pilot') toast('Ya hay un piloto conectado: modo observador');
       break;
     case 'status':
       status = msg;
+      links.update(status, performance.now());
+      if (shouldReclaimPilotSeat(wantRole, role, status)) ws.close();   // reconnects with hello pilot
       break;
     case 'telem':
       if (msg.link) telem.linkAt = performance.now();
@@ -2349,13 +2702,19 @@ setInterval(() => {
   if (canSend) send(controlMessage(++seq, performance.now(), sticksToCommand(left, right, mode)));
 }, 1000 / RATE_HZ);
 
+// Where the stick pads are while flying: if the layout moves them (browser bars come back,
+// rotation, leaving full screen) the stick values under the fingers would jump.
+const padBoxes = () => [$('stick-left'), $('stick-right')].map((p) => p.getBoundingClientRect());
+let padsAtEngage = null;
+
 async function takeControl() {
   if (role !== 'pilot') return;
-  deadman.engage();
   try {
     await document.documentElement.requestFullscreen?.();
     await screen.orientation?.lock?.('landscape');
   } catch { /* not supported (desktop browsers): fine */ }
+  deadman.engage();                // after the layout settled in full screen
+  padsAtEngage = padBoxes();
   try {
     wakeLock = await navigator.wakeLock?.request('screen');
   } catch { /* needs HTTPS; the screen may sleep, which disengages the dead-man */ }
@@ -2363,9 +2722,9 @@ async function takeControl() {
 
 function render() {
   const now = performance.now();
-  const seg = segments({ wsOpen: wsOpen(), lastMsgAt, status, telem, now });
+  const seg = segments({ wsOpen: wsOpen(), lastMsgAt, status, links, telem, now });
   for (const [name, health] of Object.entries(seg)) $(`seg-${name}`).dataset.health = health;
-  $('state').textContent = stateLabel(status, wsOpen());
+  $('state').textContent = stateLabel(status, wsOpen(), seg.core === 'ok' || !status?.core);
   $('state').dataset.state = status?.state ?? 'none';
   $('t-battery').textContent = formatBattery(telem.battery);
   $('t-link').textContent = formatLink(telem.link);
@@ -2397,6 +2756,11 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') deadman.disengage('hidden');
 });
 window.addEventListener('blur', () => deadman.disengage('blur'));
+for (const type of ['resize', 'orientationchange', 'fullscreenchange']) {
+  window.addEventListener(type, () => {
+    if (deadman.engaged && padsAtEngage && padsMoved(padsAtEngage, padBoxes())) deadman.disengage('layout');
+  });
+}
 
 connect();
 requestAnimationFrame(render);
@@ -2406,13 +2770,13 @@ requestAnimationFrame(render);
 
 Run: `npm --prefix gateway run e2e`
 
-Expected: PASS: `ok 1 - pilot page arms the aircraft and fails safe when the page loses control`, then `# tests 1`, `# pass 1`, `# fail 0` (about 20 s)
+Expected: PASS: `ok 1 - control buttons stay out of the cockpit on landscape phone screens`, `ok 2 - pilot page arms the aircraft and fails safe when the page loses control`, then `# tests 2`, `# pass 2`, `# fail 0` (about 30 s)
 
 - [ ] **Step 5: Run the unit tests again**
 
 Run: `npm --prefix gateway test`
 
-Expected: PASS: `# tests 44`, `# pass 44`, `# fail 0`
+Expected: PASS: `# tests 59`, `# pass 59`, `# fail 0`
 
 - [ ] **Step 6: Commit**
 
