@@ -2,6 +2,7 @@
  *
  *   crsf-param [-b baud] <device> list
  *   crsf-param [-b baud] <device> set "<setting name>" <option prefix>
+ *   crsf-param [-b baud] <device> run "<command name>"      e.g. run Bind
  *
  * Example: crsf-param /dev/ttyUSB0 set "Packet Rate" 250Hz
  * Stop crsf-core first: only one program can use the port. While it runs, the tool
@@ -233,6 +234,28 @@ static int cmd_set(tool_t *t, const char *name, const char *prefix)
     return 1;
 }
 
+/* Starts a command entry (type COMMAND, e.g. "Bind" or "Enable WiFi") the way a radio's
+ * ExpressLRS script does: write 1 ("click") to it. */
+static int cmd_run(tool_t *t, const char *name)
+{
+    if (load_all(t) < 0)
+        return 2;
+    int count = t->device.field_count < MAX_FIELDS ? t->device.field_count : MAX_FIELDS;
+    for (int id = 1; id <= count; id++) {
+        crsf_param_t *p = &t->fields[id];
+        if (!t->loaded[id] || p->type != PARAM_COMMAND || strcasecmp(p->name, name) != 0)
+            continue;
+        uint8_t buf[16];
+        if (send_frame(t, buf, crsf_build_param_write(buf, sizeof buf, CRSF_ADDR_MODULE, (uint8_t)id, 1)) < 0 ||
+            pump(t, 300) < 0)
+            return 2;
+        printf("%s: started\n", p->name);
+        return 0;
+    }
+    fprintf(stderr, "crsf-param: no command named \"%s\" (try: list)\n", name);
+    return 1;
+}
+
 int main(int argc, char **argv)
 {
     int baud = 921600, opt;
@@ -247,7 +270,8 @@ int main(int argc, char **argv)
     const char *dev = argv[optind], *cmd = argv[optind + 1];
     bool is_list = !strcmp(cmd, "list") && rest == 2;
     bool is_set = !strcmp(cmd, "set") && rest == 4;
-    if (!is_list && !is_set)
+    bool is_run = !strcmp(cmd, "run") && rest == 3;
+    if (!is_list && !is_set && !is_run)
         goto usage;
 
     static tool_t t;
@@ -271,12 +295,13 @@ int main(int argc, char **argv)
     }
     printf("%s, ExpressLRS %u.%u.%u, %u settings\n", t.device.name, t.device.sw_major,
            t.device.sw_minor, t.device.sw_patch, t.device.field_count);
-    rc = is_list ? cmd_list(&t) : cmd_set(&t, argv[optind + 2], argv[optind + 3]);
+    rc = is_list ? cmd_list(&t) : is_run ? cmd_run(&t, argv[optind + 2]) : cmd_set(&t, argv[optind + 2], argv[optind + 3]);
     close(t.fd);
     return rc;
 
 usage:
     fprintf(stderr, "usage: crsf-param [-b baud] <device> list\n"
-                    "       crsf-param [-b baud] <device> set \"<setting>\" <option>\n");
+                    "       crsf-param [-b baud] <device> set \"<setting>\" <option>\n"
+                    "       crsf-param [-b baud] <device> run \"<command>\"\n");
     return 2;
 }

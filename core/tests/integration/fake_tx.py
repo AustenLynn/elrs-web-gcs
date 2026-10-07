@@ -37,7 +37,8 @@ def unpack_channels(payload):
 
 
 # Settings the fake module exposes through the parameter protocol (like the ELRS Lua menu).
-# (id, parent, type, name, payload-after-name). Types: 9 text selection, 11 folder, 12 info.
+# (id, parent, type, name, payload-after-name). Types: 9 text selection, 11 folder, 12 info,
+# 13 command (status, timeout in 10 ms units, info text).
 def _sel(options, value, unit=""):
     return options.encode() + b"\0" + bytes([value, 0, len(options.split(";")) - 1, value]) + unit.encode() + b"\0"
 
@@ -49,6 +50,7 @@ DEFAULT_PARAMS = [
     [4, 3, 9, "Max Power", "10;25;50;100;250;500;1000", 3, "mW"],
     [5, 3, 9, "Dynamic", "Off;Dyn;AUX9", 0, ""],
     [6, 0, 12, "Bad/Good", "0/250", None, None],
+    [7, 0, 13, "Bind", 0, 200, ""],
 ]
 CHUNK = 24   # bytes of field data per PARAMETER_ENTRY frame (forces multi-chunk reads)
 
@@ -76,6 +78,7 @@ class FakeTx:
         self.model_selects = 0
         self.pings = 0
         self.params = [list(p) for p in DEFAULT_PARAMS]
+        self.commands = []          # names of command parameters the tool started
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._buf = bytearray()
@@ -138,6 +141,8 @@ class FakeTx:
             data += bytes([q[0] for q in self.params if q[1] == pid] + [0xFF])
         elif ptype == 12:
             data += a.encode() + b"\0"
+        elif ptype == 13:
+            data += bytes([a, b]) + c.encode() + b"\0"
         return data
 
     def _param_entry(self, field, chunk):
@@ -167,6 +172,8 @@ class FakeTx:
             p = next((q for q in self.params if q[0] == f[5]), None)
             if p is not None and p[2] == 9:
                 p[5] = f[6]
+            elif p is not None and p[2] == 13 and f[6] == 1:      # 1 = "click" (start the command)
+                self.commands.append(p[3])
 
     def _reader(self):
         while not self._stop.is_set():
