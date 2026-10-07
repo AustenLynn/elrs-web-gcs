@@ -2,7 +2,7 @@
 // ?observe in the URL opens a read-only view.
 import { Deadman, DEADMAN_TEXT } from './deadman.js';
 import { bindHold } from './hold.js';
-import { REFUSAL_TEXT, RATE_HZ, connectionTarget, controlMessage, shouldReclaimPilotSeat, tsyncReply } from './protocol.js';
+import { REFUSAL_TEXT, RATE_HZ, closeAction, connectionTarget, controlMessage, shouldReclaimPilotSeat, tsyncReply } from './protocol.js';
 import { StickModel, bindStick, padsMoved, sticksToCommand } from './sticks.js';
 import { LinkTracker, failsafeDetail, formatBattery, formatLink, formatMs, segments, stateLabel } from './view.js';
 import { keepPlaying } from './whep.js';
@@ -14,7 +14,7 @@ const getToken = (room) => {
   let token = sessionStorage.getItem(tokenKey(room));
   if (!token) {
     token = prompt(`Clave de piloto para «${room}»`) ?? '';
-    sessionStorage.setItem(tokenKey(room), token);
+    if (token) sessionStorage.setItem(tokenKey(room), token);
   }
   return token;
 };
@@ -35,12 +35,12 @@ let wakeLock = null;
 const wsOpen = () => ws?.readyState === WebSocket.OPEN;
 const send = (msg) => { if (wsOpen()) ws.send(JSON.stringify(msg)); };
 
-function toast(text) {
+function toast(text, persist = false) {
   const el = $('toast');
   el.textContent = text;
   el.hidden = false;
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => { el.hidden = true; }, 4000);
+  if (!persist) toast.timer = setTimeout(() => { el.hidden = true; }, 4000);
 }
 
 function connect() {
@@ -55,14 +55,13 @@ function connect() {
     handle(JSON.parse(ev.data));
   };
   ws.onclose = (ev) => {
-    if (ev.code === 4003 && target.room) {
-      sessionStorage.removeItem(tokenKey(target.room));   // wrong token: ask again
-      toast('Clave de piloto incorrecta');
-    }
+    const next = closeAction(ev.code, target.room);
+    if (next.clearToken) sessionStorage.removeItem(tokenKey(target.room));   // asked again after a reload
+    if (next.text) toast(next.text, next.retryMs === null);
     role = null;
     status = null;
     deadman.disengage('disconnected');
-    setTimeout(connect, 1000);
+    if (next.retryMs !== null) setTimeout(connect, next.retryMs);
   };
 }
 

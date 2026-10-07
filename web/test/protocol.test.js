@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { REFUSAL_TEXT, connectionTarget, controlMessage, helloMessage, shouldReclaimPilotSeat, tsyncReply } from '../js/protocol.js';
+import { REFUSAL_TEXT, closeAction, connectionTarget, controlMessage, helloMessage, shouldReclaimPilotSeat, tsyncReply } from '../js/protocol.js';
 
 test('messages match what the gateway hub expects', () => {
   assert.deepEqual(helloMessage('pilot'), { t: 'hello', role: 'pilot' });
@@ -33,4 +33,14 @@ test('a page that wanted to fly reclaims the pilot seat once it is free', () => 
   assert.equal(shouldReclaimPilotSeat('pilot', 'pilot', { pilot: true }), false);
   assert.equal(shouldReclaimPilotSeat('observer', 'observer', { pilot: false }), false);
   assert.equal(shouldReclaimPilotSeat('pilot', 'observer', null), false);
+});
+
+test('relay close codes: what the page does next', () => {
+  // 4003 wrong token: stop and ask (no endless prompt loop); 4001 Pi offline: back off.
+  assert.deepEqual(closeAction(4003, 'pi1'), { retryMs: null, clearToken: true, text: 'Clave de piloto incorrecta: recarga la página para intentarlo de nuevo' });
+  assert.equal(closeAction(4001, 'pi1').retryMs, 5000);
+  assert.match(closeAction(4001, 'pi1').text, /Pi/);
+  assert.match(closeAction(4004, 'pi1').text, /llena/);
+  assert.equal(closeAction(1006, null).retryMs, 1000);              // local gateway: reconnect quickly
+  assert.equal(closeAction(1006, null).text, null);
 });

@@ -17,6 +17,19 @@ export function connectionTarget(loc, role, getToken) {
 export const shouldReclaimPilotSeat = (wantRole, role, status) =>
   wantRole === 'pilot' && role === 'observer' && status?.pilot === false;
 
+/** What the page does when its connection closes: relay close codes (spec 4.3) get their
+ *  own message; a wrong token stops the retry loop instead of prompting forever. */
+export function closeAction(code, room) {
+  if (!room) return { retryMs: 1000, clearToken: false, text: null };
+  switch (code) {
+    case 4003: return { retryMs: null, clearToken: true, text: 'Clave de piloto incorrecta: recarga la página para intentarlo de nuevo' };
+    case 4001: return { retryMs: 5000, clearToken: false, text: 'La Pi no está conectada al relay: reintentando' };
+    case 4002: return { retryMs: 1000, clearToken: false, text: 'La Pi se reconectó al relay' };
+    case 4004: return { retryMs: 5000, clearToken: false, text: 'La sala está llena (4 conexiones remotas)' };
+    default: return { retryMs: 1000, clearToken: false, text: null };
+  }
+}
+
 export const controlMessage = (seq, ts, cmd) => ({
   t: 'ctl', seq, ts, r: cmd.roll, p: cmd.pitch, y: cmd.yaw, th: cmd.throttle, m: cmd.mode,
 });

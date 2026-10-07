@@ -55,7 +55,7 @@ export class ControlHub {
       return;
     }
     if (msg.t === 'ping') {
-      if (typeof msg.id === 'number') client.send({ t: 'pong', id: msg.id, ts: msg.ts, srv: this.now() });
+      if (typeof msg.id === 'number') client.send({ t: 'pong', id: msg.id, ts: typeof msg.ts === 'number' ? msg.ts : null, srv: this.now() });
       return;
     }
     if (msg.t === 'tsync_r') {

@@ -9,7 +9,10 @@ import { randomUUID, timingSafeEqual } from 'node:crypto';
 export const CLOSE = Object.freeze({ BAD_HELLO: 4000, BRIDGE_LOST: 4001, REPLACED: 4002, DENIED: 4003, FULL: 4004 });
 const HELLO_TIMEOUT_MS = 5000;
 const MAX_CLIENTS = 4;
-const MAX_MSGS_PER_SEC = 120;
+const MAX_MSGS_PER_SEC = 120;          // per browser
+const MAX_BRIDGE_MSGS_PER_SEC = 1000;  // the bridge carries every browser's traffic
+export const MAX_CLIENT_FRAME = 4096;  // browsers; the relay/bridge link allows 16 KiB so a
+                                       // full-size client frame still fits once wrapped
 
 function tokenOk(given, expected) {
   if (typeof given !== 'string' || typeof expected !== 'string') return false;
@@ -31,7 +34,7 @@ export class Relay {
     const state = { conn, role: null, room: null, id: null, windowStart: this.now(), count: 0 };
     const timer = setTimeout(() => { if (!state.role) conn.close(CLOSE.BAD_HELLO, 'hello timeout'); }, this.helloTimeoutMs);
     return {
-      message: (msg) => this.#message(state, msg),
+      message: (msg, size = 0) => this.#message(state, msg, size),
       close: () => {
         clearTimeout(timer);
         this.#closed(state);
@@ -44,13 +47,18 @@ export class Relay {
     return this.live.get(name);
   }
 
-  #message(state, msg) {
+  #message(state, msg, size) {
+    if (state.role !== 'bridge' && size > MAX_CLIENT_FRAME) {
+      state.conn.close(1009, 'message too big');            // that client only
+      return;
+    }
     const now = this.now();
     if (now - state.windowStart >= 1000) {
       state.windowStart = now;
       state.count = 0;
     }
-    if (++state.count > MAX_MSGS_PER_SEC || typeof msg !== 'object' || msg === null) return;
+    const limit = state.role === 'bridge' ? MAX_BRIDGE_MSGS_PER_SEC : MAX_MSGS_PER_SEC;
+    if (++state.count > limit || typeof msg !== 'object' || msg === null) return;
     if (state.role === null) return this.#hello(state, msg);
     const room = this.live.get(state.room);
     if (state.role === 'bridge') {

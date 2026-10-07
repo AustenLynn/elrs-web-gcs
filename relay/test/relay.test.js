@@ -107,3 +107,24 @@ test('rate limit drops a flood from one client', () => {
   pilot.message({ t: 'ctl', seq: 999 });
   assert.equal(bridge.conn.sent.length - before, 120);
 });
+
+test('the bridge carries every client: it is not held to one client\'s rate limit', () => {
+  let now = 0;
+  const relay = new Relay({ rooms: ROOMS, now: () => now });
+  const bridge = join(relay, bridgeHello);
+  const clients = [1, 2, 3, 4].map(() => join(relay, { ...pilotHello, role: 'observer' }));
+  const ids = bridge.conn.sent.filter((m) => m.ev === 'open').map((m) => m.id);
+  for (let i = 0; i < 40; i++) for (const id of ids) bridge.message({ t: 'relay', ev: 'send', id, msg: { t: 'status', i } });
+  assert.deepEqual(clients.map((c) => c.conn.sent.length), [40, 40, 40, 40]);
+});
+
+test('a client frame over 4 KiB closes that client only', () => {
+  const relay = new Relay({ rooms: ROOMS });
+  const bridge = join(relay, bridgeHello);
+  const pilot = join(relay, pilotHello);
+  const before = bridge.conn.sent.length;
+  pilot.message({ t: 'ctl', pad: 'x' }, 5000);
+  assert.equal(pilot.conn.closed.code, 1009);
+  assert.equal(bridge.conn.sent.length, before);
+  assert.equal(bridge.conn.closed, null);
+});

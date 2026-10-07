@@ -7,7 +7,7 @@ import { Relay } from './relay.js';
 export async function startRelay(cfg) {
   const relay = new Relay({ rooms: cfg.rooms });
   const server = http.createServer(cfg.webRoot ? staticHandler(cfg.webRoot) : (req, res) => res.writeHead(404).end());
-  const wss = new WebSocketServer({ noServer: true, maxPayload: 4096 });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 });   // browsers are held to 4 KiB in Relay
   server.on('upgrade', (req, socket, head) => {
     if (new URL(req.url, 'http://local').pathname !== '/relay') {
       socket.destroy();
@@ -26,7 +26,7 @@ export async function startRelay(cfg) {
     ws.on('message', (data, isBinary) => {
       if (isBinary) return;
       try {
-        handlers.message(JSON.parse(data));
+        handlers.message(JSON.parse(data), data.length);
       } catch {
         // not JSON: ignore
       }
