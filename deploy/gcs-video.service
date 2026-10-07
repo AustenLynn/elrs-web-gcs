@@ -5,10 +5,12 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=gcs
-Group=gcs
+# Its own user: MediaMTX parses network input (SDP/ICE) and must not share a uid with
+# crsf-core, whose socket and config belong to gcs.
+User=gcs-video
+Group=gcs-video
 SupplementaryGroups=video
-WorkingDirectory=/var/lib/gcs
+WorkingDirectory=/var/lib/gcs-video
 EnvironmentFile=/etc/gcs/video.env
 ExecStart=/opt/mediamtx/mediamtx /etc/gcs/mediamtx.yml
 Restart=on-failure

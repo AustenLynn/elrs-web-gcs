@@ -4,7 +4,9 @@
 # flows directly over UDP 8189.
 logLevel: info
 
-api: true
+# The control API is off: anyone on this machine could otherwise add a path whose
+# runOnInit runs commands as the video user. Turn it on only while debugging.
+api: false
 apiAddress: 127.0.0.1:9997
 metrics: false
 pprof: false
@@ -32,7 +34,6 @@ authInternalUsers:
         path: fpv
       - action: read
         path: fpv
-      - action: api
 
 paths:
   fpv:

@@ -5,9 +5,11 @@ set -euo pipefail
 repo=$(cd "$(dirname "$0")/.." && pwd)
 [[ $EUID -eq 0 ]] || { echo "run with sudo" >&2; exit 1; }
 
-echo "== service user"
+echo "== service users"
 id gcs >/dev/null 2>&1 || useradd --system --home-dir /var/lib/gcs --create-home --shell /usr/sbin/nologin gcs
-usermod -aG dialout,video gcs
+usermod -aG dialout gcs
+id gcs-video >/dev/null 2>&1 || useradd --system --home-dir /var/lib/gcs-video --create-home --shell /usr/sbin/nologin gcs-video
+usermod -aG video gcs-video
 
 echo "== crsf-core"
 sudo -u "${SUDO_USER:-root}" make -C "$repo/core" all     # build as you, not as root
@@ -31,6 +33,7 @@ echo "== video: MediaMTX + capture script"
 install -d /opt/gcs/video
 install -m 0755 "$repo/deploy/video/capture.sh" /opt/gcs/video/
 [[ -f /etc/gcs/mediamtx.yml ]] || install -m 0644 "$repo/deploy/video/mediamtx.yml" /etc/gcs/
+grep -q '^api: true' /etc/gcs/mediamtx.yml && echo "WARNING: /etc/gcs/mediamtx.yml has the MediaMTX API on; set 'api: false' (see deploy/video/mediamtx.yml)" 
 [[ -f /etc/gcs/video.env ]] || install -m 0644 "$repo/deploy/video/video.env" /etc/gcs/
 
 echo "== systemd units"

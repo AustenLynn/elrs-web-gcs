@@ -21,6 +21,9 @@ test('watch.html plays the test pattern through the gateway', { timeout: 120000,
   const tmp = mkdtempSync(path.join(tmpdir(), 'gcs-video-'));
   // the shipped config, moved to spare ports so a running gcs-video service is not disturbed
   const cfg = readFileSync(path.join(repo, 'deploy/video/mediamtx.yml'), 'utf8')
+    // the test waits for the stream through the API, which the shipped config keeps off
+    .replace('api: false', 'api: true')
+    .replace('        path: fpv\n\npaths:', '        path: fpv\n      - action: api\n\npaths:')
     .replace('apiAddress: 127.0.0.1:9997', 'apiAddress: 127.0.0.1:19997')
     .replace('rtspAddress: 127.0.0.1:8554', 'rtspAddress: 127.0.0.1:18554')
     .replace('webrtcAddress: 127.0.0.1:8889', 'webrtcAddress: 127.0.0.1:18889')
