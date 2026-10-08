@@ -48,6 +48,7 @@ and `deploy/crsf-core.conf` sets it explicitly.
 | `ch_failsafe` | not used. CH7 stays low, so sensitivity is fixed at **S** (slowest). | used (default CH7) |
 | Flight-mode telemetry | forwarded and logged only; never read as "armed" | `*` at the end means disarmed; any other text means armed (P3 interlock) |
 | Clearing failsafe (ack) | session, fresh link, throttle ≤ `throttle_arm_max` | same, plus "FC not reporting armed in the last 3 s" |
+| Radio link lost while armed | **FAILSAFE `rf_lost`** after 1 s without a link report with LQ > 0 (added after review: the drone disarms itself silently) | none in the core (Betaflight runs its RX-loss failsafe and reports it) |
 
 **Unchanged in both profiles:**
 - the safety state machine (§5.3 of the main spec): when to fail safe, the 300 ms timeout, latching,

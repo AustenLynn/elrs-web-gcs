@@ -97,11 +97,11 @@ legal BVLOS operation.
 
 | Segment (charter) | Failure | Detected by | Response | Time budget |
 |-------------------|---------|-------------|----------|-------------|
-| Operator ↔ Pi (local) | Wi-Fi loss, tab hidden, browser crash | core: no fresh command for 300 ms; gateway: WebSocket close → `PILOT_LOST`; page: dead-man stops sending | FAILSAFE switch high in the next frame (≤ 4 ms) | ≤ 300 ms + 4 ms |
+| Operator ↔ Pi (local) | Wi-Fi loss, tab hidden, browser crash | core: no fresh command for 300 ms; gateway: WebSocket close → `PILOT_LOST`; page: dead-man stops sending | FAILSAFE in the next frame (≤ 4 ms): `aquila20` ARM low (the drone disarms); `betaflight` FAILSAFE switch high | ≤ 300 ms + 4 ms |
 | Operator ↔ Relay ↔ Pi (M7) | internet loss, relay down | same timer; relay close → `pilot_lost` | same | same |
 | Inside the Pi | gateway crash | core: socket closed → `GATEWAY_LOST` | same | immediate |
-| Inside the Pi | crsf-core crash | module stops getting frames | Betaflight RX-loss failsafe | Betaflight guard time (set ≤ 0.5 s) |
-| Pi ↔ aircraft | RF loss, module unplugged | Betaflight (no valid RX data) | Betaflight failsafe procedure | guard time ≤ 0.5 s |
+| Inside the Pi | crsf-core crash | module stops getting frames | the drone's RX-loss failsafe: Aquila20 stops its motors at once (measured); Betaflight runs its procedure | Aquila20 immediate; Betaflight guard time (set ≤ 0.5 s) |
+| Pi ↔ aircraft | RF loss, module unplugged | the drone (no valid RX data); `aquila20`: also crsf-core, no link report with LQ > 0 for 1 s → FAILSAFE `rf_lost` so its state matches the disarmed drone | drone: as above; core: ARM low, latched | drone immediate; core ≤ 1 s |
 
 ## 4. Interfaces
 
@@ -194,15 +194,19 @@ slots are skipped on the same phase grid (no frame bursts). **To verify on hardw
     ▲  ◀──────────────────── disarm ──────────────────────  │
     │                                                       │ no fresh cmd 300 ms │ pilot lost │
     │ ack (session ok, link fresh, throttle low,            │ gateway lost │ new session │ manual
-    │      FC not reporting armed in the last 3 s)          ▼
+    │      betaflight: FC not reporting armed in 3 s)       │ aquila20: radio link lost 1 s (rf_lost)
+    │                                                       ▼
     └──────────────────────────────────────────────────  FAILSAFE (latched)
                          manual FAILSAFE also allowed from DISARMED (bench tests)
 ```
 
 Fresh command = current session and a sequence number higher than the last. Repeats,
-reordering and late messages never refresh the timer. Outputs in FAILSAFE: FAILSAFE
-switch high, sticks centred, throttle 0, ARM unchanged. Disarm is always accepted; in
-FAILSAFE it lowers ARM but stays latched. Refusals go back to the pilot as events.
+reordering and late messages never refresh the timer. Outputs in FAILSAFE: sticks
+centred, throttle 0, and per profile (`chmap.c`): `aquila20` **ARM low** (CH7 stays at S);
+`betaflight` FAILSAFE switch high, ARM unchanged. Disarm is always accepted; in FAILSAFE it
+lowers ARM but stays latched. Refusals go back to the pilot as events. The "FC not reporting
+armed" ack condition exists only in `betaflight` (the Aquila20 never reports it, and its
+failsafe has already disarmed it).
 
 ### 5.4 Evidence logs
 - `events.jsonl` (always on): state changes with `cmd_age_ms`, refusals, Betaflight
@@ -280,8 +284,14 @@ the C and JavaScript tests.
 (a) module brown-out on USB power (keep ≤ 100 mW, P7);
 (b) shared USB bus: module, Wi-Fi dongle and capture dongle sit on the same hub (move
 the capture dongle to another port; C1 run C);
-(c) crsf-core crash in flight (P5: no restart; Betaflight failsafe);
-(d) operator clears failsafe mid-landing (P3 interlock).
+(c) crsf-core crash in flight (P5: no restart; the drone's RX-loss failsafe);
+(d) operator clears failsafe mid-landing (P3 interlock; `betaflight` profile only);
+(e) Aquila20: failsafe means a **drop** (no landing procedure) and the drone never reports
+its armed state; crsf-core disarms over the link and follows a radio-link loss (`rf_lost`);
+(f) Aquila20: CH7 is its stick sensitivity, so no function may use it (config validation);
+(g) drone powered on while the core still holds ARM high (e.g. battery swap after a link
+loss): `rf_lost` drops ARM within 1 s; bench-check whether the drone arms at boot with CH5
+high (`docs/setup/aquila20.md` §3).
 
 ## 8. Milestones
 

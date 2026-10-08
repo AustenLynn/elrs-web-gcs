@@ -24,7 +24,7 @@ Decisions made by the team (spec §2, D1–D5):
 | D1 | TX module: BetaFPV Micro 1W 2.4 GHz on its USB-C port (CP2102 → `/dev/ttyUSB0`), not the Pi's GPIO UART |
 | D2 | Written from scratch; `~/ProyectoTerminal/elrs-joystick-control` (the AustenLynn fork of `kaack/elrs-joystick-control`) is used as a protocol reference only, never as code to patch |
 | D3 | Real-time core in C (gcc 14 + make on the Pi) |
-| D4 | Flight controller runs Betaflight |
+| D4 | Drone: BetaFPV Aquila20 HD with BetaFPV's own firmware (amended 2026-10-07; was Betaflight, kept as `fc_profile = betaflight`) |
 | D5 | Two processes: `crsf-core` (C, real-time) and a Node.js gateway, joined by a Unix socket |
 
 Proposals P1–P11 in spec §2 still need the team's confirmation. Among them: the 300 ms
@@ -75,9 +75,9 @@ hardware or outside resources.
 |------|------|------------------------|
 | M1 CRSF library and tools | Tasks 1–8 | **Task 9** (module): XT30 power → Wi-Fi pin change → `crsf-probe`, `crsf-param` settings, `--rc` with the drone, then record the firmware versions. `docs/setup/module.md` is written but **not committed**, because it is part of Task 9's commit; add the DIP/power facts above to it. |
 | M2 safety logic | all | — |
-| M3 crsf-core daemon | Tasks 1–7 | **Task 8**: CPU 3 isolation (needs a reboot), install, Betaflight setup, bench test. Bench step 2 (timing offset settles) is a go/no-go gate. |
+| M3 crsf-core daemon | Tasks 1–7 | **Task 8**: CPU 3 isolation (needs a reboot), install, drone checks from `docs/setup/aquila20.md` §3 (not the Betaflight setup), bench test. Bench step 2 (timing offset settles) is a go/no-go gate. |
 | M4 gateway and pilot page | Tasks 1–9 | **Task 10**: checklist on a PC and an Android phone (needs M3 Task 8). |
-| M5 validation tools | Tasks 1–2 | **Tasks 3–4**: C1 and C3 campaigns. The procedure docs come from the plan, but the C3 analysis must now use `failsafe_report.py --since <campaign start, UTC>`, and `--no-fc` only if Betaflight telemetry lacks `!FS!` (these options were added in review). |
+| M5 validation tools | Tasks 1–2 | **Tasks 3–4**: C1 and C3 campaigns. The procedure docs come from the plan, but the C3 analysis must now use `failsafe_report.py --since <campaign start, UTC>`, and `--no-fc` (the Aquila20 sends no failsafe telemetry; these options were added in review). |
 | M6 video | Tasks 1–5 | **Task 6**: FPV receiver plus capture dongle, C2/C4 measurements, C1 run C. |
 | M7 relay | Tasks 1–5 | **Task 6**: VPS deployment and internet tests. This task edits `docs/procedures/c3-failsafe.md`, which M5 Task 4 creates. |
 
@@ -117,11 +117,11 @@ Run the hardware tasks in this order: M1 T9, M3 T8, M4 T10, M5 T3–4, M6 T6, M7
 ## 5. Tests
 
 ```bash
-make -C core test                     # 95 C unit tests (UBSan)
-make -C core integration              # 24 tests: real binaries vs a Python fake TX module on a pty
+make -C core test                     # 100 C unit tests (UBSan)
+make -C core integration              # 29 tests: real binaries vs a Python fake TX module on a pty
 npm --prefix relay install && npm --prefix gateway install   # first time only
 npm --prefix relay test               # 11
-npm --prefix gateway test             # 86 (gateway + web)
+npm --prefix gateway test             # 88 (gateway + web)
 python3 -W error -m unittest discover -s tools/analysis -t tools/analysis   # 26
 make -C core && npm --prefix gateway run e2e   # 3 headless-Firefox tests (pilot, layout, video)
 ```
