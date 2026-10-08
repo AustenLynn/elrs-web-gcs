@@ -73,10 +73,10 @@ hardware or outside resources.
 
 | Plan | Done | Remaining (blocked on) |
 |------|------|------------------------|
-| M1 CRSF library and tools | Tasks 1–8 | **Task 9** (module): XT30 power → Wi-Fi pin change → `crsf-probe`, `crsf-param` settings, `--rc` with the drone, then record the firmware versions. `docs/setup/module.md` is written but **not committed**, because it is part of Task 9's commit; add the DIP/power facts above to it. |
+| M1 CRSF library and tools | **all (done 2026-10-07)** | — (module verified: ExpressLRS 3.3.0 at 921600 baud; RX 3.5.6; see `docs/setup/module.md` §2 and §4) |
 | M2 safety logic | all | — |
-| M3 crsf-core daemon | Tasks 1–7 | **Task 8**: CPU 3 isolation (needs a reboot), install, drone checks from `docs/setup/aquila20.md` §3 (not the Betaflight setup), bench test. Bench step 2 (timing offset settles) is a go/no-go gate. |
-| M4 gateway and pilot page | Tasks 1–9 | **Task 10**: checklist on a PC and an Android phone (needs M3 Task 8). |
+| M3 crsf-core daemon | **all (done 2026-10-07)** | — (installed on the Pi, FIFO 80 on isolated CPU 3; bench test 15/15 PASS: `docs/procedures/m3-bench-test.md`) |
+| M4 gateway and pilot page | Tasks 1–9 | **Task 10**: checklist on a PC and an Android phone (M3 is done, so this can run now). Start `gcs-gateway` again first (it is stopped during `crsf-ctl pilot` sessions). |
 | M5 validation tools | Tasks 1–2 | **Tasks 3–4**: C1 and C3 campaigns. The procedure docs come from the plan, but the C3 analysis must now use `failsafe_report.py --since <campaign start, UTC>`, and `--no-fc` (the Aquila20 sends no failsafe telemetry; these options were added in review). |
 | M6 video | Tasks 1–5 | **Task 6**: FPV receiver plus capture dongle, C2/C4 measurements, C1 run C. |
 | M7 relay | Tasks 1–5 | **Task 6**: VPS deployment and internet tests. This task edits `docs/procedures/c3-failsafe.md`, which M5 Task 4 creates. |
