@@ -90,3 +90,12 @@ test('taking control locks the orientation the phone is held in', () => {
   assert.equal(orientationLock('landscape-primary'), 'landscape');
   assert.equal(orientationLock(undefined), 'landscape');
 });
+
+test('reset puts a stick back where it started and lets go of any finger', () => {
+  const left = new StickModel({ springX: true, springY: false, initial: { x: 0, y: 1 } });
+  left.grab(1, 0, 100, 100);
+  left.move(1, 50, 0, 100);
+  left.reset();
+  assert.deepEqual([left.x, left.y, left.active], [0, 1, false]);
+  assert.equal(left.grab(2, 0, 0, 100), true, 'a new finger can take it');
+});

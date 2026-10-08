@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { after, test } from 'node:test';
 import { DEFAULTS } from '../src/config.js';
 import { startGateway } from '../src/server.js';
-import { firefox } from './helpers.js';
+import { firefox, openWithInputMode } from './helpers.js';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const procs = [];
@@ -21,6 +21,7 @@ test('control buttons stay out of the cockpit on landscape phone screens', { tim
   after(() => gw.close());
   const page = await firefox(procs, tmp);
   after(() => page.close());
+  await openWithInputMode(page, `http://127.0.0.1:${gw.port}/`, 'touch');   // these screens are phones
   for (const [width, height] of [[800, 360], [740, 360], [640, 360]]) {
     await page.call('browsingContext.setViewport', { context: page.context, viewport: { width, height } });
     await page.open(`http://127.0.0.1:${gw.port}/`);
@@ -52,7 +53,7 @@ test('"Tomar control" survives the full-screen transition; a later layout change
   const page = await firefox(procs, tmp);
   after(() => page.close());
   await page.call('browsingContext.setViewport', { context: page.context, viewport: { width: 1280, height: 640 } });
-  await page.open(`http://127.0.0.1:${gw.port}/`);
+  await openWithInputMode(page, `http://127.0.0.1:${gw.port}/`, 'touch');   // only the sticks care about layout
   await new Promise((resolve) => setTimeout(resolve, 1000));
   await page.evaluate('document.hasFocus = () => true');
   const deadman = () => page.evaluate("document.getElementById('deadman').textContent");
@@ -76,6 +77,7 @@ test('the pilot page fits phone screens held either way', { timeout: 120000 }, a
   const page = await firefox(procs, tmp);
   after(() => page.close());
   const overlap = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+  await openWithInputMode(page, `http://127.0.0.1:${gw.port}/`, 'touch');   // phones fly with the sticks
   for (const [width, height] of [[390, 844], [360, 780], [412, 915], [844, 390], [780, 360], [740, 360], [640, 360]]) {
     const at = `${width}x${height}`;
     await page.call('browsingContext.setViewport', { context: page.context, viewport: { width, height } });

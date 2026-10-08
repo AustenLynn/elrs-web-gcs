@@ -68,3 +68,11 @@ export async function firefox(procs, dir) {
   const open = (url) => call('browsingContext.navigate', { context, url, wait: 'complete' });
   return { call, evaluate, open, context, errors, close: () => ws.close() };
 }
+
+/** Opens the pilot page with an input mode chosen (remembered by the page per origin), so the
+ *  default for this browser (keyboard on a desktop browser) does not decide what is tested. */
+export async function openWithInputMode(page, url, mode) {
+  await page.open(url);
+  await page.evaluate(`localStorage.setItem('gcs-input-mode', '${mode}')`);
+  await page.open(url);
+}

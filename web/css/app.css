@@ -77,3 +77,59 @@ body.observer .pilot-only, body.observer .stick { visibility: hidden; }
   .seg { font-size: 11px; padding: 2px 6px; }
   .state { font-size: 13px; }
 }
+
+/* Input modes: Táctil (touch sticks), Teclado (keyboard), Prueba (steps). */
+.seg-ctl { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border-radius: 12px;
+  background: #141920; border: 1px solid #2f3843; }
+.seg-ctl button { padding: 6px 12px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); }
+.seg-ctl button.on { background: var(--accent); color: #fff; font-weight: 600; }
+.seg-ctl button:disabled { opacity: .35; }
+.seg-label { padding: 0 6px 0 4px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.input-modes button { padding: 4px 12px; font-size: 13px; }
+
+/* In keyboard and step modes the pads only show what is being sent: smaller, not touchable. */
+body:not([data-input="touch"]) .stick { pointer-events: none; width: min(30vh, 22vw); }
+.onair { display: flex; flex-wrap: wrap; gap: 2px 14px; justify-content: center; margin: 0; font-size: 12px;
+  color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.panel[hidden] { display: none; }
+.panel { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; justify-content: center;
+  padding: 8px 12px; background: var(--panel); border-top: 1px solid #262d36; }
+.panel input { user-select: text; }
+
+.axis-group { display: grid; gap: 4px; }
+.axis-group h3 { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.axis { display: grid; grid-template-columns: 6.5em 2.4em 4.2em 1em 2.4em; align-items: center; gap: 4px; }
+.axis-name { font-size: 13px; }
+.axis button { padding: 4px 0; font-size: 18px; line-height: 1; border-radius: 8px; }
+.axis input { width: 100%; padding: 4px 6px; font: inherit; font-variant-numeric: tabular-nums; text-align: right;
+  color: var(--text); background: #141920; border: 1px solid #3a4450; border-radius: 8px; }
+.axis input:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+.axis .unit { color: var(--muted); font-size: 13px; }
+.panel-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; }
+button.neutral { border-color: var(--ok); color: #b8f0d0; font-weight: 700; letter-spacing: .04em; }
+
+.keys { display: flex; flex-wrap: wrap; gap: 4px 14px; justify-content: center; margin: 0; padding: 0; list-style: none;
+  font-size: 13px; color: var(--muted); }
+.keys li { white-space: nowrap; }
+kbd { display: inline-block; min-width: 1.6em; margin-right: 2px; padding: 1px 5px; border-radius: 5px; text-align: center;
+  font: 600 12px/1.4 system-ui, sans-serif; color: var(--text); background: #2a313a; border: 1px solid #3a4450;
+  border-bottom-width: 2px; }
+
+@media (max-height: 450px) {
+  .panel { padding: 4px 8px; gap: 4px 10px; }
+  .axis-group h3, .keys { display: none; }
+}
+/* Upright or short screens: no room for display-only pads; the on-air line shows the values. */
+@media (orientation: portrait), (max-height: 450px) {
+  body:not([data-input="touch"]) .stick { display: none; }
+  body:not([data-input="touch"]) .cockpit { grid-template-columns: 1fr; grid-template-rows: auto; grid-template-areas: "center"; }
+}
+@media (orientation: portrait) {
+  body:not([data-input="touch"]) .cockpit { flex: none; }
+  .panel { gap: 4px 10px; padding: 6px 8px; }
+  .axis-group h3 { display: none; }
+  .axis { grid-template-columns: 5.6em 2.4em 3.8em 1em 2.4em; }
+  .panel-tools .seg-ctl button { padding: 6px 8px; }
+  .input-modes button { padding: 3px 8px; font-size: 12px; }
+}

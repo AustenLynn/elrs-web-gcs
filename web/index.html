@@ -15,6 +15,11 @@
       <span class="seg" id="seg-tx" title="crsf-core ↔ módulo TX">TX</span>
       <span class="seg" id="seg-drone" title="Módulo TX ↔ dron (radio)">Dron</span>
     </nav>
+    <div class="seg-ctl input-modes pilot-only" role="group" aria-label="Modo de control">
+      <button data-input="touch" title="Dos sticks táctiles (Modo 2)">Táctil</button>
+      <button data-input="keyboard" title="Teclado: W/S, A/D y flechas">Teclado</button>
+      <button data-input="step" title="Prueba: pasos y valores exactos">Prueba</button>
+    </div>
     <div id="state" class="state">SIN CONEXIÓN</div>
   </header>
 
@@ -29,11 +34,77 @@
         <dt>Latencia</dt><dd id="t-rtt">—</dd>
         <dt>Comando</dt><dd id="t-age">—</dd>
       </dl>
+      <p class="onair" title="Lo que se está enviando al dron"><span id="ro-left"></span><span id="ro-right"></span></p>
       <p id="deadman" class="deadman"></p>
       <div id="toast" class="toast" hidden></div>
     </section>
     <div class="stick" id="stick-right"><div class="knob"></div><span class="label">Cabeceo · Alabeo</span></div>
   </main>
+
+  <!-- Prueba: every axis holds the value set here; changes ramp at 20 %/s -->
+  <section id="panel-step" class="panel pilot-only" hidden aria-label="Modo prueba">
+    <div class="axis-group">
+      <h3>Stick izquierdo</h3>
+      <div class="axis" data-axis="throttle">
+        <span class="axis-name">Acelerador</span>
+        <button data-nudge="-1" aria-label="Bajar acelerador">−</button>
+        <input type="number" inputmode="numeric" min="0" max="100" step="1" aria-label="Acelerador en %"><span class="unit">%</span>
+        <button data-nudge="1" aria-label="Subir acelerador">+</button>
+      </div>
+      <div class="axis" data-axis="yaw">
+        <span class="axis-name">Guiñada</span>
+        <button data-nudge="-1" aria-label="Guiñada a la izquierda">−</button>
+        <input type="number" inputmode="numeric" min="-100" max="100" step="1" aria-label="Guiñada en %"><span class="unit">%</span>
+        <button data-nudge="1" aria-label="Guiñada a la derecha">+</button>
+      </div>
+    </div>
+    <div class="axis-group">
+      <h3>Stick derecho</h3>
+      <div class="axis" data-axis="pitch">
+        <span class="axis-name">Cabeceo</span>
+        <button data-nudge="-1" aria-label="Cabeceo atrás">−</button>
+        <input type="number" inputmode="numeric" min="-100" max="100" step="1" aria-label="Cabeceo en %"><span class="unit">%</span>
+        <button data-nudge="1" aria-label="Cabeceo adelante">+</button>
+      </div>
+      <div class="axis" data-axis="roll">
+        <span class="axis-name">Alabeo</span>
+        <button data-nudge="-1" aria-label="Alabeo a la izquierda">−</button>
+        <input type="number" inputmode="numeric" min="-100" max="100" step="1" aria-label="Alabeo en %"><span class="unit">%</span>
+        <button data-nudge="1" aria-label="Alabeo a la derecha">+</button>
+      </div>
+    </div>
+    <div class="panel-tools">
+      <div class="seg-ctl" role="group" aria-label="Tamaño del paso">
+        <span class="seg-label">Paso</span>
+        <button data-step="10">1 %</button><button data-step="50">5 %</button><button data-step="100">10 %</button>
+      </div>
+      <div class="seg-ctl" role="group" aria-label="Límite del acelerador">
+        <span class="seg-label">Límite acel.</span>
+        <button data-cap="300">30 %</button><button data-cap="500">50 %</button><button data-cap="1000">100 %</button>
+      </div>
+      <button id="btn-neutral" class="neutral">NEUTRO</button>
+    </div>
+  </section>
+
+  <!-- Teclado: key guide -->
+  <section id="panel-keys" class="panel pilot-only" hidden aria-label="Teclas de control">
+    <ul class="keys">
+      <li><kbd>W</kbd><kbd>S</kbd> acelerador</li>
+      <li><kbd>A</kbd><kbd>D</kbd> guiñada</li>
+      <li><kbd>↑</kbd><kbd>↓</kbd> cabeceo</li>
+      <li><kbd>←</kbd><kbd>→</kbd> alabeo</li>
+      <li><kbd>Shift</kbd> fino</li>
+      <li><kbd>R</kbd> mantener 1 s: armar</li>
+      <li><kbd>Espacio</kbd> desarmar</li>
+      <li><kbd>F</kbd> failsafe</li>
+      <li><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> modo N / S / M</li>
+      <li><kbd>Esc</kbd> soltar control</li>
+    </ul>
+    <div class="seg-ctl" role="group" aria-label="Intensidad de las teclas">
+      <span class="seg-label">Intensidad</span>
+      <button data-intensity="0.3">30 %</button><button data-intensity="0.5">50 %</button><button data-intensity="1">100 %</button>
+    </div>
+  </section>
 
   <footer class="controls pilot-only">
     <button id="btn-take">Tomar control</button>
