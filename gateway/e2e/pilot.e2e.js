@@ -47,6 +47,8 @@ test('pilot page arms the aircraft and fails safe when the page loses control', 
 
   // the page connects and shows state and telemetry from the (fake) aircraft
   await waitFor(() => page.evaluate("document.getElementById('state').textContent === 'DESARMADO'"), 10000, 'DESARMADO on the page');
+  // the failsafe banner is not on screen while disarmed (the attribute alone is not enough)
+  assert.equal(await page.evaluate("getComputedStyle(document.getElementById('banner')).display"), 'none', 'banner hidden while DESARMADO');
   await waitFor(() => page.evaluate("document.getElementById('t-battery').textContent.startsWith('16.5 V')"), 5000, 'battery telemetry');
   // TX turns green once the module's timing-frame count is seen growing (a few statuses)
   await waitFor(() => page.evaluate("document.getElementById('seg-tx').dataset.health === 'ok'"), 2000, 'TX link green');
@@ -82,6 +84,7 @@ test('pilot page arms the aircraft and fails safe when the page loses control', 
   assert.equal(channels[SENSITIVITY], LOW, 'sensitivity still S during failsafe');
   assert.ok(Date.now() - t0 < 1000, `failsafe took ${Date.now() - t0} ms`);
   await waitFor(() => page.evaluate("!document.getElementById('banner').hidden"), 3000, 'failsafe banner');
+  assert.notEqual(await page.evaluate("getComputedStyle(document.getElementById('banner')).display"), 'none', 'banner rendered in FAILSAFE');
 
   assert.deepEqual(page.errors, [], 'no JavaScript errors on the page');
 });
