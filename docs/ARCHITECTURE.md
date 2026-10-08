@@ -2,7 +2,8 @@
 
 **Project:** Web Ground Control Station for an ExpressLRS drone (Proyecto Terminal, Universidad
 Iberoamericana, Otoño 2026)
-**Describes:** the code on `main` as of commit `fd85095` (2026-10-07)
+**Describes:** the code on `main` as of commit `fd85095` (2026-10-07), plus the input modes
+(touch, keyboard, step) added on branch `feat/control-modes`
 **Audience:** team members, reviewers, the mentor, and anyone continuing the work
 
 This document explains how the system is built and why. It describes what exists today. The
@@ -183,15 +184,65 @@ connects them to the page.
 
 | Area | Content |
 |------|---------|
-| Header | Four link indicators: **Navegador** (browser ↔ Pi), **Núcleo** (gateway ↔ core), **TX** (core ↔ module), **Dron** (module ↔ drone, from LQ); the safety state |
-| Centre | Video (WebRTC), telemetry (battery, link, flight mode, `Latencia`, `Comando`), dead-man message, notifications |
-| Sides | Two virtual sticks (landscape: either side of the video; portrait: below it) |
+| Header | Four link indicators: **Navegador** (browser ↔ Pi), **Núcleo** (gateway ↔ core), **TX** (core ↔ module), **Dron** (module ↔ drone, from LQ); the input-mode picker (**Táctil · Teclado · Prueba**); the safety state |
+| Centre | Video (WebRTC), telemetry (battery, link, flight mode, `Latencia`, `Comando`), the on-air line (the stick values being sent, in %), dead-man message, notifications |
+| Sides | Two stick pads (landscape: either side of the video; portrait: below it). In the keyboard and step modes they only display the values, and they are hidden on upright or short screens |
+| Mode panel | Keyboard: key guide and intensity. Step: per-axis controls, step size, throttle limit, NEUTRO |
 | Footer | `Tomar control`, `Armar` (hold), `Desarmar`, `FAILSAFE`, flight mode N / S / M |
 | Banner | Shown in FAILSAFE: the reason and `Limpiar failsafe` (hold) |
 
 The UI text is in Spanish; code and documentation are in English.
 
-### 5.2 Input model (`sticks.js`)
+### 5.2 Input modes (`inputmode.js`, `sticks.js`, `keyboard.js`, `stepper.js`)
+
+The pilot chooses how to fly with the picker in the header. Every mode produces the same
+command (`roll, pitch, yaw` in −1000..1000, `throttle` 0..1000, flight `mode` 0..2), so **the
+gateway and crsf-core do not know or care which mode is in use**, and the dead-man, arming and
+failsafe rules apply unchanged.
+
+| Mode | For | How it flies |
+|------|-----|--------------|
+| **Táctil** (`touch`) | phones, tablets | two virtual sticks, Mode 2 (below) |
+| **Teclado** (`keyboard`) | computers | W/S throttle (holds where left), A/D yaw, ↑/↓ pitch, ←/→ roll (spring back); Shift = fine |
+| **Prueba** (`step`) | bench tests | ± buttons per axis (1 / 5 / 10 % steps) or a typed value; every axis holds its value |
+
+Rules common to all modes:
+- **Default:** touch on a device whose main pointer is coarse (a touch screen), keyboard otherwise.
+  The last choice is remembered per device (`localStorage`, optional: the page works without it).
+- **The mode cannot change while ARMED.** Changing it resets every input to neutral with throttle
+  at zero and disengages the dead-man, so the pilot must press `Tomar control` again.
+- **Ramps (`ramp.js`):** in the keyboard and step modes values move away from neutral at a
+  limited rate and towards neutral at once. A command can always be cut instantly and never jumps
+  up. Time steps longer than 100 ms count as 100 ms, so a stalled page never jumps either.
+- The on-air line always shows what is being sent.
+
+**Keyboard mode** (`keyboard.js`). Keys are read by physical position (`KeyboardEvent.code`),
+so the keyboard layout does not matter.
+
+| Key | Action | Detail |
+|-----|--------|--------|
+| W / S | throttle up / down | 50 %/s while held (25 % with Shift); stays where left |
+| A / D | yaw | to the intensity (30 / 50 / 100 %, default 50 %) in 150 ms; back to 0 on release |
+| ↑ / ↓ | pitch forward / back | as yaw |
+| ← / → | roll | as yaw |
+| Shift | fine control | half deflection, half throttle rate |
+| R (hold 1 s) | arm | same hold rule as the button; the core still checks throttle ≤ 5 % |
+| Space | disarm | immediate. On the Aquila20, disarming in flight stops the motors |
+| F | FAILSAFE | |
+| 1 / 2 / 3 | flight mode N / S / M | |
+| Esc | release control | the dead-man disengages. Leaving full screen does the same outside the touch mode, because browsers keep the Esc key that leaves full screen |
+
+The action keys (R, Space, F, 1–3, Esc) also work in the other modes; no key does anything while
+a value is being typed in an input. Key repeat is ignored, and every key counts as released when
+the window loses focus or the page is hidden.
+
+**Step mode** (`stepper.js`):
+- Values change at 20 %/s towards the target; NEUTRO sets every axis to 0 and throttle to 0 at once.
+- **Throttle limit** 30 % by default (30 / 50 / 100 %). It can be lowered at any time and raised
+  only while not ARMED. Lowering it below the current throttle pulls the throttle down at once.
+- A typed value above the limit is clamped and the pilot is told.
+
+**Touch mode** (`sticks.js`):
 
 - **Mode 2** layout. Left stick: throttle (vertical, *stays where released*) and yaw (horizontal,
   springs back). Right stick: pitch and roll (both spring back).
@@ -206,8 +257,9 @@ The UI text is in Spanish; code and documentation are in English.
 
 Commands are sent only after the pilot presses **Tomar control**, and only while the page is
 visible, focused and connected. Any lapse **disengages** the dead-man until the pilot presses it
-again. A further check disengages it if the stick pads move on screen (browser bars, rotation,
-leaving full screen), because the value under the finger would jump.
+again. In the touch mode, a further check disengages it if the stick pads move on screen (browser
+bars, rotation, leaving full screen), because the value under the finger would jump. The pilot can
+also release control on purpose (Esc), and changing the input mode releases it.
 
 A disengaged page **sends nothing**. It does not send a "stop" message. If the drone is armed,
 the core enters FAILSAFE 300 ms later. This means every way a page can fail (closed tab, crashed
@@ -594,7 +646,7 @@ internet (for example through a tunnel) until a login exists. See the open item 
 | Area | Limitation |
 |------|------------|
 | Security | No login on the local pilot page (§14) |
-| Input | Pointer (touch/mouse) sticks only. On a touch screen both sticks work at once. On a computer a mouse can hold only one stick at a time, so desktop flying is not practical. There is no keyboard or gamepad input |
+| Input | Touch, keyboard and step modes (§5.2). No gamepad input yet. Keyboards with few simultaneous keys ("ghosting") may drop a third or fourth key held at once |
 | Latency | End-to-end control latency is not instrumented (§13.3). Sticks are sampled by a 50 Hz timer, which adds up to 20 ms |
 | Measurement | C1–C4 campaigns not run yet; relay not deployed; real video capture not integrated (test pattern only) |
 | Platform | crsf-core is Linux-only (Unix sockets, `SCHED_FIFO`, `termios`, `accept4`); `tools/analysis/fault.py` needs `/proc` |

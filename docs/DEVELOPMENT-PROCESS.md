@@ -159,10 +159,10 @@ Run from the repository root. Install the Node packages once:
 |-------|---------|-------|--------|
 | C unit (UBSan) | `make -C core test` | 100 | CRC, frames, frame splitting, telemetry, parameters, serial on a pseudo-terminal, configuration, channel map, safety (21 scenarios), scheduler, IPC codec, mailbox, logs |
 | C integration | `make -C core integration` | 29 | real binaries against an independent Python fake TX module on a pseudo-terminal: timing follow, arming, timeouts, refusals, telemetry, parameters |
-| Gateway + web | `npm --prefix gateway test` | 88 | hub, clock sync, IPC codec (shared golden bytes with C), static files, configuration, WHEP proxy, relay path; page modules: sticks, dead-man, hold, view, video statistics |
+| Gateway + web | `npm --prefix gateway test` | 126 | hub, clock sync, IPC codec (shared golden bytes with C), static files, configuration, WHEP proxy, relay path; page modules: sticks, keyboard, step mode, ramps, input-mode rules, dead-man, hold, view, video statistics |
 | Relay | `npm --prefix relay test` | 11 | token checks, limits, multiplexing, close codes |
 | Analysis tools | `python3 -W error -m unittest discover -s tools/analysis -t tools/analysis` | 26 | C1–C4 reports, fault injector |
-| Browser end-to-end | `make -C core && npm --prefix gateway run e2e` | 3 | headless Firefox → pilot page → gateway → crsf-core → fake module: hold-to-arm raises CH5; losing focus fails safe in < 1 s; layout; video through MediaMTX and the WHEP proxy |
+| Browser end-to-end | `make -C core && npm --prefix gateway run e2e` | 6 | headless Firefox → pilot page → gateway → crsf-core → fake module: hold-to-arm raises CH5; losing focus fails safe in < 1 s; keyboard mode (hold R arms, W raises and holds throttle, Space disarms); phone layouts (touch mode); video through MediaMTX and the WHEP proxy |
 
 Notes:
 - **Golden bytes:** RC frames are checked against the reference project's output, other CRSF
