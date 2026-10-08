@@ -23,6 +23,7 @@ typedef struct {
     int64_t now_ns;                /* wake-up time of the current tick */
     int64_t last_rx_ns;            /* last valid frame from the module */
     int64_t last_hello_ns;         /* last model-select + ping */
+    bool module_identified;        /* the module answered a ping since the port opened */
     int64_t last_open_attempt_ns;
     uint32_t frames_sent;
     uint32_t tx_errors;

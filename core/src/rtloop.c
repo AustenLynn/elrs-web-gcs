@@ -88,6 +88,8 @@ static void on_frame(const uint8_t *frame, size_t len, void *user)
         mailbox_put_battery(l->mb, &m.u.battery);
         break;
     case CRSF_MSG_DEVICE_INFO:
+        if (m.u.device.origin == CRSF_ADDR_MODULE)  /* not the receiver behind it */
+            l->module_identified = true;
         mailbox_put_device(l->mb, &m.u.device);
         push(l, EV_DEVICE, m.u.device.origin, m.u.device.sw_major, m.u.device.sw_minor,
              m.u.device.sw_patch, 0, 0, m.u.device.name);
@@ -134,6 +136,7 @@ static void try_open(rtloop_t *l)
     l->fd = fd;
     l->last_rx_ns = l->now_ns;
     crsf_deframer_init(&l->deframer);
+    l->module_identified = false;
     push(l, EV_SERIAL, 1, 0, 0, 0, 0, 0, NULL);
     send_hello(l);
 }
@@ -223,9 +226,11 @@ static void tick(rtloop_t *l, int64_t deadline)
     }
     if (l->fd >= 0)
         read_telemetry(l);
-    if (l->fd >= 0 && l->now_ns - l->last_rx_ns > MODULE_SILENT_NS &&
+    /* Ask again every second until the module has identified itself (it may have missed
+     * the first ping while booting, then never go silent), and whenever it falls silent. */
+    if (l->fd >= 0 && (!l->module_identified || l->now_ns - l->last_rx_ns > MODULE_SILENT_NS) &&
         l->now_ns - l->last_hello_ns > MODULE_SILENT_NS)
-        send_hello(l);                           /* module rebooted or never answered */
+        send_hello(l);
 
     publish(l, ch);
     txsched_advance(&l->sched, mono_ns());

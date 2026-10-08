@@ -77,6 +77,7 @@ class FakeTx:
         self.rc = []
         self.model_selects = 0
         self.pings = 0
+        self.ignore_pings = 0          # answer only after this many pings (a module still booting)
         self.params = [list(p) for p in DEFAULT_PARAMS]
         self.commands = []          # names of command parameters the tool started
         self._lock = threading.Lock()
@@ -163,7 +164,8 @@ class FakeTx:
                 self.rc.append((time.monotonic(), unpack_channels(f[3:25])))
         elif ftype == 0x28:
             self.pings += 1
-            self._send(self._device_info())
+            if self.pings > self.ignore_pings:
+                self._send(self._device_info())
         elif ftype == 0x32 and len(f) >= 8 and f[5] == 0x10 and f[6] == 0x05:
             self.model_selects += 1
         elif ftype == 0x2C and len(f) == 8:

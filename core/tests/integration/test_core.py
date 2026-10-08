@@ -27,9 +27,12 @@ class CoreHarness(unittest.TestCase):
             return ch[CH_FAILSAFE] == HIGH                       # FAILSAFE switch high
         return ch[CH_ARM] == LOW and ch[CH_SENSITIVITY] == LOW   # disarmed, sensitivity still S
 
+    IGNORE_PINGS = 0
+
     def setUp(self):
         # addCleanup (not tearDown) so a failure half-way through setUp still stops everything
         self.tx = FakeTx(interval_us=4000.0)
+        self.tx.ignore_pings = self.IGNORE_PINGS
         self.addCleanup(self.tx.close)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -87,6 +90,16 @@ class FrameTimingTest(CoreHarness):
         self.assertTrue(self.client.wait(lambda c: c.device is not None))
         self.assertEqual(self.client.device["name"], "FAKE TX")
         self.assertGreaterEqual(self.tx.model_selects, 1)
+
+
+class SlowModuleTest(CoreHarness):
+    IGNORE_PINGS = 1               # the module misses the first ping (still booting)
+
+    def test_module_is_identified_even_if_it_missed_the_first_ping(self):
+        # On the bench the module boots while crsf-core opens the port; it then sends timing
+        # frames non-stop, so it never looks silent. The core must keep asking until it answers.
+        self.assertTrue(self.client.wait(lambda c: c.device is not None, timeout=3))
+        self.assertEqual(self.client.device["name"], "FAKE TX")
 
 
 class CtlTest(CoreHarness):
