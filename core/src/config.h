@@ -7,6 +7,18 @@
 
 #define CONFIG_PATH_MAX 256
 
+/* Which flight-controller firmware is on the aircraft (docs/superpowers/specs/
+ * 2026-10-07-aquila20-profile-design.md):
+ *  - AQUILA20: BetaFPV's own firmware. FAILSAFE drops ARM over a live link; CH7 is the
+ *    drone's stick-sensitivity switch and stays low (S); the flight-mode text never says
+ *    whether the drone is armed.
+ *  - BETAFLIGHT: FAILSAFE raises the ch_failsafe switch and leaves ARM to Betaflight;
+ *    a flight mode ending in '*' means disarmed. */
+typedef enum { FC_PROFILE_AQUILA20 = 0, FC_PROFILE_BETAFLIGHT = 1 } fc_profile_t;
+
+/* The Aquila20's stick-sensitivity switch (0-based CH7): no function may use it. */
+#define AQUILA20_SENSITIVITY_CH 6
+
 typedef struct {
     char serial_device[CONFIG_PATH_MAX];
     int baud;
@@ -23,6 +35,7 @@ typedef struct {
     int rt_priority;                   /* SCHED_FIFO priority of the frame loop; 0 = leave as is */
     int rt_cpu;                        /* CPU the frame loop is pinned to; -1 = no pinning */
     bool rt_required;                  /* refuse to run if real-time setup fails */
+    fc_profile_t fc_profile;           /* "aquila20" (default) or "betaflight" */
     int stick_min_us;
     int stick_max_us;
     /* 0-based channel indexes. The file uses 1-based numbers (ch_arm = 5 means CH5). */

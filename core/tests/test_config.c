@@ -42,6 +42,38 @@ static void test_status_socket_is_separate_from_the_control_socket(void)
     CHECK_EQ_INT(config_validate(&c, err, sizeof err), 0);
 }
 
+static void test_fc_profile_defaults_to_aquila20(void)
+{
+    /* The project drone (BetaFPV Aquila20) does not run Betaflight; Betaflight stays selectable. */
+    config_t c;
+    config_defaults(&c);
+    CHECK_EQ_INT(c.fc_profile, FC_PROFILE_AQUILA20);
+    CHECK_EQ_INT(config_set(&c, "fc_profile", "betaflight", err, sizeof err), 0);
+    CHECK_EQ_INT(c.fc_profile, FC_PROFILE_BETAFLIGHT);
+    CHECK_EQ_INT(config_set(&c, "fc_profile", "aquila20", err, sizeof err), 0);
+    CHECK_EQ_INT(c.fc_profile, FC_PROFILE_AQUILA20);
+    CHECK_EQ_INT(config_set(&c, "fc_profile", "inav", err, sizeof err), -1);
+    CHECK(strstr(err, "aquila20 or betaflight") != NULL);
+}
+
+static void test_aquila20_keeps_ch7_for_its_sensitivity_switch(void)
+{
+    /* On the Aquila20, CH7 selects stick sensitivity: it must stay at its default (low = S).
+     * ch_failsafe is not used, so it may point anywhere without clashing. */
+    config_t c;
+    config_defaults(&c);
+    CHECK_EQ_INT(config_validate(&c, err, sizeof err), 0);
+    CHECK_EQ_INT(config_set(&c, "ch_yaw", "7", err, sizeof err), 0);
+    CHECK_EQ_INT(config_set(&c, "ch_failsafe", "4", err, sizeof err), 0);
+    CHECK_EQ_INT(config_validate(&c, err, sizeof err), -1);
+    CHECK(strstr(err, "CH7") != NULL);
+    config_defaults(&c);
+    CHECK_EQ_INT(config_set(&c, "ch_failsafe", "4", err, sizeof err), 0);   /* same as ch_yaw: unused */
+    CHECK_EQ_INT(config_validate(&c, err, sizeof err), 0);
+    CHECK_EQ_INT(config_set(&c, "fc_profile", "betaflight", err, sizeof err), 0);
+    CHECK_EQ_INT(config_validate(&c, err, sizeof err), -1);                /* betaflight uses it */
+}
+
 static void test_load_file_with_comments_and_spaces(void)
 {
     const char *path = write_temp(
@@ -137,6 +169,7 @@ static void test_production_config_is_valid(void)
     CHECK_EQ_INT(config_load(&c, "../deploy/crsf-core.conf", err, sizeof err), 0);
     CHECK(c.rt_required);
     CHECK_EQ_INT(c.ch_failsafe, 6);
+    CHECK_EQ_INT(c.fc_profile, FC_PROFILE_AQUILA20);
     CHECK_STR(c.timing_log, "");
     CHECK_STR(c.status_socket_path, "/run/crsf-core/status.sock");
 }
@@ -144,6 +177,8 @@ static void test_production_config_is_valid(void)
 int main(void)
 {
     RUN(test_defaults_are_valid);
+    RUN(test_fc_profile_defaults_to_aquila20);
+    RUN(test_aquila20_keeps_ch7_for_its_sensitivity_switch);
     RUN(test_status_socket_is_separate_from_the_control_socket);
     RUN(test_load_file_with_comments_and_spaces);
     RUN(test_windows_line_endings);
