@@ -1,8 +1,11 @@
 // Pilot page: wires the pure modules to the DOM and the gateway WebSocket.
 // ?observe in the URL opens a read-only view.
 import { Deadman, DEADMAN_TEXT } from './deadman.js';
-import { bindHold } from './hold.js';
+import { HoldGesture, bindHold } from './hold.js';
+import { canSwitchInput, loadInputMode, padPositions, readouts, saveInputMode } from './inputmode.js';
+import { KEY_ACTIONS, KeyboardModel, MODE_KEYS } from './keyboard.js';
 import { REFUSAL_TEXT, RATE_HZ, closeAction, connectionTarget, controlMessage, shouldReclaimPilotSeat, tsyncReply } from './protocol.js';
+import { StepModel, capChangeAllowed } from './stepper.js';
 import { StickModel, bindStick, layoutAction, orientationLock, padsMoved, sticksToCommand } from './sticks.js';
 import { LinkTracker, failsafeDetail, formatBattery, formatFlightMode, formatLink, formatMs, segments, stateLabel } from './view.js';
 import { keepPlaying } from './whep.js';
@@ -21,6 +24,8 @@ const getToken = (room) => {
 
 const left = new StickModel({ springX: true, springY: false, initial: { x: 0, y: 1 } }); // throttle starts at 0
 const right = new StickModel();
+const keyboard = new KeyboardModel();
+const stepper = new StepModel();
 const deadman = new Deadman();
 const links = new LinkTracker();
 const telem = { link: null, linkAt: 0, battery: null, flightMode: null, device: null };
@@ -31,6 +36,11 @@ let seq = 0;
 let mode = 0;
 let lastMsgAt = 0;
 let wakeLock = null;
+let inputMode = 'touch';
+let lastTick = performance.now();
+let lastCmd = sticksToCommand(left, right, mode);
+
+const storage = () => { try { return window.localStorage; } catch { return null; } };
 
 const wsOpen = () => ws?.readyState === WebSocket.OPEN;
 const send = (msg) => { if (wsOpen()) ws.send(JSON.stringify(msg)); };
@@ -99,15 +109,53 @@ function handle(msg) {
   }
 }
 
+/** The command from whichever input mode is active; dtMs advances the keyboard and step ramps. */
+function currentCommand(dtMs) {
+  if (inputMode === 'keyboard') {
+    keyboard.update(dtMs);
+    return keyboard.command(mode);
+  }
+  if (inputMode === 'step') {
+    stepper.update(dtMs);
+    return stepper.command(mode);
+  }
+  return sticksToCommand(left, right, mode);
+}
+
 // 50 Hz control loop. Nothing is queued while disconnected or disengaged.
 setInterval(() => {
+  const now = performance.now();
+  lastCmd = currentCommand(now - lastTick);
+  lastTick = now;
   const canSend = deadman.canSend({
     visible: document.visibilityState === 'visible',
     focused: document.hasFocus(),
     wsOpen: wsOpen() && role === 'pilot',
   });
-  if (canSend) send(controlMessage(++seq, performance.now(), sticksToCommand(left, right, mode)));
+  if (canSend) send(controlMessage(++seq, now, lastCmd));
 }, 1000 / RATE_HZ);
+
+/** Changes how the pilot flies. Refused while armed; every input starts again from neutral
+ *  with throttle at zero, and the pilot must take control again. */
+function setInputMode(next, { save = true } = {}) {
+  if (next !== inputMode && !canSwitchInput(status)) {
+    toast('Desarma antes de cambiar el modo de control');
+    return;
+  }
+  inputMode = next;
+  left.reset();
+  right.reset();
+  keyboard.reset();
+  stepper.reset();
+  deadman.disengage('input');
+  document.body.dataset.input = next;
+  if (save) saveInputMode(storage(), next);
+}
+
+function setFlightMode(n) {
+  mode = n;
+  for (const o of document.querySelectorAll('[data-mode]')) o.classList.toggle('on', Number(o.dataset.mode) === n);
+}
 
 // Where the stick pads are while flying: if the layout moves them (browser bars come back,
 // rotation, leaving full screen) the stick values under the fingers would jump.
@@ -129,8 +177,48 @@ async function takeControl() {
   } catch { /* needs HTTPS; the screen may sleep, which disengages the dead-man */ }
 }
 
+const markOn = (selector, isOn) => {
+  for (const b of document.querySelectorAll(selector)) b.classList.toggle('on', isOn(b));
+};
+let armKeyShown = false;
+
+function renderInput(now) {
+  const pilot = wantRole === 'pilot' && role !== 'observer';
+  $('panel-step').hidden = !(pilot && inputMode === 'step');
+  $('panel-keys').hidden = !(pilot && inputMode === 'keyboard');
+  for (const b of document.querySelectorAll('[data-input]')) {
+    b.classList.toggle('on', b.dataset.input === inputMode);
+    b.disabled = b.dataset.input !== inputMode && !canSwitchInput(status);
+  }
+  markOn('[data-step]', (b) => Number(b.dataset.step) === stepper.step);
+  markOn('[data-intensity]', (b) => Number(b.dataset.intensity) === keyboard.intensity);
+  for (const b of document.querySelectorAll('[data-cap]')) {
+    b.classList.toggle('on', Number(b.dataset.cap) === stepper.cap);
+    b.disabled = !capChangeAllowed(stepper.cap, Number(b.dataset.cap), status);
+  }
+  for (const row of document.querySelectorAll('#panel-step .axis')) {
+    const input = row.querySelector('input');
+    const shown = String(stepper.target[row.dataset.axis] / 10);
+    if (document.activeElement !== input && input.value !== shown) input.value = shown;
+  }
+  // The pads show what is on the air in every mode (touch: the sticks themselves).
+  const cmd = inputMode === 'touch' ? sticksToCommand(left, right, mode) : lastCmd;
+  const pos = padPositions(cmd);
+  const text = readouts(cmd);
+  for (const side of ['left', 'right']) {
+    const knob = $(`stick-${side}`).querySelector('.knob');
+    knob.style.setProperty('--x', pos[side].x);
+    knob.style.setProperty('--y', pos[side].y);
+    $(`ro-${side}`).textContent = text[side];
+  }
+  const p = armKey.update(now);
+  if (p > 0 || armKeyShown) $('btn-arm').style.setProperty('--progress', p);
+  armKeyShown = p > 0;
+}
+
 function render() {
   const now = performance.now();
+  renderInput(now);
   const seg = segments({ wsOpen: wsOpen(), lastMsgAt, status, links, telem, now });
   for (const [name, health] of Object.entries(seg)) $(`seg-${name}`).dataset.health = health;
   $('state').textContent = stateLabel(status, wsOpen(), seg.core === 'ok' || !status?.core);
@@ -156,18 +244,87 @@ $('btn-take').addEventListener('click', takeControl);
 $('btn-disarm').addEventListener('click', () => send({ t: 'disarm' }));
 $('btn-failsafe').addEventListener('click', () => send({ t: 'failsafe' }));
 for (const b of document.querySelectorAll('[data-mode]')) {
+  b.addEventListener('click', () => setFlightMode(Number(b.dataset.mode)));
+}
+
+// Input modes and the step panel.
+for (const b of document.querySelectorAll('[data-input]')) b.addEventListener('click', () => setInputMode(b.dataset.input));
+for (const b of document.querySelectorAll('[data-step]')) b.addEventListener('click', () => stepper.setStep(Number(b.dataset.step)));
+for (const b of document.querySelectorAll('[data-intensity]')) {
+  b.addEventListener('click', () => { keyboard.intensity = Number(b.dataset.intensity); });
+}
+for (const b of document.querySelectorAll('[data-cap]')) {
   b.addEventListener('click', () => {
-    mode = Number(b.dataset.mode);
-    for (const o of document.querySelectorAll('[data-mode]')) o.classList.toggle('on', o === b);
+    const next = Number(b.dataset.cap);
+    if (capChangeAllowed(stepper.cap, next, status)) stepper.setCap(next);
+    else toast('Desarma para subir el límite del acelerador');
   });
 }
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible') deadman.disengage('hidden');
+$('btn-neutral').addEventListener('click', () => stepper.neutral());
+for (const row of document.querySelectorAll('#panel-step .axis')) {
+  const axis = row.dataset.axis;
+  const input = row.querySelector('input');
+  for (const b of row.querySelectorAll('[data-nudge]')) b.addEventListener('click', () => stepper.nudge(axis, Number(b.dataset.nudge)));
+  input.addEventListener('change', () => {
+    if (input.value.trim() === '') return;          // left empty: keep the current value
+    const typed = Number(input.value) * 10;
+    const applied = stepper.set(axis, typed);
+    if (applied !== null && axis === 'throttle' && typed > applied) toast(`Límite del acelerador: ${stepper.cap / 10} %`);
+    input.value = String(stepper.target[axis] / 10);
+  });
+  input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') input.blur(); });
+}
+
+// Keyboard: flight keys in the keyboard mode; action keys (disarm, failsafe, arm, release,
+// flight mode) in every mode. Never while typing a value.
+const armKey = new HoldGesture(1000, () => send({ t: 'arm' }));
+const typing = (ev) => ev.target instanceof Element && ev.target.matches('input, textarea, select');
+document.addEventListener('keydown', (ev) => {
+  if (role !== 'pilot' || typing(ev) || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  if (inputMode === 'keyboard' && keyboard.keyDown(ev.code)) {
+    ev.preventDefault();                             // arrows must not scroll the page
+    return;
+  }
+  const action = KEY_ACTIONS[ev.code];
+  const flightMode = MODE_KEYS[ev.code];
+  if (action === undefined && flightMode === undefined) return;
+  ev.preventDefault();                               // Space must not also press a focused button
+  if (ev.repeat) return;
+  if (flightMode !== undefined) setFlightMode(flightMode);
+  else if (action === 'disarm') send({ t: 'disarm' });
+  else if (action === 'failsafe') send({ t: 'failsafe' });
+  else if (action === 'release') deadman.disengage('released');
+  else if (action === 'arm') armKey.press(performance.now());
 });
-window.addEventListener('blur', () => deadman.disengage('blur'));
+document.addEventListener('keyup', (ev) => {
+  keyboard.keyUp(ev.code);
+  if (ev.code === 'KeyR') armKey.release();
+  if (ev.code === 'Space' && !typing(ev)) ev.preventDefault();
+});
+const releaseKeys = () => {
+  keyboard.releaseAll();
+  armKey.release();
+};
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') {
+    deadman.disengage('hidden');
+    releaseKeys();
+  }
+});
+window.addEventListener('blur', () => {
+  deadman.disengage('blur');
+  releaseKeys();
+});
+// Esc in full screen is taken by the browser (it leaves full screen and the page never sees
+// the key): outside the touch mode, leaving full screen therefore also releases control.
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement && inputMode !== 'touch') deadman.disengage('released');
+});
 for (const type of ['resize', 'orientationchange', 'fullscreenchange']) {
   window.addEventListener(type, () => {
-    if (!padsAtEngage) return;
+    // Only the touch sticks sit under the pilot's fingers; other modes do not care where the pads are.
+    if (!padsAtEngage || inputMode !== 'touch') return;
     const boxes = padBoxes();
     const action = layoutAction({ engaged: deadman.engaged, msSinceEngage: performance.now() - engagedAt,
       moved: padsMoved(padsAtEngage, boxes) });
@@ -176,6 +333,7 @@ for (const type of ['resize', 'orientationchange', 'fullscreenchange']) {
   });
 }
 
+setInputMode(loadInputMode(storage(), matchMedia('(pointer: coarse)').matches), { save: false });
 connect();
 // Video stays on the local network (charter: no video over the internet).
 if (!connectionTarget(location, wantRole, () => '').relay) keepPlaying($('video'));
