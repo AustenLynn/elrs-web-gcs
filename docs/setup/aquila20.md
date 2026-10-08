@@ -47,9 +47,11 @@ Do these with **propellers off**, the TX module on its XT30 supply, and the dron
    and "M (manual)" in the telemetry line.
 5. Radio link loss: arm, then switch the TX module's supply off. Within about 1 s
    `crsf-ctl status` must show `FAILSAFE reason=rf_lost`, and the motors must already be stopped.
-6. **Power-on with ARM high** (not tested yet): with the drone's battery off, arm from
-   `crsf-ctl pilot` so CH5 is high, then connect the battery. The motors **must not** spin. If they
-   do, stop all flights and raise it with the team.
+6. **Power-on with ARM high:** with the drone's battery off, arm from `crsf-ctl pilot`, then
+   connect the battery. The motors **must not** spin. Bench 2026-10-07: PASS. With no link to the
+   drone, crsf-core fails safe (`rf_lost`) in the same frame, so ARM never stays high. Whether the
+   firmware itself would arm at power-on with CH5 high is still unknown (§4), but our core never
+   leaves CH5 high without a link.
 
 **Rule for every session:** press **"Desarmar"** (or `d` in `crsf-ctl pilot`) before anyone walks
 up to the drone or changes its battery, even after a failsafe.
