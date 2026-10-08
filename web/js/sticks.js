@@ -6,8 +6,14 @@ export class StickModel {
   constructor({ springX = true, springY = true, initial = { x: 0, y: 0 } } = {}) {
     this.springX = springX;
     this.springY = springY;
-    this.x = initial.x;
-    this.y = initial.y;
+    this.initial = initial;
+    this.reset();
+  }
+
+  /** Back to the starting position with no finger on it (e.g. after changing input mode). */
+  reset() {
+    this.x = this.initial.x;
+    this.y = this.initial.y;
     this.owner = null;      // pointerId of the finger that holds this stick
     this.anchor = null;     // held (non-sprung) axes: where the drag started
   }
