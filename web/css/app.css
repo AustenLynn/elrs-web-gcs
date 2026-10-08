@@ -22,16 +22,20 @@ body { display: flex; flex-direction: column; }
 /* One grid, placed per orientation: landscape = sticks left and right of the video,
    portrait = video and telemetry on top, both sticks side by side below. */
 .cockpit { display: grid; grid-template-columns: 1fr minmax(220px, 1.2fr) 1fr; grid-template-areas: "left center right";
-  gap: 12px; flex: 1; min-height: 0; padding: 12px; }
+  grid-template-rows: minmax(0, 1fr);   /* the row is the cockpit's height, never its content's */
+  gap: 12px; flex: 1; min-height: 0; padding: 12px; container-type: size; }
 #stick-left { grid-area: left; }
 #stick-right { grid-area: right; }
 .center { grid-area: center; }
-.stick { position: relative; align-self: center; justify-self: center; width: min(40vh, 28vw); aspect-ratio: 1;
+.stick { position: relative; align-self: center; justify-self: center; aspect-ratio: 1;
+  /* sized from the room the cockpit really has (cqh/cqw), so a taller header or footer shrinks
+     the sticks instead of pushing them under the buttons; 46 px = padding + label */
+  width: min(28cqw, calc(100cqh - 46px));
   border-radius: 16px; background: radial-gradient(circle, #232a33 0 60%, #1b2027 61%); border: 1px solid #2f3843; }
 .knob { --x: 0; --y: 0; position: absolute; width: 22%; aspect-ratio: 1; border-radius: 50%; background: var(--accent);
   left: calc(39% + var(--x) * 39%); top: calc(39% + var(--y) * 39%); pointer-events: none; }
 .stick .label { position: absolute; bottom: -22px; width: 100%; text-align: center; color: var(--muted); font-size: 12px; }
-.center { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.center { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
 .video { flex: 1; border-radius: 10px; background: #000; min-height: 80px; overflow: hidden; }
 .video video { width: 100%; height: 100%; object-fit: contain; }
 .telemetry { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; padding: 8px 10px;

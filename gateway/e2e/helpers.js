@@ -25,20 +25,28 @@ export function start(procs, cmd, args, opts = {}) {
 
 /** Launches headless Firefox with a fresh profile in `dir` and returns a page handle. */
 export async function firefox(procs, dir) {
-  const port = 9300 + Math.floor(Math.random() * 500);
   const profile = path.join(dir, 'firefox');
   mkdirSync(profile, { recursive: true });
-  start(procs, 'firefox', ['--headless', '--profile', profile, '--remote-debugging-port', String(port), 'about:blank']);
-  let ws;
-  await waitFor(async () => {
-    try {
-      ws = new WebSocket(`ws://127.0.0.1:${port}/session`);
-      await new Promise((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
-      return true;
-    } catch {
-      return false;
-    }
-  }, 30000, 'firefox remote agent');
+  // Port 0: Firefox picks a free port and announces it. A port chosen here could collide with
+  // another test's Firefox running in parallel ("Maximum number of active sessions").
+  const ff = start(procs, 'firefox', ['--headless', '--profile', profile, '--remote-debugging-port', '0', 'about:blank'],
+    { stdio: ['pipe', 'pipe', 'pipe'] });
+  const base = await new Promise((resolve, reject) => {
+    let text = '';
+    const timer = setTimeout(() => reject(new Error('timed out waiting for firefox remote agent')), 30000);
+    ff.stderr.on('data', (d) => {
+      text += d;
+      const m = /WebDriver BiDi listening on (ws:\/\/\S+)/.exec(text);
+      if (m) {
+        clearTimeout(timer);
+        resolve(m[1]);
+      }
+    });
+    ff.once('exit', () => reject(new Error('firefox exited before its remote agent started')));
+  });
+  ff.stderr.resume();                       // keep draining, so Firefox never blocks on stderr
+  const ws = new WebSocket(`${base}/session`);
+  await new Promise((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
   let id = 0;
   const pending = new Map();
   const errors = [];

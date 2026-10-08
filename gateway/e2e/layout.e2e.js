@@ -14,6 +14,15 @@ const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const procs = [];
 after(() => { for (const p of procs) p.kill('SIGKILL'); });
 
+// Phones have touch screens, so they start in touch mode (two sticks). Headless Firefox has
+// no touch screen and would start in keyboard mode, where short screens hide the pads on
+// purpose: select touch mode through the page's own saved setting, as a phone would get it.
+async function openAsPhone(page, port) {
+  await page.open(`http://127.0.0.1:${port}/`);
+  await page.evaluate("localStorage.setItem('gcs-input-mode', 'touch')");
+  await page.open(`http://127.0.0.1:${port}/`);
+}
+
 test('control buttons stay out of the cockpit on landscape phone screens', { timeout: 90000 }, async () => {
   const tmp = mkdtempSync(path.join(tmpdir(), 'gcs-layout-'));
   const gw = await startGateway({ ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 },
@@ -24,7 +33,7 @@ test('control buttons stay out of the cockpit on landscape phone screens', { tim
   await openWithInputMode(page, `http://127.0.0.1:${gw.port}/`, 'touch');   // these screens are phones
   for (const [width, height] of [[800, 360], [740, 360], [640, 360]]) {
     await page.call('browsingContext.setViewport', { context: page.context, viewport: { width, height } });
-    await page.open(`http://127.0.0.1:${gw.port}/`);
+    await openAsPhone(page, gw.port);
     const m = JSON.parse(await page.evaluate(`JSON.stringify((() => {
       const r = (el) => el.getBoundingClientRect();
       const cockpit = r(document.querySelector('.cockpit'));
@@ -81,7 +90,7 @@ test('the pilot page fits phone screens held either way', { timeout: 120000 }, a
   for (const [width, height] of [[390, 844], [360, 780], [412, 915], [844, 390], [780, 360], [740, 360], [640, 360]]) {
     const at = `${width}x${height}`;
     await page.call('browsingContext.setViewport', { context: page.context, viewport: { width, height } });
-    await page.open(`http://127.0.0.1:${gw.port}/`);
+    await openAsPhone(page, gw.port);
     const m = JSON.parse(await page.evaluate(`JSON.stringify((() => {
       const r = (el) => el.getBoundingClientRect().toJSON();
       return {
