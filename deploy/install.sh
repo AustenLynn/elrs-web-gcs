@@ -10,6 +10,9 @@ id gcs >/dev/null 2>&1 || useradd --system --home-dir /var/lib/gcs --create-home
 usermod -aG dialout gcs
 id gcs-video >/dev/null 2>&1 || useradd --system --home-dir /var/lib/gcs-video --create-home --shell /usr/sbin/nologin gcs-video
 usermod -aG video gcs-video
+# the operator who runs the installer may use crsf-ctl (the sockets belong to group gcs);
+# takes effect at their next login
+[[ -n "${SUDO_USER:-}" && "$SUDO_USER" != root ]] && usermod -aG gcs "$SUDO_USER"
 
 echo "== crsf-core"
 sudo -u "${SUDO_USER:-root}" make -C "$repo/core" all     # build as you, not as root
