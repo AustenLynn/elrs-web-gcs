@@ -81,6 +81,7 @@ static void on_frame(const uint8_t *frame, size_t len, void *user)
         }
         break;
     case CRSF_MSG_LINK_STATS:
+        safety_rf_link(&l->safety, m.u.link.up_lq > 0, l->now_ns);
         mailbox_put_link(l->mb, &m.u.link);
         break;
     case CRSF_MSG_BATTERY:
@@ -243,6 +244,8 @@ void rtloop_init(rtloop_t *l, const config_t *cfg, mailbox_t *mb, atomic_bool *s
     l->last_open_attempt_ns = INT64_MIN / 2;
     safety_init(&l->safety, (int64_t)cfg->cmd_timeout_ms * NS_PER_MS,
                 (int64_t)cfg->fc_armed_fresh_ms * NS_PER_MS, (uint16_t)cfg->throttle_arm_max);
+    if (cfg->fc_profile == FC_PROFILE_AQUILA20)       /* it disarms silently on link loss */
+        safety_set_rf_timeout(&l->safety, (int64_t)AQUILA20_RF_TIMEOUT_MS * NS_PER_MS);
     crsf_deframer_init(&l->deframer);
 }
 

@@ -21,6 +21,46 @@ static void armed(safety_t *s)
     CHECK_EQ_INT(safety_arm(s, 7, 0), REFUSE_NONE);
 }
 
+static void test_radio_link_loss_fails_safe_when_enabled(void)
+{
+    /* Aquila20: the drone disarms itself when it loses the radio link but never says so.
+     * The core must follow (FAILSAFE rf_lost: ARM low) instead of showing ARMED and holding
+     * ARM high over a disarmed drone. Commands keep arriving, so only the radio is stale. */
+    safety_t s;
+    armed(&s);
+    safety_set_rf_timeout(&s, 1000 * MS);
+    stick_cmd_t c = LOW;
+    for (int t = 100; t <= 900; t += 100) {           /* link reports with LQ > 0 */
+        safety_rf_link(&s, true, t * MS);
+        CHECK(safety_control(&s, 7, (uint32_t)t, &c, t * MS));
+        safety_tick(&s, t * MS);
+    }
+    CHECK_EQ_INT(s.state, SAFETY_ARMED);
+    for (int t = 1000; t <= 1900; t += 100) {         /* reports stop (or say LQ 0) */
+        safety_rf_link(&s, false, t * MS);
+        CHECK(safety_control(&s, 7, (uint32_t)t, &c, t * MS));
+        safety_tick(&s, t * MS);
+    }
+    CHECK_EQ_INT(s.state, SAFETY_ARMED);              /* 1000 ms since the last LQ > 0 */
+    CHECK(safety_control(&s, 7, 2001, &c, 2000 * MS));
+    safety_tick(&s, 2000 * MS);
+    CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
+    CHECK_STR(safety_reason_name(s.fs_reason), "rf_lost");
+}
+
+static void test_radio_link_check_is_off_by_default(void)
+{
+    /* Betaflight runs its own RX-loss failsafe and reports it; the core does not add one. */
+    safety_t s;
+    armed(&s);
+    stick_cmd_t c = LOW;
+    for (int t = 100; t <= 3000; t += 100) {
+        CHECK(safety_control(&s, 7, (uint32_t)t, &c, t * MS));
+        safety_tick(&s, t * MS);
+    }
+    CHECK_EQ_INT(s.state, SAFETY_ARMED);
+}
+
 static void test_starts_disarmed_with_safe_outputs(void)
 {
     safety_t s;
@@ -294,5 +334,7 @@ int main(void)
     RUN(test_manual_failsafe_from_disarmed);
     RUN(test_flight_mode_parsing);
     RUN(test_names);
+    RUN(test_radio_link_loss_fails_safe_when_enabled);
+    RUN(test_radio_link_check_is_off_by_default);
     return CHECK_EXIT();
 }

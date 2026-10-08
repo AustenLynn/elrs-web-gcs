@@ -72,7 +72,7 @@ class FakeTx:
         self.interval_us = interval_us
         self.offset_us = offset_us
         self.flight_mode = None
-        self.link_lq = None
+        self.link_lq = 100          # a bound drone; None = no link reports (link lost)
         self.battery_dv = None
         self.rc = []
         self.model_selects = 0

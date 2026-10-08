@@ -19,6 +19,10 @@ typedef enum { FC_PROFILE_AQUILA20 = 0, FC_PROFILE_BETAFLIGHT = 1 } fc_profile_t
 /* The Aquila20's stick-sensitivity switch (0-based CH7): no function may use it. */
 #define AQUILA20_SENSITIVITY_CH 6
 
+/* Armed + no radio link report with uplink LQ > 0 for this long -> FAILSAFE rf_lost
+ * (aquila20 only: the drone disarms itself on link loss and never reports it). */
+#define AQUILA20_RF_TIMEOUT_MS 1000
+
 typedef struct {
     char serial_device[CONFIG_PATH_MAX];
     int baud;

@@ -25,6 +25,7 @@ typedef enum {
     FS_GATEWAY_LOST,     /* the gateway's connection to the core closed */
     FS_SESSION_CHANGED,  /* a different pilot session started while armed */
     FS_MANUAL,           /* the pilot pressed FAILSAFE */
+    FS_RF_LOST,          /* aquila20: no radio link report with LQ > 0 for rf_timeout */
 } fs_reason_t;
 
 typedef enum { FC_UNKNOWN = 0, FC_DISARMED = 1, FC_ARMED = 2 } fc_arm_t;
@@ -59,6 +60,8 @@ typedef struct {
     stick_cmd_t cmd;           /* last command the pilot sent (clamped) */
     fc_arm_t fc_arm;
     int64_t fc_arm_ns;
+    int64_t rf_timeout_ns;     /* 0 = off (betaflight: the FC has its own RX-loss failsafe) */
+    int64_t rf_ok_ns;          /* last link report with uplink LQ > 0 */
     rc_outputs_t out;          /* what goes on the air */
 } safety_t;
 
@@ -79,6 +82,12 @@ void safety_gateway_lost(safety_t *s);
 void safety_trigger(safety_t *s, fs_reason_t reason);
 /* Betaflight appends '*' to its flight-mode string while disarmed. */
 void safety_fc_flight_mode(safety_t *s, const char *mode, int64_t now);
+/* Aquila20 profile: the drone disarms itself when its radio link drops and never reports it,
+ * so the core follows: armed + no link report with uplink LQ > 0 for `timeout_ns` ->
+ * FAILSAFE rf_lost. Off (0) unless set. */
+void safety_set_rf_timeout(safety_t *s, int64_t timeout_ns);
+/* Called for every link-statistics report; linked = uplink LQ > 0. */
+void safety_rf_link(safety_t *s, bool linked, int64_t now);
 void safety_tick(safety_t *s, int64_t now);
 
 const char *safety_state_name(safety_state_t st);

@@ -186,6 +186,18 @@ class SafetyTest(CoreHarness):
         self.assertNotIn(("ack_refused", "fc_still_armed", 15), self.client.events)
         pilot.stop()
 
+    def test_radio_link_loss_disarms_and_says_so(self):
+        # The drone disarms itself when its radio link drops and never says so: the core must
+        # follow within about 1 s (FAILSAFE rf_lost, ARM low), not show ARMED with ARM high.
+        pilot = Pilot(self.client, session=16)
+        self.arm(pilot)
+        t0 = time.monotonic()
+        self.tx.link_lq = None                             # link reports stop
+        self.assertTrue(self.client.wait(lambda c: c.status["reason_name"] == "rf_lost", timeout=3))
+        self.assertLess(time.monotonic() - t0, 1.6)        # 1 s + report interval + slack
+        self.assertTrue(self.failsafe_on(self.tx.last_channels()))
+        pilot.stop()
+
     def test_arm_refused_with_throttle_up(self):
         pilot = Pilot(self.client, session=14, throttle=400)
         self.assertTrue(self.client.wait(lambda c: c.status["last_seq"] > 0))

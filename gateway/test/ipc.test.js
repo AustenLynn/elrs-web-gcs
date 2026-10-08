@@ -4,10 +4,7 @@ import net from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import {
-  CoreClient, FrameReader, MSG, decodeBattery, decodeDevice, decodeEvent, decodeFlightMode,
-  decodeLink, decodeStatus, encodeControl, encodeSessionMsg,
-} from '../src/ipc.js';
+import { CoreClient, FrameReader, MSG, REASONS, decodeBattery, decodeDevice, decodeEvent, decodeFlightMode, decodeLink, decodeStatus, encodeControl, encodeSessionMsg } from '../src/ipc.js';
 
 // Same bytes as CONTROL_GOLDEN in core/tests/test_ipc_proto.c
 const CONTROL_GOLDEN = Buffer.from([
@@ -119,4 +116,11 @@ test('core client connects, decodes, sends and reconnects', async (t) => {
   await down;
   await upAgain;
   assert.equal(client.connected, true);
+});
+
+test('every failsafe reason the core can report has a text on the pilot page', async () => {
+  // The reason list mirrors fs_reason_t in core/src/safety.h; the page must explain each one.
+  const { REASON_TEXT } = await import('../../web/js/protocol.js');
+  for (const r of REASONS.slice(1)) assert.ok(REASON_TEXT[r], `no text for "${r}"`);
+  assert.equal(REASONS[6], 'rf_lost');
 });

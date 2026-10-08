@@ -8,7 +8,7 @@ export const MSG = Object.freeze({
   STATUS: 0x81, LINK: 0x82, BATTERY: 0x83, FLIGHT_MODE: 0x84, DEVICE: 0x85, EVENT: 0x86,
 });
 export const STATES = ['DISARMED', 'ARMED', 'FAILSAFE'];
-export const REASONS = ['none', 'cmd_timeout', 'pilot_lost', 'gateway_lost', 'session_changed', 'manual'];
+export const REASONS = ['none', 'cmd_timeout', 'pilot_lost', 'gateway_lost', 'session_changed', 'manual', 'rf_lost'];
 export const FC_ARM = ['unknown', 'disarmed', 'armed'];
 export const REFUSALS = ['none', 'wrong_session', 'not_disarmed', 'not_in_failsafe', 'link_stale',
   'throttle_high', 'fc_still_armed'];

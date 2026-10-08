@@ -140,10 +140,23 @@ void safety_fc_flight_mode(safety_t *s, const char *mode, int64_t now)
     s->fc_arm_ns = now;
 }
 
+void safety_set_rf_timeout(safety_t *s, int64_t timeout_ns)
+{
+    s->rf_timeout_ns = timeout_ns;
+}
+
+void safety_rf_link(safety_t *s, bool linked, int64_t now)
+{
+    if (linked)
+        s->rf_ok_ns = now;
+}
+
 void safety_tick(safety_t *s, int64_t now)
 {
     if (s->state == SAFETY_ARMED && !safety_link_fresh(s, now))
         enter_failsafe(s, FS_CMD_TIMEOUT);
+    else if (s->state == SAFETY_ARMED && s->rf_timeout_ns > 0 && now - s->rf_ok_ns > s->rf_timeout_ns)
+        enter_failsafe(s, FS_RF_LOST);
 }
 
 const char *safety_state_name(safety_state_t st)
@@ -165,6 +178,7 @@ const char *safety_reason_name(fs_reason_t r)
     case FS_GATEWAY_LOST: return "gateway_lost";
     case FS_SESSION_CHANGED: return "session_changed";
     case FS_MANUAL: return "manual";
+    case FS_RF_LOST: return "rf_lost";
     }
     return "?";
 }
