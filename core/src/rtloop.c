@@ -70,7 +70,10 @@ static void on_frame(const uint8_t *frame, size_t len, void *user)
         push(l, EV_TIMING, (int32_t)m.u.timing.interval_0p1us, m.u.timing.offset_0p1us, 0, 0, 0, 0, NULL);
         break;
     case CRSF_MSG_FLIGHT_MODE:
-        safety_fc_flight_mode(&l->safety, m.u.flight_mode.mode, l->now_ns);
+        /* Only Betaflight's text says whether it is armed ('*' = disarmed). The Aquila20's
+         * ("S-NORMAL") never does: it is forwarded and logged, never read as "armed". */
+        if (l->cfg->fc_profile == FC_PROFILE_BETAFLIGHT)
+            safety_fc_flight_mode(&l->safety, m.u.flight_mode.mode, l->now_ns);
         if (strcmp(l->flight_mode, m.u.flight_mode.mode) != 0) {
             snprintf(l->flight_mode, sizeof l->flight_mode, "%s", m.u.flight_mode.mode);
             mailbox_put_flight_mode(l->mb, l->flight_mode);

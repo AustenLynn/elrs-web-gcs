@@ -172,6 +172,20 @@ class SafetyTest(CoreHarness):
         self.client = CoreClient(self.sock)
         self.assertTrue(self.client.wait(lambda c: c.status is not None and c.status["reason_name"] == "gateway_lost"))
 
+    def test_flight_mode_text_never_blocks_clearing_failsafe(self):
+        # The Aquila20's flight-mode text ("S-NORMAL") never says whether it is armed. Read the
+        # Betaflight way (no '*' = armed) it would refuse every ack.
+        pilot = Pilot(self.client, session=15)
+        self.arm(pilot)
+        self.tx.flight_mode = "S-NORMAL"
+        time.sleep(0.3)                                    # telemetry reaches the core
+        self.client.send(FAILSAFE, 15)
+        self.assertIsNotNone(self.tx.wait_for(self.failsafe_on))
+        self.client.send(ACK, 15)
+        self.assertTrue(self.client.wait(lambda c: c.status["state_name"] == "DISARMED"))
+        self.assertNotIn(("ack_refused", "fc_still_armed", 15), self.client.events)
+        pilot.stop()
+
     def test_arm_refused_with_throttle_up(self):
         pilot = Pilot(self.client, session=14, throttle=400)
         self.assertTrue(self.client.wait(lambda c: c.status["last_seq"] > 0))
@@ -199,6 +213,12 @@ class BetaflightTest(CoreHarness):
         self.assertIsNotNone(self.tx.wait_for(lambda ch: ch[CH_FAILSAFE] == LOW and ch[CH_ARM] == LOW))
         pilot.stop()
         self.assertTrue(self.client.wait(lambda c: c.status["state_name"] == "DISARMED"))  # status is 10 Hz
+
+
+    def test_flight_mode_star_means_disarmed(self):
+        self.tx.flight_mode = "ACRO*"
+        self.assertTrue(self.client.wait(lambda c: c.flight_mode == "ACRO*", timeout=3))
+        self.assertTrue(self.client.wait(lambda c: c.status["fc_arm"] == 1))   # FC_DISARMED
 
 
 class ResilienceTest(CoreHarness):
@@ -253,7 +273,7 @@ class TelemetryTest(CoreHarness):
         self.assertEqual(self.client.link["up_lq"], 87)
         self.assertEqual(self.client.link["up_rssi1"], -67)
         self.assertEqual(self.client.battery["voltage_dv"], 151)
-        self.assertEqual(self.client.status["fc_arm"], 1)   # FC_DISARMED
+        self.assertEqual(self.client.status["fc_arm"], 0)   # aquila20: armed state unknown
 
 
 if __name__ == "__main__":
