@@ -132,6 +132,17 @@ first. The gateway's relay tests import `relay/`, so install both packages.
 
 ## 6. Open items for the team
 
+- **PENDING, BLOCKING for any real internet use: login on the pilot page.**
+  - **What happened:** on 2026-10-07 the gateway was exposed for a test through a Cloudflare
+    *quick tunnel* (`~/.local/bin/cloudflared tunnel --url https://localhost:8443 --no-tls-verify`,
+    a random `*.trycloudflare.com` address that lives only while that process runs). The team
+    chose to do this without login.
+  - **The risk:** the pilot page has no authentication, so anyone with the URL can take a free
+    pilot seat and arm the drone.
+  - **Before reusing a tunnel**, put a login in front: Cloudflare Access with a named tunnel, or
+    the M7 relay with its pilot token. Otherwise keep the page on the local network.
+  - Stop the tunnel when the test ends (kill the `cloudflared` process).
+
 - **Resolved 2026-10-07: the drone does not run Betaflight.** The team kept the Aquila20.
   - crsf-core has `fc_profile = aquila20 | betaflight`. In `aquila20` (the default), FAILSAFE drops
     ARM over a live link, and CH7 stays at S. Design: `docs/superpowers/specs/2026-10-07-aquila20-profile-design.md`.
