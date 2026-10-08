@@ -21,6 +21,7 @@ browser ──HTTPS/WebSocket──▶ gateway (Node.js) ──Unix socket──
 | `deploy/` | configs, systemd units, install scripts | M3, M4, M6, M7 |
 | `docs/` | design, plans, setup guides, test procedures | all |
 
+Architecture overview: `docs/ARCHITECTURE.md`. How we work: `docs/DEVELOPMENT-PROCESS.md`.
 Design: `docs/superpowers/specs/2026-10-05-elrs-web-gcs-design.md`.
 Plans, one per milestone: `docs/superpowers/plans/`.
 
