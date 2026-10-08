@@ -13,11 +13,20 @@ from fake_tx import FakeTx
 CORE_DIR = os.path.join(os.path.dirname(__file__), "..", "..")
 CORE = os.path.join(CORE_DIR, "build", "crsf-core")
 CTL = os.path.join(CORE_DIR, "build", "crsf-ctl")
-CH_ARM, CH_FAILSAFE, CH_THROTTLE = 4, 6, 2
+CH_ARM, CH_FAILSAFE, CH_THROTTLE = 4, 6, 2   # CH_FAILSAFE: betaflight profile only
+CH_SENSITIVITY = 6                            # aquila20: CH7 is the drone's sensitivity switch
 HIGH, LOW = 1792, 192
 
 
 class CoreHarness(unittest.TestCase):
+    PROFILE = "aquila20"          # fc_profile; subclasses may choose "betaflight"
+
+    def failsafe_on(self, ch):
+        """What FAILSAFE looks like on the air in this profile."""
+        if self.PROFILE == "betaflight":
+            return ch[CH_FAILSAFE] == HIGH                       # FAILSAFE switch high
+        return ch[CH_ARM] == LOW and ch[CH_SENSITIVITY] == LOW   # disarmed, sensitivity still S
+
     def setUp(self):
         # addCleanup (not tearDown) so a failure half-way through setUp still stops everything
         self.tx = FakeTx(interval_us=4000.0)
@@ -34,6 +43,7 @@ class CoreHarness(unittest.TestCase):
             f.write("status_socket_path = %s\n" % self.status_sock)
             f.write("event_log = %s\n" % self.events)
             f.write("rt_priority = 0\nrt_cpu = -1\n")
+            f.write("fc_profile = %s\n" % self.PROFILE)
         self.proc = subprocess.Popen([CORE, "-c", conf], stderr=subprocess.DEVNULL)
         self.addCleanup(self.stop_core)
         for _ in range(100):
@@ -118,7 +128,7 @@ class SafetyTest(CoreHarness):
     def test_starts_disarmed_with_safe_channels(self):
         ch = self.tx.last_channels()
         self.assertEqual(ch[CH_ARM], LOW)
-        self.assertEqual(ch[CH_FAILSAFE], LOW)
+        self.assertEqual(ch[CH_SENSITIVITY], LOW)
         self.assertEqual(ch[CH_THROTTLE], LOW)
 
     def test_command_timeout_triggers_failsafe_within_budget(self):
@@ -126,12 +136,12 @@ class SafetyTest(CoreHarness):
         self.arm(pilot)
         pilot.paused = True                                # pilot freezes (e.g. Wi-Fi drop)
         t_stop = time.monotonic()
-        t_fs = self.tx.wait_for(lambda ch: ch[CH_FAILSAFE] == HIGH, timeout=2)
+        t_fs = self.tx.wait_for(self.failsafe_on, timeout=2)
         pilot.stop()
-        self.assertIsNotNone(t_fs, "FAILSAFE channel never went high")
+        self.assertIsNotNone(t_fs, "failsafe never reached the channels")
         self.assertLess(t_fs - t_stop, 0.45)               # 300 ms timeout + scheduling slack
         ch = self.tx.last_channels()
-        self.assertEqual(ch[CH_ARM], HIGH)                 # Betaflight runs its own procedure
+        self.assertEqual(ch[CH_ARM], LOW)                  # aquila20: failsafe disarms the drone
         self.assertEqual(ch[CH_THROTTLE], LOW)
         self.assertTrue(self.client.wait(lambda c: c.status["reason_name"] == "cmd_timeout"))
         fs = [e for e in self.read_events() if e["ev"] == "state" and e["to"] == "FAILSAFE"]
@@ -143,7 +153,7 @@ class SafetyTest(CoreHarness):
         self.arm(pilot)
         pilot.stop()
         self.client.close()
-        self.assertIsNotNone(self.tx.wait_for(lambda ch: ch[CH_FAILSAFE] == HIGH, timeout=1))
+        self.assertIsNotNone(self.tx.wait_for(self.failsafe_on, timeout=1))
         self.client = CoreClient(self.sock)
         self.assertTrue(self.client.wait(lambda c: c.status is not None and c.status["reason_name"] == "gateway_lost"))
 
@@ -157,10 +167,22 @@ class SafetyTest(CoreHarness):
         self.client.sock.sendall(burst)
         self.client.close()
         t0 = time.monotonic()
-        self.assertIsNotNone(self.tx.wait_for(lambda ch: ch[CH_FAILSAFE] == HIGH, timeout=1))
+        self.assertIsNotNone(self.tx.wait_for(self.failsafe_on, timeout=1))
         self.assertLess(time.monotonic() - t0, 0.15)
         self.client = CoreClient(self.sock)
         self.assertTrue(self.client.wait(lambda c: c.status is not None and c.status["reason_name"] == "gateway_lost"))
+
+    def test_arm_refused_with_throttle_up(self):
+        pilot = Pilot(self.client, session=14, throttle=400)
+        self.assertTrue(self.client.wait(lambda c: c.status["last_seq"] > 0))
+        self.client.send(ARM, 14)
+        self.assertTrue(self.client.wait(lambda c: ("arm_refused", "throttle_high", 14) in c.events))
+        pilot.stop()
+        self.assertEqual(self.tx.last_channels()[CH_ARM], LOW)
+
+
+class BetaflightTest(CoreHarness):
+    PROFILE = "betaflight"
 
     def test_ack_is_refused_while_fc_reports_armed(self):
         pilot = Pilot(self.client, session=13)
@@ -178,14 +200,6 @@ class SafetyTest(CoreHarness):
         pilot.stop()
         self.assertTrue(self.client.wait(lambda c: c.status["state_name"] == "DISARMED"))  # status is 10 Hz
 
-    def test_arm_refused_with_throttle_up(self):
-        pilot = Pilot(self.client, session=14, throttle=400)
-        self.assertTrue(self.client.wait(lambda c: c.status["last_seq"] > 0))
-        self.client.send(ARM, 14)
-        self.assertTrue(self.client.wait(lambda c: ("arm_refused", "throttle_high", 14) in c.events))
-        pilot.stop()
-        self.assertEqual(self.tx.last_channels()[CH_ARM], LOW)
-
 
 class ResilienceTest(CoreHarness):
     def test_unplugged_module_is_reported(self):
@@ -198,14 +212,14 @@ class ResilienceTest(CoreHarness):
         self.arm(pilot)
         pilot.stop()
         self.client.sock.sendall(struct.pack("<HB", 1, 0x55))   # unknown message type
-        self.assertIsNotNone(self.tx.wait_for(lambda ch: ch[CH_FAILSAFE] == HIGH, timeout=1))
+        self.assertIsNotNone(self.tx.wait_for(self.failsafe_on, timeout=1))
 
     def test_newest_gateway_wins_and_the_old_one_fails_safe(self):
         pilot = Pilot(self.client, session=22)
         self.arm(pilot)
         second = CoreClient(self.sock)
         self.addCleanup(second.close)
-        self.assertIsNotNone(self.tx.wait_for(lambda ch: ch[CH_FAILSAFE] == HIGH, timeout=1))
+        self.assertIsNotNone(self.tx.wait_for(self.failsafe_on, timeout=1))
         pilot.stop()
         self.assertTrue(second.wait(lambda c: c.status is not None and c.status["reason_name"] == "gateway_lost"))
 

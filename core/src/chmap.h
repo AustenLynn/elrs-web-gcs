@@ -12,7 +12,7 @@ typedef struct {
     uint16_t throttle;         /* 0..1000 */
     uint8_t mode;              /* flight-mode switch position 0..2 */
     bool arm;                  /* ARM switch high */
-    bool failsafe;             /* FAILSAFE switch high */
+    bool failsafe;             /* in FAILSAFE (betaflight: switch high; aquila20: ARM forced low) */
 } rc_outputs_t;
 
 /* Sticks map linearly onto stick_min_us..stick_max_us, switches onto min/max (mode

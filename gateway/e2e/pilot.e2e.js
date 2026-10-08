@@ -15,7 +15,7 @@ const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const tmp = mkdtempSync(path.join(tmpdir(), 'gcs-e2e-'));
 const procs = [];
 const ARM = 4;
-const FAILSAFE = 6;
+const SENSITIVITY = 6;   // fc_profile aquila20 (the default): CH7 is the drone's sensitivity, kept at S
 const HIGH = 1792;
 const LOW = 192;
 
@@ -71,13 +71,15 @@ test('pilot page arms the aircraft and fails safe when the page loses control', 
     }],
   });
   await waitFor(() => channels[ARM] === HIGH, 3000, 'ARM channel high');
-  assert.equal(channels[FAILSAFE], LOW, 'FAILSAFE must be low while flying');
+  assert.equal(channels[SENSITIVITY], LOW, 'sensitivity must stay at S');
   await waitFor(() => page.evaluate("document.getElementById('state').textContent === 'ARMADO'"), 3000, 'ARMADO on the page');
 
-  // dead-man: the page loses focus -> it stops sending -> crsf-core fails safe
+  // dead-man: the page loses focus -> it stops sending -> crsf-core fails safe, which on the
+  // Aquila20 means ARM low (the drone disarms) while the link keeps running
   const t0 = Date.now();
   await page.evaluate("document.hasFocus = () => false; window.dispatchEvent(new Event('blur'))");
-  await waitFor(() => channels[FAILSAFE] === HIGH, 3000, 'FAILSAFE channel high');
+  await waitFor(() => channels[ARM] === LOW, 3000, 'ARM channel low (failsafe disarm)');
+  assert.equal(channels[SENSITIVITY], LOW, 'sensitivity still S during failsafe');
   assert.ok(Date.now() - t0 < 1000, `failsafe took ${Date.now() - t0} ms`);
   await waitFor(() => page.evaluate("!document.getElementById('banner').hidden"), 3000, 'failsafe banner');
 

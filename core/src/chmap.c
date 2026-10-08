@@ -29,6 +29,10 @@ void chmap_build(const config_t *c, const rc_outputs_t *o, uint16_t ch[CRSF_NUM_
     ch[c->ch_yaw] = stick(c, o->yaw);
     ch[c->ch_throttle] = crsf_us_to_ch(c->stick_min_us + clampi(o->throttle, 0, 1000) * span / 1000);
     ch[c->ch_mode] = crsf_us_to_ch(c->stick_min_us + mode * span / 2);
-    ch[c->ch_arm] = sw(c, o->arm);
-    ch[c->ch_failsafe] = sw(c, o->failsafe);
+    if (c->fc_profile == FC_PROFILE_BETAFLIGHT) {
+        ch[c->ch_arm] = sw(c, o->arm);               /* Betaflight decides what FAILSAFE does */
+        ch[c->ch_failsafe] = sw(c, o->failsafe);
+    } else {
+        ch[c->ch_arm] = sw(c, o->arm && !o->failsafe);   /* Aquila20: FAILSAFE = disarm */
+    }
 }

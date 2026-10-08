@@ -23,6 +23,7 @@ static void test_full_deflection_and_switches(void)
 {
     config_t c;
     config_defaults(&c);
+    c.fc_profile = FC_PROFILE_BETAFLIGHT;   /* FAILSAFE is a switch on CH7 */
     rc_outputs_t o = { .roll = 1000, .pitch = -1000, .yaw = 500, .throttle = 1000,
                        .mode = 1, .arm = true, .failsafe = true };
     uint16_t ch[CRSF_NUM_CHANNELS];
@@ -37,6 +38,24 @@ static void test_full_deflection_and_switches(void)
     o.mode = 2;
     chmap_build(&c, &o, ch);
     CHECK_EQ_INT(crsf_ch_to_us(ch[5]), 2000);
+}
+
+static void test_aquila20_failsafe_drops_arm_and_keeps_ch7_low(void)
+{
+    /* The Aquila20 has no failsafe switch: FAILSAFE must disarm it, and CH7 (its stick
+     * sensitivity) stays at the slowest setting whatever happens. */
+    config_t c;
+    config_defaults(&c);                    /* fc_profile aquila20 */
+    rc_outputs_t o = { .throttle = 500, .mode = 2, .arm = true };
+    uint16_t ch[CRSF_NUM_CHANNELS];
+    chmap_build(&c, &o, ch);
+    CHECK_EQ_INT(crsf_ch_to_us(ch[4]), 2000);   /* armed while flying */
+    CHECK_EQ_INT(crsf_ch_to_us(ch[6]), 1000);   /* sensitivity S */
+    o.failsafe = true;                          /* arm stays true in the safety outputs */
+    chmap_build(&c, &o, ch);
+    CHECK_EQ_INT(crsf_ch_to_us(ch[4]), 1000);   /* ARM low: the drone disarms */
+    CHECK_EQ_INT(crsf_ch_to_us(ch[6]), 1000);   /* still S, never a "failsafe switch" */
+    CHECK_EQ_INT(crsf_ch_to_us(ch[5]), 2000);   /* flight mode passed through unchanged */
 }
 
 static void test_out_of_range_inputs_are_clamped(void)
@@ -70,6 +89,7 @@ int main(void)
 {
     RUN(test_neutral_outputs);
     RUN(test_full_deflection_and_switches);
+    RUN(test_aquila20_failsafe_drops_arm_and_keeps_ch7_low);
     RUN(test_out_of_range_inputs_are_clamped);
     RUN(test_custom_channel_order);
     return CHECK_EXIT();
