@@ -3,7 +3,7 @@
 import { Deadman, DEADMAN_TEXT } from './deadman.js';
 import { bindHold } from './hold.js';
 import { REFUSAL_TEXT, RATE_HZ, closeAction, connectionTarget, controlMessage, shouldReclaimPilotSeat, tsyncReply } from './protocol.js';
-import { StickModel, bindStick, layoutAction, padsMoved, sticksToCommand } from './sticks.js';
+import { StickModel, bindStick, layoutAction, orientationLock, padsMoved, sticksToCommand } from './sticks.js';
 import { LinkTracker, failsafeDetail, formatBattery, formatFlightMode, formatLink, formatMs, segments, stateLabel } from './view.js';
 import { keepPlaying } from './whep.js';
 
@@ -119,7 +119,7 @@ async function takeControl() {
   if (role !== 'pilot') return;
   try {
     await document.documentElement.requestFullscreen?.();
-    await screen.orientation?.lock?.('landscape');
+    await screen.orientation?.lock?.(orientationLock(screen.orientation.type));
   } catch { /* not supported (desktop browsers): fine */ }
   deadman.engage();
   engagedAt = performance.now();

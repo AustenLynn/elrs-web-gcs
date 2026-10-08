@@ -57,6 +57,9 @@ export function layoutAction({ engaged, msSinceEngage, moved, settleMs = 1500 })
   return moved ? 'disengage' : 'ignore';
 }
 
+/** The orientation to lock when the pilot takes control: the one the phone is held in. */
+export const orientationLock = (type) => (String(type).startsWith('portrait') ? 'portrait' : 'landscape');
+
 /** True when a stick pad moved or resized by more than tolPx since `before` (browser bars
  *  returning, rotation): the stick values under the fingers would jump. */
 export function padsMoved(before, after, tolPx = 4) {

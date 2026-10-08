@@ -65,3 +65,47 @@ test('"Tomar control" survives the full-screen transition; a later layout change
   await new Promise((resolve) => setTimeout(resolve, 300));
   assert.match(await deadman(), /pantalla/, 'a later layout change ends control');
 });
+
+test('the pilot page fits phone screens held either way', { timeout: 120000 }, async () => {
+  // Portrait: video and telemetry on top, both sticks side by side within thumb reach.
+  // Landscape: sticks left and right. Either way: nothing off screen, nothing overlapping.
+  const tmp = mkdtempSync(path.join(tmpdir(), 'gcs-layout-'));
+  const gw = await startGateway({ ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 },
+    coreSocket: path.join(tmp, 'no-core.sock'), webRoot: path.join(repo, 'web') });
+  after(() => gw.close());
+  const page = await firefox(procs, tmp);
+  after(() => page.close());
+  const overlap = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+  for (const [width, height] of [[390, 844], [360, 780], [412, 915], [844, 390], [780, 360], [740, 360], [640, 360]]) {
+    const at = `${width}x${height}`;
+    await page.call('browsingContext.setViewport', { context: page.context, viewport: { width, height } });
+    await page.open(`http://127.0.0.1:${gw.port}/`);
+    const m = JSON.parse(await page.evaluate(`JSON.stringify((() => {
+      const r = (el) => el.getBoundingClientRect().toJSON();
+      return {
+        vw: innerWidth, vh: innerHeight, scrollW: document.documentElement.scrollWidth,
+        pads: ['stick-left', 'stick-right'].map((id) => r(document.getElementById(id))),
+        buttons: [...document.querySelectorAll('.controls button')].map((b) => ({ id: b.textContent, ...r(b) })),
+        controlsTop: r(document.querySelector('.controls')).top,
+        rows: [...document.querySelectorAll('.telemetry dd')].map((d) => ({ id: d.id, ...r(d) })),
+        state: r(document.getElementById('state')),
+        rotateHint: getComputedStyle(document.querySelector('.cockpit'), '::before').content,
+      };
+    })())`));
+    assert.ok(m.scrollW <= m.vw, `${at}: page scrolls sideways (${m.scrollW} > ${m.vw})`);
+    assert.ok(m.rotateHint === 'none' || m.rotateHint === 'normal', `${at}: still asks to rotate the phone`);
+    assert.ok(m.state.height < 30, `${at}: status text wraps (${m.state.height} px tall)`);
+    for (const p of m.pads) {
+      assert.ok(p.left >= 0 && p.right <= m.vw && p.top >= 0 && p.bottom <= m.controlsTop + 1, `${at}: a stick is off screen or under the buttons`);
+      assert.ok(p.width >= 120, `${at}: stick only ${Math.round(p.width)} px wide`);
+    }
+    assert.ok(!overlap(m.pads[0], m.pads[1]), `${at}: the sticks overlap`);
+    for (const b of m.buttons) {
+      assert.ok(b.left >= 0 && b.right <= m.vw && b.bottom <= m.vh + 1, `${at}: "${b.id}" is off screen`);
+      for (const p of m.pads) assert.ok(!overlap(b, p), `${at}: "${b.id}" overlaps a stick`);
+    }
+    for (const row of m.rows) {
+      assert.ok(row.bottom <= m.controlsTop + 1 && row.height > 0, `${at}: telemetry "${row.id}" is hidden`);
+    }
+  }
+});

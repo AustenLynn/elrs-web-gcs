@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { StickModel, layoutAction, padsMoved, sticksToCommand } from '../js/sticks.js';
+import { StickModel, layoutAction, orientationLock, padsMoved, sticksToCommand } from '../js/sticks.js';
 
 test('moves are scaled to the pad radius and clamped (square gimbal)', () => {
   const s = new StickModel();
@@ -81,4 +81,12 @@ test('layout changes while settling into full screen do not end control; later o
   assert.equal(layoutAction({ engaged: true, msSinceEngage: 1400, moved: true }), 'resnapshot');
   assert.equal(layoutAction({ engaged: true, msSinceEngage: 1600, moved: true }), 'disengage');
   assert.equal(layoutAction({ engaged: true, msSinceEngage: 1600, moved: false }), 'ignore');
+});
+
+test('taking control locks the orientation the phone is held in', () => {
+  // Rotating mid-flight would move the sticks under the thumbs; held upright stays upright.
+  assert.equal(orientationLock('portrait-primary'), 'portrait');
+  assert.equal(orientationLock('portrait-secondary'), 'portrait');
+  assert.equal(orientationLock('landscape-primary'), 'landscape');
+  assert.equal(orientationLock(undefined), 'landscape');
 });

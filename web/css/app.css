@@ -8,18 +8,24 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 /* Header and footer take the height they need; the cockpit gets the rest, so footer
    buttons can never wrap over the sticks. */
 body { display: flex; flex-direction: column; }
-.bar { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: var(--panel); }
-.links { display: flex; gap: 6px; }
+.bar { display: flex; flex-wrap: wrap; gap: 4px 8px; justify-content: space-between; align-items: center;
+  padding: 6px 12px; background: var(--panel); }
+.links { display: flex; flex-wrap: wrap; gap: 6px; }
 .seg { padding: 3px 8px; border-radius: 10px; font-size: 13px; background: #2a313a; }
 .seg::before { content: "●"; margin-right: 4px; color: var(--muted); }
 .seg[data-health="ok"]::before { color: var(--ok); }
 .seg[data-health="warn"]::before { color: var(--warn); }
 .seg[data-health="down"]::before { color: var(--down); }
-.state { font-weight: 700; letter-spacing: .05em; }
+.state { font-weight: 700; letter-spacing: .05em; white-space: nowrap; }
 .state[data-state="ARMED"] { color: var(--warn); }
 .state[data-state="FAILSAFE"] { color: var(--down); }
-.cockpit { display: grid; grid-template-columns: 1fr minmax(220px, 1.2fr) 1fr; gap: 12px;
-  flex: 1; min-height: 0; padding: 12px; }
+/* One grid, placed per orientation: landscape = sticks left and right of the video,
+   portrait = video and telemetry on top, both sticks side by side below. */
+.cockpit { display: grid; grid-template-columns: 1fr minmax(220px, 1.2fr) 1fr; grid-template-areas: "left center right";
+  gap: 12px; flex: 1; min-height: 0; padding: 12px; }
+#stick-left { grid-area: left; }
+#stick-right { grid-area: right; }
+.center { grid-area: center; }
 .stick { position: relative; align-self: center; justify-self: center; width: min(40vh, 28vw); aspect-ratio: 1;
   border-radius: 16px; background: radial-gradient(circle, #232a33 0 60%, #1b2027 61%); border: 1px solid #2f3843; }
 .knob { --x: 0; --y: 0; position: absolute; width: 22%; aspect-ratio: 1; border-radius: 50%; background: var(--accent);
@@ -50,6 +56,23 @@ button.warn { border-color: var(--down); color: #ffb3b5; font-weight: 700; }
 .banner { position: fixed; left: 50%; top: 56px; transform: translateX(-50%); padding: 12px 16px; border-radius: 12px;
   background: #4a1416; border: 2px solid var(--down); display: flex; gap: 12px; align-items: center; }
 body.observer .pilot-only, body.observer .stick { visibility: hidden; }
+/* Short screens (phones held sideways): telemetry in two column pairs, smaller buttons. */
+@media (max-height: 450px) {
+  .telemetry { grid-template-columns: auto 1fr auto 1fr; font-size: 13px; padding: 6px 8px; }
+  .bar { padding: 4px 10px; }
+}
+
+/* Phones held upright. */
 @media (orientation: portrait) {
-  .cockpit::before { content: "Gira el teléfono (horizontal)"; position: fixed; inset: 40% 0 auto; text-align: center; color: var(--warn); }
+  .cockpit { grid-template-columns: 1fr 1fr; grid-template-rows: auto 1fr; grid-template-areas: "center center" "left right";
+    gap: 8px; padding: 8px; }
+  .video { flex: none; aspect-ratio: 16 / 9; min-height: 0; }
+  .telemetry { grid-template-columns: auto 1fr auto 1fr; font-size: 13px; padding: 6px 8px; }
+  .stick { width: min(44vw, 30vh); margin-bottom: 22px; }
+  .controls { display: grid; grid-template-columns: repeat(4, 1fr); padding: 6px; }
+  .controls > button { padding: 8px 4px; font-size: 13px; }
+  .modes { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); }
+  .modes button { padding: 8px 4px; font-size: 13px; }
+  .seg { font-size: 11px; padding: 2px 6px; }
+  .state { font-size: 13px; }
 }
