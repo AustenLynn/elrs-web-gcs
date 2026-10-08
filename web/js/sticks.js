@@ -47,6 +47,16 @@ export class StickModel {
   }
 }
 
+/** What a layout change (resize, rotation, full screen) means for the dead-man.
+ *  For settleMs after "Tomar control" the page is still settling into full screen (Chrome on a
+ *  Mac animates for ~1 s): just remember the new pad positions. Later, pads that moved under
+ *  the fingers end control. */
+export function layoutAction({ engaged, msSinceEngage, moved, settleMs = 1500 }) {
+  if (!engaged) return 'ignore';
+  if (msSinceEngage < settleMs) return 'resnapshot';
+  return moved ? 'disengage' : 'ignore';
+}
+
 /** True when a stick pad moved or resized by more than tolPx since `before` (browser bars
  *  returning, rotation): the stick values under the fingers would jump. */
 export function padsMoved(before, after, tolPx = 4) {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { StickModel, padsMoved, sticksToCommand } from '../js/sticks.js';
+import { StickModel, layoutAction, padsMoved, sticksToCommand } from '../js/sticks.js';
 
 test('moves are scaled to the pad radius and clamped (square gimbal)', () => {
   const s = new StickModel();
@@ -71,4 +71,14 @@ test('centred values are plain 0 (never -0)', () => {
   s.grab(1, -0.0001, 0.0001, 100);
   const c = sticksToCommand(s, s, 0);
   assert.ok(Object.is(c.roll, 0) && Object.is(c.pitch, 0) && Object.is(c.yaw, 0));
+});
+
+test('layout changes while settling into full screen do not end control; later ones do', () => {
+  // Chrome on a Mac animates into full screen for ~1 s after "Tomar control": the pads move,
+  // but under nobody's fingers yet. After that, moved pads end control (sticks would jump).
+  assert.equal(layoutAction({ engaged: false, msSinceEngage: 5000, moved: true }), 'ignore');
+  assert.equal(layoutAction({ engaged: true, msSinceEngage: 300, moved: true }), 'resnapshot');
+  assert.equal(layoutAction({ engaged: true, msSinceEngage: 1400, moved: true }), 'resnapshot');
+  assert.equal(layoutAction({ engaged: true, msSinceEngage: 1600, moved: true }), 'disengage');
+  assert.equal(layoutAction({ engaged: true, msSinceEngage: 1600, moved: false }), 'ignore');
 });

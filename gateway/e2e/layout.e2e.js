@@ -41,3 +41,27 @@ test('control buttons stay out of the cockpit on landscape phone screens', { tim
     }
   }
 });
+
+test('"Tomar control" survives the full-screen transition; a later layout change ends control', { timeout: 90000 }, async () => {
+  // Chrome on a Mac resizes the page for ~1 s after requestFullscreen(): that must not drop
+  // control (found on the M4 bench). A resize later, with fingers on the sticks, still must.
+  const tmp = mkdtempSync(path.join(tmpdir(), 'gcs-layout-'));
+  const gw = await startGateway({ ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 },
+    coreSocket: path.join(tmp, 'no-core.sock'), webRoot: path.join(repo, 'web') });
+  after(() => gw.close());
+  const page = await firefox(procs, tmp);
+  after(() => page.close());
+  await page.call('browsingContext.setViewport', { context: page.context, viewport: { width: 1280, height: 640 } });
+  await page.open(`http://127.0.0.1:${gw.port}/`);
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  await page.evaluate('document.hasFocus = () => true');
+  const deadman = () => page.evaluate("document.getElementById('deadman').textContent");
+  await page.evaluate("document.getElementById('btn-take').click()");
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await page.call('browsingContext.setViewport', { context: page.context, viewport: { width: 1440, height: 900 } });
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  assert.equal(await deadman(), '', 'still in control after the full-screen transition');
+  await page.call('browsingContext.setViewport', { context: page.context, viewport: { width: 1280, height: 640 } });
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.match(await deadman(), /pantalla/, 'a later layout change ends control');
+});

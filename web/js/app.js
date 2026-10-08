@@ -3,7 +3,7 @@
 import { Deadman, DEADMAN_TEXT } from './deadman.js';
 import { bindHold } from './hold.js';
 import { REFUSAL_TEXT, RATE_HZ, closeAction, connectionTarget, controlMessage, shouldReclaimPilotSeat, tsyncReply } from './protocol.js';
-import { StickModel, bindStick, padsMoved, sticksToCommand } from './sticks.js';
+import { StickModel, bindStick, layoutAction, padsMoved, sticksToCommand } from './sticks.js';
 import { LinkTracker, failsafeDetail, formatBattery, formatFlightMode, formatLink, formatMs, segments, stateLabel } from './view.js';
 import { keepPlaying } from './whep.js';
 
@@ -113,6 +113,7 @@ setInterval(() => {
 // rotation, leaving full screen) the stick values under the fingers would jump.
 const padBoxes = () => [$('stick-left'), $('stick-right')].map((p) => p.getBoundingClientRect());
 let padsAtEngage = null;
+let engagedAt = 0;
 
 async function takeControl() {
   if (role !== 'pilot') return;
@@ -120,7 +121,8 @@ async function takeControl() {
     await document.documentElement.requestFullscreen?.();
     await screen.orientation?.lock?.('landscape');
   } catch { /* not supported (desktop browsers): fine */ }
-  deadman.engage();                // after the layout settled in full screen
+  deadman.engage();
+  engagedAt = performance.now();
   padsAtEngage = padBoxes();
   try {
     wakeLock = await navigator.wakeLock?.request('screen');
@@ -165,7 +167,12 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('blur', () => deadman.disengage('blur'));
 for (const type of ['resize', 'orientationchange', 'fullscreenchange']) {
   window.addEventListener(type, () => {
-    if (deadman.engaged && padsAtEngage && padsMoved(padsAtEngage, padBoxes())) deadman.disengage('layout');
+    if (!padsAtEngage) return;
+    const boxes = padBoxes();
+    const action = layoutAction({ engaged: deadman.engaged, msSinceEngage: performance.now() - engagedAt,
+      moved: padsMoved(padsAtEngage, boxes) });
+    if (action === 'resnapshot') padsAtEngage = boxes;
+    else if (action === 'disengage') deadman.disengage('layout');
   });
 }
 
