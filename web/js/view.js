@@ -55,4 +55,13 @@ export const formatBattery = (b) => (b ? `${b.voltage.toFixed(1)} V · ${b.remai
 
 export const formatLink = (l) => (l ? `LQ ${l.upLq} % · ${l.upRssi1} dBm · ${l.txPowerMw} mW` : '—');
 
+// The Aquila20 reports "<sensitivity>-<mode>" (e.g. "S-NORMAL"); the pilot chose the mode.
+const AQUILA_MODES = { NORMAL: 'N (mantener posición)', SPORT: 'S (estable)', MANUAL: 'M (manual)' };
+
+export function formatFlightMode(text) {
+  if (!text) return '—';
+  const mode = /^[SMF]-(NORMAL|SPORT|MANUAL)$/.exec(text);
+  return mode ? AQUILA_MODES[mode[1]] : text;
+}
+
 export const formatMs = (v) => (v === null || v === undefined ? '—' : `${Math.round(v)} ms`);

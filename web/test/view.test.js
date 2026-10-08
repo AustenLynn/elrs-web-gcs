@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { LinkTracker, failsafeDetail, formatBattery, formatLink, formatMs, segments, stateLabel } from '../js/view.js';
+import { LinkTracker, failsafeDetail, formatBattery, formatFlightMode, formatLink, formatMs, segments, stateLabel } from '../js/view.js';
 
 const goodStatus = { core: true, serialOk: true, timingFrames: 10, state: 'ARMED', reason: 'none' };
 const link = { upLq: 100, upRssi1: -60, txPowerMw: 100 };
@@ -64,4 +64,13 @@ test('labels and formatting', () => {
   assert.equal(formatLink(link), 'LQ 100 % · -60 dBm · 100 mW');
   assert.equal(formatMs(12.6), '13 ms');
   assert.equal(formatMs(null), '—');
+});
+
+test('the Aquila20 flight mode is shown in Spanish; other texts as they are', () => {
+  // The Aquila20 reports "<sensitivity>-<mode>"; the mode is what the pilot chose (N/S/M).
+  assert.equal(formatFlightMode('S-NORMAL'), 'N (mantener posición)');
+  assert.equal(formatFlightMode('F-SPORT'), 'S (estable)');
+  assert.equal(formatFlightMode('M-MANUAL'), 'M (manual)');
+  assert.equal(formatFlightMode('ACRO*'), 'ACRO*');            // e.g. Betaflight
+  assert.equal(formatFlightMode(null), '—');
 });
