@@ -132,24 +132,16 @@ first. The gateway's relay tests import `relay/`, so install both packages.
 
 ## 6. Open items for the team
 
-- **BLOCKING DECISION (found 2026-10-07): the drone does not run Betaflight.**
-  - **The hardware:** the Aquila20 HD kit's AIO board has an HDSC MCU (USB 0493:5740) running
-    BetaFPV's own simplified firmware. It is configured only with the BETAFPV Configurator
-    and does not answer MSP or the CLI. Its built-in receiver is "BFPV AIO 2G4RX",
-    ExpressLRS 3.5.6.
-  - **What breaks:** decision D4 and every Betaflight-specific part of the design:
-    - the FAILSAFE AUX switch (CH7 → Betaflight FAILSAFE mode);
-    - the "FC armed" check, which treats a flight mode without a trailing `*` as armed. This
-      drone reports `S-NORMAL`, so `safety.c` would see it as permanently armed and refuse
-      every failsafe clear (`fc_still_armed`);
-    - the C3 FC confirmation (`!FS!`);
-    - M3 Task 8's Betaflight setup.
-  - **Options:**
-    - (a) Use a Betaflight drone or flight controller instead.
-    - (b) Keep the Aquila20 and redesign failsafe around its own behaviour on RC loss. For
-      example, `crsf-core` stops sending RC frames on FAILSAFE so the receiver's failsafe takes
-      over. That needs its arming channel, mode strings and failsafe behaviour measured first.
-  - Decide this before M3 Task 8.
+- **Resolved 2026-10-07: the drone does not run Betaflight.** The team kept the Aquila20.
+  - crsf-core has `fc_profile = aquila20 | betaflight`. In `aquila20` (the default), FAILSAFE drops
+    ARM over a live link, and CH7 stays at S. Design: `docs/superpowers/specs/2026-10-07-aquila20-profile-design.md`.
+    Plan: `docs/superpowers/plans/2026-10-07-m8-aquila20-profile.md`. The drone itself:
+    `docs/setup/aquila20.md`.
+  - When the deferred hardware tasks run, adapt their Betaflight steps:
+    - **M3 Task 8:** use `aquila20.md` §3 instead of `betaflight.md`.
+    - **M3 bench test and M4 checklist:** the failsafe rows check "CH5 low, motors stop" instead of
+      "CH7 high / Betaflight FAILSAFE".
+    - **M5 Task 4 (C3):** run `failsafe_report.py --no-fc`, and video at least 3 runs per link.
 
 - Confirm proposals P1–P11 (spec §2) and the C1 limits (p99 ≤ 250 µs, max ≤ 1 ms) with the mentor.
 - Licence: the reference project is GPL-3.0 / Fair Source. Our code was written

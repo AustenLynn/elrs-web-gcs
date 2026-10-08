@@ -8,6 +8,13 @@ AMEF/DFMEA, and `elrs-joystick-control` (cloned from the AustenLynn fork of
 **Status:** draft for team review. Section 2 says which decisions the team made and which
 were proposed while writing the plans and still need confirmation.
 
+> **Amendment 2026-10-07:** the project drone is a BetaFPV Aquila20 HD running BetaFPV's own
+> firmware, not Betaflight. `crsf-core` gained `fc_profile = aquila20 | betaflight` (default
+> `aquila20`). Where this document describes Betaflight-specific behaviour (FAILSAFE switch on
+> CH7, the `*` disarmed marker, `!FS!` confirmation, Betaflight setup), it now applies to the
+> `betaflight` profile only. For the Aquila20, see `2026-10-07-aquila20-profile-design.md` and
+> `docs/setup/aquila20.md`.
+
 ## 1. Goal
 
 A pilot flies an ExpressLRS drone from a web page on a PC or an Android phone, through a
@@ -36,14 +43,14 @@ legal BVLOS operation.
 | D1 | TX module: **BetaFPV Micro 1W 2.4 GHz over its USB-C port** (CP2102 → `/dev/ttyUSB0`) | No inverter circuit. The module's CRSF pins must be remapped to the USB UART. The charter's "hardware UART" wording is outdated. USB adds latency noise (§6.1). |
 | D2 | **Write the bridge from scratch**; `elrs-joystick-control` is a protocol reference only | Byte layouts were checked against the reference (identical RC frames) and against EdgeTX's conventions. |
 | D3 | Real-time core in **C** | gcc 14 + make on the Pi; no extra toolchain. |
-| D4 | Flight controller firmware: **Betaflight** | Failsafe = Betaflight's FAILSAFE mode on an AUX switch; flight-mode telemetry confirms it. |
+| D4 | Flight controller: **BetaFPV Aquila20 HD, BetaFPV's own firmware** (amended 2026-10-07; was Betaflight). Betaflight is kept as a profile (`fc_profile`). | Aquila20: FAILSAFE drops ARM over a live link; armed state is not in telemetry. See `2026-10-07-aquila20-profile-design.md`. |
 | D5 | **Two processes: C core + Node.js gateway** over a Unix socket | Matches the Gantt (WebSocket server is the web developer's task). Gateway crashes fail safe. HTTPS/relay stay out of C. |
 
 **Proposed while writing the plans; please confirm or change:**
 
 | # | Proposal | Why | Where to change it |
 |---|----------|-----|--------------------|
-| P1 | Failsafe action = raise **FAILSAFE (CH7/AUX3)**, centre sticks, throttle low, **keep ARM** as it is; Betaflight `failsafe_switch_mode = STAGE2` runs its procedure | Betaflight's procedure (drop / land / GPS rescue) is tested and configurable; the bridge only has to detect the loss quickly | `safety.c`, `docs/setup/betaflight.md` |
+| P1 | Failsafe action, **`betaflight` profile**: raise **FAILSAFE (CH7/AUX3)**, centre sticks, throttle low, **keep ARM** as it is; Betaflight `failsafe_switch_mode = STAGE2` runs its procedure. **`aquila20` profile (default): ARM low**, sticks centred, throttle low, link kept up | Betaflight's procedure (drop / land / GPS rescue) is tested and configurable; the bridge only has to detect the loss quickly | `safety.c`, `docs/setup/betaflight.md` |
 | P2 | Command timeout **300 ms**; gateway drops commands older than **200 ms** | Leaves > 600 ms of the 1 s budget for propagation; tolerates normal Wi-Fi hiccups (FMEA #5) | `cmd_timeout_ms`, `maxCommandAgeMs` |
 | P3 | Failsafe is **latched**. Clearing needs an explicit hold-to-confirm, a fresh link, throttle low, and the FC **not** reporting itself armed (Betaflight's `*` flight-mode suffix). Clearing always ends disarmed; flying again needs a new arm. | FMEA #14 (no revival of old commands); stops the pilot from disarming a drone mid-landing by accident | `safety_ack()` |
 | P4 | **Dead-man** = the page sends only after "Tomar control" and only while visible, focused and connected; any lapse disengages until tapped again | Deterministic behaviour when Android backgrounds the browser (FMEA #4). A touch-and-hold dead-man was rejected because pilots lift their thumbs in hold modes, which would cause spurious failsafes (FMEA #5). | `web/js/deadman.js` |
@@ -153,7 +160,7 @@ Channel values 172–1811, centre 992; sticks map onto 1000–2000 µs.
 | CH1–CH4 | roll, pitch, throttle, yaw (AETR) | 1000–2000 µs |
 | CH5 AUX1 | ARM (ELRS sends AUX1 every packet; enforced) | 1000 / 2000 µs |
 | CH6 AUX2 | flight-mode switch | 1000 / 1500 / 2000 µs |
-| CH7 AUX3 | FAILSAFE (Betaflight mode) | 1000 / 2000 µs |
+| CH7 AUX3 | `betaflight`: FAILSAFE (Betaflight mode). `aquila20`: the drone's stick sensitivity, always 1000 µs (S) | 1000 / 2000 µs |
 | CH8–CH16 | unused | 1000 µs |
 
 ## 5. crsf-core
