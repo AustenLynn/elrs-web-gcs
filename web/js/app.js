@@ -28,6 +28,8 @@ const keyboard = new KeyboardModel();
 const stepper = new StepModel();
 const deadman = new Deadman();
 const links = new LinkTracker();
+// Throttle-limit buttons of the step and keyboard modes: [selector, dataset key, model].
+const CAP_CONTROLS = [['[data-cap]', 'cap', stepper], ['[data-key-cap]', 'keyCap', keyboard]];
 const telem = { link: null, linkAt: 0, battery: null, flightMode: null, device: null };
 let ws = null;
 let role = null;
@@ -192,9 +194,12 @@ function renderInput(now) {
   }
   markOn('[data-step]', (b) => Number(b.dataset.step) === stepper.step);
   markOn('[data-intensity]', (b) => Number(b.dataset.intensity) === keyboard.intensity);
-  for (const b of document.querySelectorAll('[data-cap]')) {
-    b.classList.toggle('on', Number(b.dataset.cap) === stepper.cap);
-    b.disabled = !capChangeAllowed(stepper.cap, Number(b.dataset.cap), status);
+  for (const [selector, attr, model] of CAP_CONTROLS) {
+    for (const b of document.querySelectorAll(selector)) {
+      const cap = Number(b.dataset[attr]);
+      b.classList.toggle('on', cap === model.cap);
+      b.disabled = !capChangeAllowed(model.cap, cap, status);
+    }
   }
   for (const row of document.querySelectorAll('#panel-step .axis')) {
     const input = row.querySelector('input');
@@ -253,12 +258,15 @@ for (const b of document.querySelectorAll('[data-step]')) b.addEventListener('cl
 for (const b of document.querySelectorAll('[data-intensity]')) {
   b.addEventListener('click', () => { keyboard.intensity = Number(b.dataset.intensity); });
 }
-for (const b of document.querySelectorAll('[data-cap]')) {
-  b.addEventListener('click', () => {
-    const next = Number(b.dataset.cap);
-    if (capChangeAllowed(stepper.cap, next, status)) stepper.setCap(next);
-    else toast('Desarma para subir el límite del acelerador');
-  });
+// Throttle limits (step and keyboard modes): lower at any time, raise only while not armed.
+for (const [selector, attr, model] of CAP_CONTROLS) {
+  for (const b of document.querySelectorAll(selector)) {
+    b.addEventListener('click', () => {
+      const next = Number(b.dataset[attr]);
+      if (capChangeAllowed(model.cap, next, status)) model.setCap(next);
+      else toast('Desarma para subir el límite del acelerador');
+    });
+  }
 }
 $('btn-neutral').addEventListener('click', () => stepper.neutral());
 for (const row of document.querySelectorAll('#panel-step .axis')) {

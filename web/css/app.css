@@ -1,24 +1,44 @@
+/* Fonts are served by the Pi itself (no internet at the field). Latin subsets, SIL OFL 1.1:
+   see fonts/OFL-*.txt. */
+@font-face { font-family: "Barlow"; font-weight: 400; font-display: swap; src: url("../fonts/barlow-400.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-weight: 600; font-display: swap; src: url("../fonts/barlow-600.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-weight: 700 800; font-display: swap; src: url("../fonts/barlow-700.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 400 700; font-display: swap; src: url("../fonts/jetbrains-mono.woff2") format("woff2"); }
+
+/* Colour: blue = control, green = correct / armed, amber = limit / warning, red = danger.
+   Red and amber always come with text. */
 :root {
-  --bg: #111418; --panel: #1b2027; --text: #e8edf2; --muted: #8a96a3;
-  --ok: #2fbf71; --warn: #f2b134; --down: #e5484d; --accent: #3e8ed0;
+  --bg: #090d12; --bar: #0d131a; --panel: #111821; --raised: #18212c; --line: #273241; --line-strong: #324052;
+  --text: #eaf0f6; --muted: #93a1b3; --faint: #4a586a;
+  --ok: #3fd6a0; --warn: #ffb84d; --down: #ff6b6b; --accent: #5ba8ff; --accent-light: #cfe6ff;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
-  font: 15px/1.3 system-ui, sans-serif; touch-action: none; user-select: none; overflow: hidden; }
+  font: 15px/1.3 "Barlow", system-ui, sans-serif; touch-action: none; user-select: none; overflow: hidden; }
 /* Header and footer take the height they need; the cockpit gets the rest, so footer
    buttons can never wrap over the sticks. */
 body { display: flex; flex-direction: column; }
 .bar { display: flex; flex-wrap: wrap; gap: 4px 8px; justify-content: space-between; align-items: center;
-  padding: 6px 12px; background: var(--panel); }
-.links { display: flex; flex-wrap: wrap; gap: 6px; }
-.seg { padding: 3px 8px; border-radius: 10px; font-size: 13px; background: #2a313a; }
-.seg::before { content: "●"; margin-right: 4px; color: var(--muted); }
-.seg[data-health="ok"]::before { color: var(--ok); }
-.seg[data-health="warn"]::before { color: var(--warn); }
-.seg[data-health="down"]::before { color: var(--down); }
-.state { font-weight: 700; letter-spacing: .05em; white-space: nowrap; }
-.state[data-state="ARMED"] { color: var(--warn); }
-.state[data-state="FAILSAFE"] { color: var(--down); }
+  padding: 6px 12px; background: var(--bar); border-bottom: 1px solid var(--line); }
+/* The link chain: browser - core - TX - drone, one pill. */
+.links { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 3px 12px; border-radius: 20px;
+  background: rgba(14, 20, 28, .8); border: 1px solid var(--line); }
+.seg { display: inline-flex; align-items: center; padding: 3px 2px; font-size: 13px; font-weight: 600; }
+.seg + .seg::before { content: ""; width: 10px; height: 1px; margin: 0 8px 0 4px; background: #3a4758; }
+.seg::after { content: ""; order: -1; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--faint); }
+.seg + .seg::after { margin-left: 0; }
+.seg::before { order: -2; }
+.seg[data-health="ok"]::after { background: var(--ok); }
+.seg[data-health="warn"]::after { background: var(--warn); }
+.seg[data-health="warn"] { color: #ffd59a; }
+.seg[data-health="down"]::after { background: var(--down); }
+.seg[data-health="down"] { color: #ff8a8a; }
+.state { font-weight: 700; letter-spacing: .08em; white-space: nowrap; line-height: 1.2; padding: 2px 12px; border-radius: 16px;
+  border: 1.5px solid var(--line-strong); color: var(--muted); }
+.state[data-state="DISARMED"] { color: var(--text); }
+.state[data-state="ARMED"] { color: #7be8be; border-color: var(--ok); background: rgba(63, 214, 160, .12); }
+.state[data-state="FAILSAFE"] { color: #1a0a0a; border-color: var(--down); background: var(--down); font-weight: 800; }
 /* One grid, placed per orientation: landscape = sticks left and right of the video,
    portrait = video and telemetry on top, both sticks side by side below. */
 .cockpit { display: grid; grid-template-columns: 1fr minmax(220px, 1.2fr) 1fr; grid-template-areas: "left center right";
@@ -31,40 +51,53 @@ body { display: flex; flex-direction: column; }
   /* sized from the room the cockpit really has (cqh/cqw), so a taller header or footer shrinks
      the sticks instead of pushing them under the buttons; 46 px = padding + label */
   width: min(28cqw, calc(100cqh - 46px));
-  border-radius: 16px; background: radial-gradient(circle, #232a33 0 60%, #1b2027 61%); border: 1px solid #2f3843; }
+  border-radius: 16px; background: radial-gradient(circle, var(--raised) 0 60%, var(--panel) 61%); border: 1px solid var(--line); }
 .knob { --x: 0; --y: 0; position: absolute; width: 22%; aspect-ratio: 1; border-radius: 50%; background: var(--accent);
   left: calc(39% + var(--x) * 39%); top: calc(39% + var(--y) * 39%); pointer-events: none; }
 .stick .label { position: absolute; bottom: -22px; width: 100%; text-align: center; color: var(--muted); font-size: 12px; }
 .center { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
-.video { flex: 1; border-radius: 10px; background: #000; min-height: 80px; overflow: hidden; }
+.video { flex: 1; border-radius: 16px; background: #05080c; border: 1px solid var(--line); min-height: 80px; overflow: hidden; }
 .video video { width: 100%; height: 100%; object-fit: contain; }
-.telemetry { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; padding: 8px 10px;
-  background: var(--panel); border-radius: 10px; }
-.telemetry dt { color: var(--muted); }
-.telemetry dd { margin: 0; font-variant-numeric: tabular-nums; }
+.telemetry { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: baseline; margin: 0; padding: 8px 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+.telemetry dt { color: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.telemetry dd { margin: 0; font-family: var(--mono); font-size: .93em; font-variant-numeric: tabular-nums; }
 .deadman { min-height: 1.3em; margin: 0; color: var(--warn); text-align: center; }
-.toast { padding: 8px; border-radius: 8px; background: #3a2a10; color: #ffd58a; text-align: center; }
-.controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; padding: 6px; background: var(--panel); }
+.toast { padding: 8px 12px; border-radius: 12px; background: #2a1f0e; border: 1px solid #6b4f1f; color: #ffd59a; text-align: center; }
+.controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; padding: 6px;
+  background: var(--bar); border-top: 1px solid var(--line); }
 .modes { display: flex; gap: 6px; }
 @media (max-height: 420px) {
   .controls button { padding: 6px 10px; }
 }
-button { font: inherit; color: var(--text); background: #2a313a; border: 1px solid #3a4450; border-radius: 10px;
-  padding: 10px 14px; touch-action: none; }
-button:disabled { opacity: .4; }
-button.hold { --progress: 0; background: linear-gradient(90deg, #6b4a12 calc(var(--progress) * 100%), #2a313a 0); }
-button.danger { border-color: var(--warn); }
-button.disarm { border-color: var(--ok); font-weight: 700; }
-button.warn { border-color: var(--down); color: #ffb3b5; font-weight: 700; }
-.modes button.on { background: var(--accent); }
-.banner { position: fixed; left: 50%; top: 56px; transform: translateX(-50%); padding: 12px 16px; border-radius: 12px;
-  background: #4a1416; border: 2px solid var(--down); display: flex; gap: 12px; align-items: center; }
+button { font: inherit; font-weight: 600; color: var(--text); background: var(--raised); border: 1px solid var(--line); border-radius: 12px;
+  padding: 10px 14px; touch-action: none; cursor: pointer; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Press-and-hold buttons fill from the left while held. */
+button.hold { --progress: 0; --fill: rgba(91, 168, 255, .32);
+  background: linear-gradient(90deg, var(--fill) calc(var(--progress) * 100%), var(--raised) 0); }
+button.danger { border-color: var(--accent); }
+button.disarm { border-color: var(--muted); font-weight: 700; }
+button.warn { border-color: var(--down); color: #ff8a8a; background: rgba(58, 20, 24, .85); font-weight: 700; letter-spacing: .06em; }
+.modes button { color: var(--muted); }
+.modes button.on { color: #bfe0ff; border-color: var(--accent); background: rgba(91, 168, 255, .18); font-weight: 700; }
+/* The failsafe alert: red interrupts, and only the core clears it (the page just shows it). */
+.banner { position: fixed; left: 50%; top: 56px; transform: translateX(-50%); width: max-content; max-width: calc(100% - 32px);
+  padding: 14px 18px; border-radius: 14px; background: #2a1115; border: 2px solid var(--down);
+  display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; box-shadow: 0 8px 32px rgba(0, 0, 0, .5); }
 .banner[hidden] { display: none; }
+.banner strong { font-size: 18px; font-weight: 800; letter-spacing: .04em; color: #ffb3b3; }
+.banner span { color: #e8c9cb; }
+.banner button.hold { --fill: rgba(255, 138, 138, .28); border-color: #ff8a8a; color: #ffd9d9; font-weight: 700; }
 body.observer .pilot-only, body.observer .stick { visibility: hidden; }
 /* Short screens (phones held sideways): telemetry in two column pairs, smaller buttons. */
 @media (max-height: 450px) {
   .telemetry { grid-template-columns: auto 1fr auto 1fr; font-size: 13px; padding: 6px 8px; }
   .bar { padding: 4px 10px; }
+  .links { padding: 2px 10px; }
+  .banner { top: 48px; padding: 10px 14px; }
+  .banner strong { font-size: 16px; }
 }
 
 /* Phones held upright. */
@@ -78,47 +111,50 @@ body.observer .pilot-only, body.observer .stick { visibility: hidden; }
   .controls > button { padding: 8px 4px; font-size: 13px; }
   .modes { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); }
   .modes button { padding: 8px 4px; font-size: 13px; }
-  .seg { font-size: 11px; padding: 2px 6px; }
-  .state { font-size: 13px; }
+  .links { padding: 2px 8px; }
+  .seg { font-size: 11px; padding: 2px 0; }
+  .seg + .seg::before { width: 6px; margin: 0 5px 0 3px; }
+  .seg::after { width: 7px; height: 7px; margin-right: 4px; }
+  .state { font-size: 13px; padding: 2px 8px; }
 }
 
 /* Input modes: Táctil (touch sticks), Teclado (keyboard), Prueba (steps). */
-.seg-ctl { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border-radius: 12px;
-  background: #141920; border: 1px solid #2f3843; }
-.seg-ctl button { padding: 6px 12px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); }
-.seg-ctl button.on { background: var(--accent); color: #fff; font-weight: 600; }
+.seg-ctl { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border-radius: 12px;
+  background: var(--bar); border: 1px solid var(--line); }
+.seg-ctl button { padding: 6px 12px; border: 0; border-radius: 10px; background: transparent; color: var(--muted); }
+.seg-ctl button.on { background: var(--accent); color: #06121f; font-weight: 700; }
 .seg-ctl button:disabled { opacity: .35; }
-.seg-label { padding: 0 6px 0 4px; color: var(--muted); font-size: 12px; white-space: nowrap; }
-.input-modes button { padding: 4px 12px; font-size: 13px; }
+.seg-label { padding: 0 6px 0 6px; color: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
+.input-modes button { padding: 4px 14px; font-size: 14px; }
 
 /* In keyboard and step modes the pads only show what is being sent: smaller, not touchable. */
 body:not([data-input="touch"]) .stick { pointer-events: none; width: min(30vh, 22vw); }
 .onair { display: flex; flex-wrap: wrap; gap: 2px 14px; justify-content: center; margin: 0; font-size: 12px;
-  color: var(--muted); font-variant-numeric: tabular-nums; }
+  color: var(--muted); font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
 .panel[hidden] { display: none; }
 .panel { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; justify-content: center;
-  padding: 8px 12px; background: var(--panel); border-top: 1px solid #262d36; }
+  padding: 8px 12px; background: var(--panel); border-top: 1px solid var(--line); }
 .panel input { user-select: text; }
 
 .axis-group { display: grid; gap: 4px; }
-.axis-group h3 { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.axis-group h3 { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .axis { display: grid; grid-template-columns: 6.5em 2.4em 4.2em 1em 2.4em; align-items: center; gap: 4px; }
-.axis-name { font-size: 13px; }
-.axis button { padding: 4px 0; font-size: 18px; line-height: 1; border-radius: 8px; }
-.axis input { width: 100%; padding: 4px 6px; font: inherit; font-variant-numeric: tabular-nums; text-align: right;
-  color: var(--text); background: #141920; border: 1px solid #3a4450; border-radius: 8px; }
+.axis-name { font-size: 14px; }
+.axis button { padding: 4px 0; font-size: 18px; line-height: 1; border-radius: 10px; }
+.axis input { width: 100%; padding: 4px 6px; font: 600 14px var(--mono); font-variant-numeric: tabular-nums; text-align: right;
+  color: var(--text); background: var(--bar); border: 1px solid var(--line); border-radius: 10px; }
 .axis input:focus { outline: 2px solid var(--accent); outline-offset: 0; }
 .axis .unit { color: var(--muted); font-size: 13px; }
 .panel-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; }
-button.neutral { border-color: var(--ok); color: #b8f0d0; font-weight: 700; letter-spacing: .04em; }
+button.neutral { border-color: var(--ok); color: #7be8be; font-weight: 700; letter-spacing: .06em; }
 
 .keys { display: flex; flex-wrap: wrap; gap: 4px 14px; justify-content: center; margin: 0; padding: 0; list-style: none;
   font-size: 13px; color: var(--muted); }
 .keys li { white-space: nowrap; }
-kbd { display: inline-block; min-width: 1.6em; margin-right: 2px; padding: 1px 5px; border-radius: 5px; text-align: center;
-  font: 600 12px/1.4 system-ui, sans-serif; color: var(--text); background: #2a313a; border: 1px solid #3a4450;
-  border-bottom-width: 2px; }
+kbd { display: inline-block; min-width: 1.8em; margin-right: 2px; padding: 1px 6px; border-radius: 6px; text-align: center;
+  font: 600 12px/1.5 var(--mono); color: var(--text); background: var(--raised); border: 1px solid var(--line-strong);
+  border-bottom-width: 3px; }
 
 @media (max-height: 450px) {
   .panel { padding: 4px 8px; gap: 4px 10px; }
@@ -136,4 +172,22 @@ kbd { display: inline-block; min-width: 1.6em; margin-right: 2px; padding: 1px 5
   .axis { grid-template-columns: 5.6em 2.4em 3.8em 1em 2.4em; }
   .panel-tools .seg-ctl button { padding: 6px 8px; }
   .input-modes button { padding: 3px 8px; font-size: 12px; }
+}
+
+/* Large screens in the keyboard and step modes: the mode panel becomes a side column, so the
+   video keeps the full height. The touch mode keeps the phone layout everywhere. */
+@media (min-width: 1100px) and (min-height: 640px) {
+  body:not([data-input="touch"]) { display: grid; grid-template-columns: minmax(0, 1fr) 380px;
+    grid-template-rows: auto minmax(0, 1fr) auto; grid-template-areas: "bar bar" "cockpit side" "controls side"; }
+  body:not([data-input="touch"]) .bar { grid-area: bar; padding: 10px 20px; }
+  body:not([data-input="touch"]) .cockpit { grid-area: cockpit; padding: 16px 20px; grid-template-columns: auto minmax(0, 1fr) auto; }
+  body:not([data-input="touch"]) .stick { width: min(24vh, 13vw); }
+  body:not([data-input="touch"]) .controls { grid-area: controls; justify-content: flex-start; gap: 10px; padding: 12px 20px; }
+  body:not([data-input="touch"]) .panel { grid-area: side; flex-direction: column; flex-wrap: nowrap; align-items: stretch;
+    justify-content: flex-start; gap: 16px; margin: 16px 20px 16px 0; padding: 16px 18px; overflow: auto;
+    border: 1px solid var(--line); border-radius: 16px; }
+  body:not([data-input="touch"]) .panel .keys { flex-direction: column; gap: 10px; font-size: 14px; }
+  body:not([data-input="touch"]) .panel .panel-tools { justify-content: flex-start; }
+  body:not([data-input="touch"]) .panel .seg-ctl { align-self: flex-start; }
+  body:not([data-input="touch"]) .panel .axis-group { gap: 8px; }
 }

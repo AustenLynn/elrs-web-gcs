@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
@@ -29,6 +29,8 @@ async function fakeCore(dir) {
 async function setup(t, { tls = false } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), 'gcs-gw-'));
   writeFileSync(path.join(dir, 'index.html'), '<h1>pilot</h1>');
+  mkdirSync(path.join(dir, 'fonts'));
+  writeFileSync(path.join(dir, 'fonts', 'barlow-400.woff2'), 'wOF2');
   const core = await fakeCore(dir);
   let tlsCfg = null;
   if (tls) {
@@ -78,6 +80,13 @@ test('serves the web app and refuses to escape the web root', async (t) => {
   assert.equal(await rawStatus(gw.port, '/%2e%2e%2f%2e%2e%2fetc%2fpasswd'), 403);   // encoded slashes
   assert.equal(await rawStatus(gw.port, '/../../etc/passwd'), 404);                  // URL parser drops the dots
   assert.equal((await fetch(`${base}/`, { method: 'POST' })).status, 405);
+});
+
+test('serves the web fonts as font/woff2', async (t) => {
+  const { base } = await setup(t);
+  const res = await fetch(`${base}/fonts/barlow-400.woff2`);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type'), 'font/woff2');
 });
 
 test('pilot session end to end: hello, control, status, disconnect', async (t) => {

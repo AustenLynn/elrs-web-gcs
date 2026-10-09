@@ -76,10 +76,47 @@ test('Shift halves the throttle rate', () => {
 });
 
 test('throttle never goes above full scale', () => {
-  const k = new KeyboardModel({ throttleRatePerS: 5000 });
+  const k = new KeyboardModel({ throttleRatePerS: 5000, cap: 1000 });
   k.keyDown('KeyW');
   for (let i = 0; i < 50; i++) k.update(20);
   assert.equal(k.command(0).throttle, 1000);
+});
+
+test('the throttle limit starts at 30 % and W never goes past it', () => {
+  const k = new KeyboardModel({ throttleRatePerS: 5000 });
+  assert.equal(k.cap, 300);
+  k.keyDown('KeyW');
+  for (let i = 0; i < 50; i++) k.update(20);
+  assert.equal(k.command(0).throttle, 300);
+});
+
+test('lowering the limit brings the throttle down to it at once; raising it lets W go higher', () => {
+  const k = new KeyboardModel({ throttleRatePerS: 5000, cap: 1000 });
+  k.keyDown('KeyW');
+  for (let i = 0; i < 10; i++) k.update(20);
+  assert.equal(k.command(0).throttle, 1000);
+  k.setCap(500);
+  assert.equal(k.command(0).throttle, 500);
+  k.update(20);
+  assert.equal(k.command(0).throttle, 500, 'W held: still at the limit');
+  k.setCap(1000);
+  k.update(20);
+  assert.equal(k.command(0).throttle, 600);
+});
+
+test('only the listed throttle limits are accepted', () => {
+  const k = new KeyboardModel();
+  k.setCap(700);
+  k.setCap(Number.NaN);
+  assert.equal(k.cap, 300);
+  k.setCap(500);
+  assert.equal(k.cap, 500);
+});
+
+test('reset keeps the throttle limit the pilot chose', () => {
+  const k = new KeyboardModel({ cap: 500 });
+  k.reset();
+  assert.equal(k.cap, 500);
 });
 
 test('a long pause between updates counts as at most 100 ms (a stalled page never jumps)', () => {
