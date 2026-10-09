@@ -187,11 +187,16 @@ connects them to the page.
 | Header | Four link indicators: **Navegador** (browser ↔ Pi), **Núcleo** (gateway ↔ core), **TX** (core ↔ module), **Dron** (module ↔ drone, from LQ); the input-mode picker (**Táctil · Teclado · Prueba**); the safety state |
 | Centre | Video (WebRTC), telemetry (battery, link, flight mode, `Latencia`, `Comando`), the on-air line (the stick values being sent, in %), dead-man message, notifications |
 | Sides | Two stick pads (landscape: either side of the video; portrait: below it). In the keyboard and step modes they only display the values, and they are hidden on upright or short screens |
-| Mode panel | Keyboard: key guide and intensity. Step: per-axis controls, step size, throttle limit, NEUTRO |
+| Mode panel | Keyboard: key guide and intensity. Step: per-axis controls, step size, throttle limit, NEUTRO. On large screens (at least 1100 × 640 px) in these two modes the panel is a column on the right |
 | Footer | `Tomar control`, `Armar` (hold), `Desarmar`, `FAILSAFE`, flight mode N / S / M |
 | Banner | Shown in FAILSAFE: the reason and `Limpiar failsafe` (hold) |
 
 The UI text is in Spanish; code and documentation are in English.
+
+Look (`web/css/app.css`): dark surfaces; blue = control, green = correct / armed, amber = limit /
+warning, red = danger, and red or amber always come with text. Barlow for labels and buttons,
+JetBrains Mono for numbers; both are served from `web/fonts/` (SIL OFL 1.1) because the field
+has no internet.
 
 ### 5.2 Input modes (`inputmode.js`, `sticks.js`, `keyboard.js`, `stepper.js`)
 
