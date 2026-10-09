@@ -187,7 +187,7 @@ connects them to the page.
 | Header | Four link indicators: **Navegador** (browser ↔ Pi), **Núcleo** (gateway ↔ core), **TX** (core ↔ module), **Dron** (module ↔ drone, from LQ); the input-mode picker (**Táctil · Teclado · Prueba**); the safety state |
 | Centre | Video (WebRTC), telemetry (battery, link, flight mode, `Latencia`, `Comando`), the on-air line (the stick values being sent, in %), dead-man message, notifications |
 | Sides | Two stick pads (landscape: either side of the video; portrait: below it). In the keyboard and step modes they only display the values, and they are hidden on upright or short screens |
-| Mode panel | Keyboard: key guide and intensity. Step: per-axis controls, step size, throttle limit, NEUTRO. On large screens (at least 1100 × 640 px) in these two modes the panel is a column on the right |
+| Mode panel | Keyboard: key guide, intensity, throttle limit. Step: per-axis controls, step size, throttle limit, NEUTRO. On large screens (at least 1100 × 640 px) in these two modes the panel is a column on the right |
 | Footer | `Tomar control`, `Armar` (hold), `Desarmar`, `FAILSAFE`, flight mode N / S / M |
 | Banner | Shown in FAILSAFE: the reason and `Limpiar failsafe` (hold) |
 
@@ -219,6 +219,10 @@ Rules common to all modes:
 - **Ramps (`ramp.js`):** in the keyboard and step modes values move away from neutral at a
   limited rate and towards neutral at once. A command can always be cut instantly and never jumps
   up. Time steps longer than 100 ms count as 100 ms, so a stalled page never jumps either.
+- **Throttle limit** (keyboard and step modes, 30 / 50 / 100 %, default 30 %): it can be lowered
+  at any time, which brings the throttle down to it at once, and raised only while not ARMED
+  (`capChangeAllowed`). Each mode keeps its own limit. It is a convenience for bench tests, not a
+  safety rule: crsf-core does not know about it.
 - The on-air line always shows what is being sent.
 
 **Keyboard mode** (`keyboard.js`). Keys are read by physical position (`KeyboardEvent.code`),
@@ -226,7 +230,7 @@ so the keyboard layout does not matter.
 
 | Key | Action | Detail |
 |-----|--------|--------|
-| W / S | throttle up / down | 50 %/s while held (25 % with Shift); stays where left |
+| W / S | throttle up / down | 50 %/s while held (25 % with Shift); stays where left; never above the throttle limit (30 / 50 / 100 %, default 30 %) |
 | A / D | yaw | to the intensity (30 / 50 / 100 %, default 50 %) in 150 ms; back to 0 on release |
 | ↑ / ↓ | pitch forward / back | as yaw |
 | ← / → | roll | as yaw |
