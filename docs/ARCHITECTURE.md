@@ -189,7 +189,7 @@ connects them to the page.
 | Sides | Two stick pads (landscape: either side of the video; portrait: below it). In the keyboard and step modes they only display the values, and they are hidden on upright or short screens |
 | Mode panel | Keyboard: key guide, intensity, throttle limit. Step: per-axis controls, step size, throttle limit, NEUTRO. On large screens (at least 1100 × 640 px) in these two modes the panel is a column on the right |
 | Footer | `Tomar control`, `Armar` (hold), `Desarmar`, `FAILSAFE`, flight mode N / S / M |
-| Banner | Shown in FAILSAFE: the reason and `Limpiar failsafe` (hold) |
+| Banner | Shown in FAILSAFE: the reason (its own wording when the radio link was lost), the age of the last command the core received, the way back as a checklist (`recoverySteps` in `view.js`: throttle at 0 → `Tomar control` → drone disarmed → `Limpiar failsafe`, the order the core checks), and `Limpiar failsafe` (hold). An overlay that never moves the sticks; touches outside its button reach them. On short screens only the next step shows |
 
 The UI text is in Spanish; code and documentation are in English.
 

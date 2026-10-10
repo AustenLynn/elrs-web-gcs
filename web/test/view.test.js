@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { LinkTracker, failsafeDetail, formatBattery, formatFlightMode, formatLink, formatMs, segments, stateLabel } from '../js/view.js';
+import { LinkTracker, failsafeAlert, failsafeDetail, formatBattery, formatCmdAge, formatFlightMode, formatLink, formatMs, recoverySteps, segments, stateLabel } from '../js/view.js';
 
 const goodStatus = { core: true, serialOk: true, timingFrames: 10, state: 'ARMED', reason: 'none' };
 const link = { upLq: 100, upRssi1: -60, txPowerMw: 100 };
@@ -73,4 +73,61 @@ test('the Aquila20 flight mode is shown in Spanish; other texts as they are', ()
   assert.equal(formatFlightMode('M-MANUAL'), 'M (manual)');
   assert.equal(formatFlightMode('ACRO*'), 'ACRO*');            // e.g. Betaflight
   assert.equal(formatFlightMode(null), '—');
+});
+
+// Failsafe recovery: the steps the core requires before it clears a failsafe (safety_ack).
+const failsafe = { core: true, state: 'FAILSAFE', reason: 'cmd_timeout', fcArm: 'disarmed', cmdAgeMs: 20 };
+const zero = { roll: 0, pitch: 0, yaw: 0, throttle: 0, mode: 0 };
+const stateOf = (steps) => Object.fromEntries(steps.map((s) => [s.id, s.state]));
+
+test('no recovery steps outside FAILSAFE', () => {
+  assert.equal(recoverySteps({ status: goodStatus, engaged: true, cmd: zero }), null);
+  assert.equal(recoverySteps({ status: null, engaged: false, cmd: zero }), null);
+});
+
+test('recovery steps come in the order the core checks them', () => {
+  const steps = recoverySteps({ status: failsafe, engaged: true, cmd: zero });
+  assert.deepEqual(steps.map((s) => s.id), ['throttle', 'control', 'drone', 'clear']);
+});
+
+test('throttle counts as down only at exactly 0 (the core threshold is configurable)', () => {
+  assert.equal(stateOf(recoverySteps({ status: failsafe, engaged: true, cmd: { ...zero, throttle: 1 } })).throttle, 'todo');
+  assert.equal(stateOf(recoverySteps({ status: failsafe, engaged: true, cmd: zero })).throttle, 'done');
+});
+
+test('control counts as taken only while engaged and the core sees fresh commands', () => {
+  const at = (engaged, cmdAgeMs) => stateOf(recoverySteps({ status: { ...failsafe, cmdAgeMs }, engaged, cmd: zero })).control;
+  assert.equal(at(false, 20), 'todo');
+  assert.equal(at(true, null), 'todo');
+  assert.equal(at(true, 2000), 'todo');
+  assert.equal(at(true, 20), 'done');
+});
+
+test('the drone step follows the flight controller; unknown does not block', () => {
+  const at = (fcArm) => stateOf(recoverySteps({ status: { ...failsafe, fcArm }, engaged: true, cmd: zero })).drone;
+  assert.equal(at('disarmed'), 'done');
+  assert.equal(at('armed'), 'todo');
+  assert.equal(at('unknown'), 'unknown');
+});
+
+test('exactly one step is next: the first one not done', () => {
+  const steps = recoverySteps({ status: failsafe, engaged: false, cmd: { ...zero, throttle: 400 } });
+  assert.deepEqual(steps.filter((s) => s.next).map((s) => s.id), ['throttle']);
+  const ready = recoverySteps({ status: { ...failsafe, fcArm: 'unknown' }, engaged: true, cmd: zero });
+  assert.deepEqual(ready.filter((s) => s.next).map((s) => s.id), ['clear']);
+  for (const step of ready) assert.ok(step.text.length > 0);
+});
+
+test('failsafe alert: generic title with the reason; its own text when the radio link was lost', () => {
+  assert.equal(failsafeAlert(goodStatus), null);
+  assert.deepEqual(failsafeAlert(failsafe), { title: 'FAILSAFE ACTIVO', detail: 'Dejaron de llegar comandos del piloto' });
+  const rf = failsafeAlert({ ...failsafe, reason: 'rf_lost' });
+  assert.equal(rf.title, 'EL DRON DEJÓ DE RESPONDER');
+  assert.match(rf.detail, /a la vista/);
+});
+
+test('age of the last command the core received', () => {
+  assert.equal(formatCmdAge(null), '—');
+  assert.equal(formatCmdAge(40), 'ahora');
+  assert.equal(formatCmdAge(1400), 'hace 1.4 s');
 });

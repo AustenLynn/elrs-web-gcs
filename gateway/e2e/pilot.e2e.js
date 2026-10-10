@@ -21,7 +21,7 @@ const LOW = 192;
 
 after(() => { for (const p of procs) p.kill('SIGKILL'); });
 
-test('pilot page arms the aircraft and fails safe when the page loses control', { timeout: 90000 }, async () => {
+test('pilot page arms the aircraft, fails safe when the page loses control, and recovers', { timeout: 90000 }, async () => {
   // 1. fake TX module on a pseudo-terminal
   const fake = start(procs, 'python3', ['-u', 'fake_tx_cli.py'], { cwd: path.join(repo, 'core/tests/integration') });
   let channels = null;
@@ -85,6 +85,29 @@ test('pilot page arms the aircraft and fails safe when the page loses control', 
   assert.ok(Date.now() - t0 < 1000, `failsafe took ${Date.now() - t0} ms`);
   await waitFor(() => page.evaluate("!document.getElementById('banner').hidden"), 3000, 'failsafe banner');
   assert.notEqual(await page.evaluate("getComputedStyle(document.getElementById('banner')).display"), 'none', 'banner rendered in FAILSAFE');
+
+  // The way back, in the order the core checks it: control is the first step missing (the
+  // throttle is already 0 and the fake drone reports itself disarmed).
+  const nextStep = () => page.evaluate("document.querySelector('#recovery li.next')?.textContent ?? ''");
+  await waitFor(async () => /Tomar control/.test(await nextStep()), 2000, 'recovery: take control next');
+  await page.evaluate("document.hasFocus = () => true");
+  await page.evaluate("document.getElementById('btn-take').click()");
+  await waitFor(async () => /Limpiar failsafe/.test(await nextStep()), 3000, 'recovery: clear the failsafe next');
+  const ack = JSON.parse(await page.evaluate("JSON.stringify(document.getElementById('btn-ack').getBoundingClientRect())"));
+  await page.call('input.performActions', {
+    context: page.context,
+    actions: [{
+      type: 'pointer', id: 'mouse', parameters: { pointerType: 'mouse' },
+      actions: [
+        { type: 'pointerMove', x: Math.round(ack.x + ack.width / 2), y: Math.round(ack.y + ack.height / 2) },
+        { type: 'pointerDown', button: 0 },
+        { type: 'pause', duration: 2500 },
+        { type: 'pointerUp', button: 0 },
+      ],
+    }],
+  });
+  await waitFor(() => page.evaluate("document.getElementById('state').textContent === 'DESARMADO'"), 3000, 'DESARMADO after clearing');
+  await waitFor(() => page.evaluate("getComputedStyle(document.getElementById('banner')).display === 'none'"), 1000, 'banner gone after clearing');
 
   assert.deepEqual(page.errors, [], 'no JavaScript errors on the page');
 });

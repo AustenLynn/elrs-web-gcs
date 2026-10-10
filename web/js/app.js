@@ -7,7 +7,7 @@ import { KEY_ACTIONS, KeyboardModel, MODE_KEYS } from './keyboard.js';
 import { REFUSAL_TEXT, RATE_HZ, closeAction, connectionTarget, controlMessage, shouldReclaimPilotSeat, tsyncReply } from './protocol.js';
 import { StepModel, capChangeAllowed } from './stepper.js';
 import { StickModel, bindStick, layoutAction, orientationLock, padsMoved, sticksToCommand } from './sticks.js';
-import { LinkTracker, failsafeDetail, formatBattery, formatFlightMode, formatLink, formatMs, segments, stateLabel } from './view.js';
+import { LinkTracker, failsafeAlert, formatBattery, formatCmdAge, formatFlightMode, formatLink, formatMs, recoverySteps, segments, stateLabel } from './view.js';
 import { keepPlaying } from './whep.js';
 
 const $ = (id) => document.getElementById(id);
@@ -221,6 +221,22 @@ function renderInput(now) {
   armKeyShown = p > 0;
 }
 
+let recoveryKey = '';
+
+/** The recovery checklist, rebuilt only when a step changes. */
+function renderRecovery(steps) {
+  const key = steps.map((st) => `${st.state}${st.next ? '>' : ''}${st.text}`).join('|');
+  if (key === recoveryKey) return;
+  recoveryKey = key;
+  $('recovery').replaceChildren(...steps.map((st) => {
+    const li = document.createElement('li');
+    li.dataset.state = st.state;
+    li.classList.toggle('next', st.next);
+    li.textContent = st.text;
+    return li;
+  }));
+}
+
 function render() {
   const now = performance.now();
   renderInput(now);
@@ -231,13 +247,21 @@ function render() {
   $('t-battery').textContent = formatBattery(telem.battery);
   $('t-link').textContent = formatLink(telem.link);
   $('t-mode').textContent = formatFlightMode(telem.flightMode);
+  // Values from the drone are its last known ones once its link is down: shown dimmed.
+  for (const id of ['t-battery', 't-link', 't-mode']) $(id).dataset.stale = String(seg.drone === 'down');
+  document.body.dataset.state = status?.state ?? 'none';
   $('t-rtt').textContent = formatMs(status?.rttMs);
   $('t-age').textContent = formatMs(status?.cmdAgeMs);
   $('deadman').textContent = deadman.engaged ? '' : DEADMAN_TEXT[deadman.reason] ?? '';
   $('btn-take').disabled = role !== 'pilot' || deadman.engaged;
-  const detail = failsafeDetail(status);
-  $('banner').hidden = detail === null;
-  if (detail !== null) $('banner-detail').textContent = detail;
+  const alert = failsafeAlert(status);
+  $('banner').hidden = alert === null;
+  if (alert !== null) {
+    $('banner-title').textContent = alert.title;
+    $('banner-detail').textContent = alert.detail;
+    $('banner-age').textContent = formatCmdAge(status.cmdAgeMs);
+    renderRecovery(recoverySteps({ status, engaged: deadman.engaged, cmd: lastCmd }));
+  }
   requestAnimationFrame(render);
 }
 

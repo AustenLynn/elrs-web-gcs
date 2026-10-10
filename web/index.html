@@ -122,8 +122,15 @@
     </div>
   </footer>
 
-  <div id="banner" class="banner" hidden>
-    <strong>FAILSAFE ACTIVO</strong> <span id="banner-detail"></span>
+  <!-- FAILSAFE: what happened and the way back, in the order crsf-core checks it. An overlay:
+       it never moves the sticks, and touches outside its button reach them. -->
+  <div id="banner" class="banner" hidden role="alert">
+    <div class="banner-text">
+      <strong id="banner-title">FAILSAFE ACTIVO</strong>
+      <span id="banner-detail"></span>
+      <span class="banner-age">Último comando: <span id="banner-age">—</span></span>
+    </div>
+    <ol id="recovery" class="recovery pilot-only" aria-label="Para volver a volar"></ol>
     <button id="btn-ack" class="hold pilot-only">Limpiar failsafe (mantener 2 s)</button>
   </div>
 
