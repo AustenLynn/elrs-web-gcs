@@ -22,7 +22,7 @@ const LOW = 192;
 
 after(() => { for (const p of procs) p.kill('SIGKILL'); });
 
-test('keyboard mode: hold R arms, W raises and holds the throttle, Space disarms', { timeout: 90000 }, async () => {
+test('keyboard mode: hold R arms, W raises and holds the throttle, Space disarms; step mode keys move 5 % per press', { timeout: 90000 }, async () => {
   const fake = start(procs, 'python3', ['-u', 'fake_tx_cli.py'], { cwd: path.join(repo, 'core/tests/integration') });
   let channels = null;
   const lines = readline.createInterface({ input: fake.stdout });
@@ -65,6 +65,18 @@ test('keyboard mode: hold R arms, W raises and holds the throttle, Space disarms
   await hold(' ', 50);
   await waitFor(() => channels[ARM] === LOW, 2000, 'ARM channel low after Space');
   await waitFor(() => page.evaluate("document.getElementById('state').textContent === 'DESARMADO'"), 3000, 'DESARMADO after Space');
+
+  // Step mode ("Prueba"): the same flight keys move one step (5 %) per press.
+  await page.evaluate("document.querySelector('[data-input=\"step\"]').click()");
+  const value = (axis) => page.evaluate(`document.querySelector('#panel-step [data-axis="${axis}"] input').value`);
+  await waitFor(async () => (await value('throttle')) === '0', 2000, 'step panel shown at neutral');
+  await hold('w', 50);
+  await hold('w', 50);
+  await hold('\uE013', 50);                          // ArrowUp
+  await hold('a', 50);
+  await waitFor(async () => (await value('throttle')) === '10', 2000, 'throttle 10 % after W twice');
+  assert.equal(await value('pitch'), '5', 'pitch 5 % after one ArrowUp');
+  assert.equal(await value('yaw'), '-5', 'yaw -5 % after one A');
 
   assert.deepEqual(page.errors, [], 'no JavaScript errors on the page');
 });

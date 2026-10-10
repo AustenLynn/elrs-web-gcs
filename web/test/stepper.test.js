@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { STEP_SIZES, THROTTLE_CAPS, StepModel, capChangeAllowed } from '../js/stepper.js';
+import { STEP_KEYS, STEP_SIZES, THROTTLE_CAPS, StepModel, capChangeAllowed } from '../js/stepper.js';
 
 test('starts neutral, 5 % steps, throttle limited to 30 %', () => {
   const s = new StepModel();
@@ -84,4 +84,41 @@ test('the throttle limit can be lowered at any time but raised only while not ar
   assert.equal(capChangeAllowed(300, 500, { state: 'DISARMED' }), true);
   assert.equal(capChangeAllowed(300, 1000, { state: 'FAILSAFE' }), true);
   assert.equal(capChangeAllowed(300, 1000, null), true);
+});
+
+test('step keys: each press moves its axis one step (5 % by default), like the ± buttons', () => {
+  const s = new StepModel();
+  assert.equal(s.keyDown('KeyW', false), true);
+  assert.equal(s.keyDown('KeyW', false), true);
+  s.keyDown('KeyD', false);
+  s.keyDown('ArrowUp', false);
+  s.keyDown('ArrowLeft', false);
+  assert.deepEqual(s.target, { roll: -50, pitch: 50, yaw: 50, throttle: 100 });
+  s.keyDown('KeyS', false);
+  s.keyDown('KeyA', false);
+  s.keyDown('KeyA', false);
+  s.keyDown('ArrowDown', false);
+  s.keyDown('ArrowRight', false);
+  assert.deepEqual(s.target, { roll: 0, pitch: 0, yaw: -50, throttle: 50 });
+});
+
+test('step keys: holding a key does not repeat the step; other keys are not taken', () => {
+  const s = new StepModel();
+  s.keyDown('KeyW', false);
+  for (let i = 0; i < 20; i++) assert.equal(s.keyDown('KeyW', true), true);   // still taken: no page scroll
+  assert.equal(s.target.throttle, 50);
+  assert.equal(s.keyDown('Space', false), false);    // disarm stays with the page
+  assert.equal(s.keyDown('KeyR', false), false);
+  assert.equal(s.keyDown('Digit1', false), false);
+  assert.equal(Object.keys(STEP_KEYS).length, 8);
+});
+
+test('step keys follow the chosen step and the throttle limit', () => {
+  const s = new StepModel();
+  s.setStep(10);
+  s.keyDown('KeyW', false);
+  assert.equal(s.target.throttle, 10);
+  s.setStep(100);
+  for (let i = 0; i < 5; i++) s.keyDown('KeyW', false);
+  assert.equal(s.target.throttle, 300);              // stops at the 30 % limit
 });
