@@ -328,13 +328,14 @@ for (const row of document.querySelectorAll('#panel-step .axis')) {
   input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') input.blur(); });
 }
 
-// Keyboard: flight keys in the keyboard mode; action keys (disarm, failsafe, arm, release,
+// Keyboard: flight keys in the keyboard mode (held) and the step mode (one step per press); action keys (disarm, failsafe, arm, release,
 // flight mode) in every mode. Never while typing a value.
 const armKey = new HoldGesture(1000, () => send({ t: 'arm' }));
 const typing = (ev) => ev.target instanceof Element && ev.target.matches('input, textarea, select');
 document.addEventListener('keydown', (ev) => {
   if (role !== 'pilot' || typing(ev) || ev.ctrlKey || ev.metaKey || ev.altKey) return;
-  if (inputMode === 'keyboard' && keyboard.keyDown(ev.code, ev.repeat)) {
+  if ((inputMode === 'keyboard' && keyboard.keyDown(ev.code, ev.repeat))
+    || (inputMode === 'step' && stepper.keyDown(ev.code, ev.repeat))) {
     ev.preventDefault();                             // arrows must not scroll the page
     return;
   }
