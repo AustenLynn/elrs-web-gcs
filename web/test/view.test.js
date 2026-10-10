@@ -66,11 +66,11 @@ test('labels and formatting', () => {
   assert.equal(formatMs(null), '—');
 });
 
-test('the Aquila20 flight mode is shown in Spanish; other texts as they are', () => {
-  // The Aquila20 reports "<sensitivity>-<mode>"; the mode is what the pilot chose (N/S/M).
-  assert.equal(formatFlightMode('S-NORMAL'), 'N (mantener posición)');
-  assert.equal(formatFlightMode('F-SPORT'), 'S (estable)');
-  assert.equal(formatFlightMode('M-MANUAL'), 'M (manual)');
+test('the Aquila20 flight mode is shown by the button names; other texts as they are', () => {
+  // The Aquila20 reports "<sensitivity>-<mode>"; the mode is what the pilot chose.
+  assert.equal(formatFlightMode('S-NORMAL'), 'Normal');
+  assert.equal(formatFlightMode('F-SPORT'), 'Sport');
+  assert.equal(formatFlightMode('M-MANUAL'), 'Manual');
   assert.equal(formatFlightMode('ACRO*'), 'ACRO*');            // e.g. Betaflight
   assert.equal(formatFlightMode(null), '—');
 });

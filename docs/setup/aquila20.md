@@ -16,8 +16,8 @@ Its receiver is built in ("BFPV AIO 2G4RX", ExpressLRS 3.5.6). crsf-core drives 
 | CH8 | no visible effect | — |
 
 Flight-mode telemetry reads `<sensitivity>-<mode>`, for example `S-NORMAL`. **It never says
-whether the drone is armed.** The pilot page shows it as "N (mantener posición)", "S (estable)"
-or "M (manual)".
+whether the drone is armed.** The pilot page shows it as "Normal", "Sport"
+or "Manual", the names on its mode buttons.
 
 ## 2. Failsafe behaviour
 
@@ -43,8 +43,8 @@ Do these with **propellers off**, the TX module on its XT30 supply, and the dron
 3. With crsf-core running and `crsf-ctl pilot`: press `a` (arm). The motors spin. Press `f`
    (failsafe). The motors stop at once, CH5 goes low, and `crsf-ctl status` starts
    with `FAILSAFE reason=manual`. Press `k` (ack): the state goes back to `DISARMED`.
-4. Mode switch: from the pilot page, N / S / M should show "N (mantener posición)", "S (estable)"
-   and "M (manual)" in the telemetry line.
+4. Mode switch: from the pilot page, Normal / Sport / Manual should show "Normal", "Sport"
+   and "Manual" in the telemetry line.
 5. Radio link loss: arm, then switch the TX module's supply off. Within about 1 s
    `crsf-ctl status` must show `FAILSAFE reason=rf_lost`, and the motors must already be stopped.
 6. **Power-on with ARM high:** with the drone's battery off, arm from `crsf-ctl pilot`, then

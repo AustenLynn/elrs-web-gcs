@@ -22,7 +22,7 @@ const MAX_DT_MS = 100;   // a stalled page (busy main thread, background tab) ne
 /** Keys that act once when pressed (handled by the page, not by the model). */
 export const KEY_ACTIONS = { Space: 'disarm', KeyF: 'failsafe', KeyR: 'arm', Escape: 'release' };
 
-/** Flight-mode switch N / S / M. */
+/** Flight-mode switch Normal / Sport / Manual. */
 export const MODE_KEYS = { Digit1: 0, Digit2: 1, Digit3: 2, Numpad1: 0, Numpad2: 1, Numpad3: 2 };
 
 export const INTENSITIES = [0.3, 0.5, 1];
