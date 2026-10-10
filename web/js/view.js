@@ -65,18 +65,17 @@ export function failsafeAlert(status) {
 const CMD_FRESH_MS = 500;   // the core sees our commands (it times out at 300 ms; status lags up to 100 ms)
 
 /** The way back from FAILSAFE, in the order crsf-core checks it before clearing (safety_ack).
- *  Only a guide: the core decides, and its refusals are still shown. Each step is
- *  'done', 'todo' or 'unknown' (no data, and the core does not block on it); the first step
- *  not done is marked next. The throttle counts as down only at exactly 0, because the core's
- *  threshold (throttle_arm_max) is configurable and the page does not know it. */
-export function recoverySteps({ status, engaged, cmd }) {
+ *  The core's throttle check needs no step: the page holds every input at neutral, throttle 0,
+ *  for the whole failsafe (inputmode.js). Only a guide: the core decides, and its refusals are
+ *  still shown. Each step is 'done', 'todo' or 'unknown' (no data, and the core does not block
+ *  on it); the first step not done is marked next. */
+export function recoverySteps({ status, engaged }) {
   if (status?.state !== 'FAILSAFE') return null;
   const commandsFresh = engaged && status.cmdAgeMs !== null && status.cmdAgeMs !== undefined && status.cmdAgeMs <= CMD_FRESH_MS;
   const drone = { disarmed: ['done', 'Dron desarmado'],
     armed: ['todo', 'El dron sigue armado: espera a que aterrice y se desarme'] }[status.fcArm]
     ?? ['unknown', 'Dron: sin datos de armado'];
   const steps = [
-    { id: 'throttle', state: cmd.throttle === 0 ? 'done' : 'todo', text: cmd.throttle === 0 ? 'Acelerador en 0' : 'Baja el acelerador a 0' },
     { id: 'control', state: commandsFresh ? 'done' : 'todo', text: commandsFresh ? 'Control tomado' : 'Pulsa «Tomar control»' },
     { id: 'drone', state: drone[0], text: drone[1] },
     { id: 'clear', state: 'todo', text: 'Mantén «Limpiar failsafe» 2 s; luego comprueba que Dron está en verde y arma de nuevo' },

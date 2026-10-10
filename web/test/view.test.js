@@ -77,26 +77,20 @@ test('the Aquila20 flight mode is shown in Spanish; other texts as they are', ()
 
 // Failsafe recovery: the steps the core requires before it clears a failsafe (safety_ack).
 const failsafe = { core: true, state: 'FAILSAFE', reason: 'cmd_timeout', fcArm: 'disarmed', cmdAgeMs: 20 };
-const zero = { roll: 0, pitch: 0, yaw: 0, throttle: 0, mode: 0 };
 const stateOf = (steps) => Object.fromEntries(steps.map((s) => [s.id, s.state]));
 
 test('no recovery steps outside FAILSAFE', () => {
-  assert.equal(recoverySteps({ status: goodStatus, engaged: true, cmd: zero }), null);
-  assert.equal(recoverySteps({ status: null, engaged: false, cmd: zero }), null);
+  assert.equal(recoverySteps({ status: goodStatus, engaged: true }), null);
+  assert.equal(recoverySteps({ status: null, engaged: false }), null);
 });
 
-test('recovery steps come in the order the core checks them', () => {
-  const steps = recoverySteps({ status: failsafe, engaged: true, cmd: zero });
-  assert.deepEqual(steps.map((s) => s.id), ['throttle', 'control', 'drone', 'clear']);
-});
-
-test('throttle counts as down only at exactly 0 (the core threshold is configurable)', () => {
-  assert.equal(stateOf(recoverySteps({ status: failsafe, engaged: true, cmd: { ...zero, throttle: 1 } })).throttle, 'todo');
-  assert.equal(stateOf(recoverySteps({ status: failsafe, engaged: true, cmd: zero })).throttle, 'done');
+test('recovery is take control, then clear (the page holds the throttle at 0 itself)', () => {
+  const steps = recoverySteps({ status: failsafe, engaged: true });
+  assert.deepEqual(steps.map((s) => s.id), ['control', 'drone', 'clear']);
 });
 
 test('control counts as taken only while engaged and the core sees fresh commands', () => {
-  const at = (engaged, cmdAgeMs) => stateOf(recoverySteps({ status: { ...failsafe, cmdAgeMs }, engaged, cmd: zero })).control;
+  const at = (engaged, cmdAgeMs) => stateOf(recoverySteps({ status: { ...failsafe, cmdAgeMs }, engaged })).control;
   assert.equal(at(false, 20), 'todo');
   assert.equal(at(true, null), 'todo');
   assert.equal(at(true, 2000), 'todo');
@@ -104,16 +98,16 @@ test('control counts as taken only while engaged and the core sees fresh command
 });
 
 test('the drone step follows the flight controller; unknown does not block', () => {
-  const at = (fcArm) => stateOf(recoverySteps({ status: { ...failsafe, fcArm }, engaged: true, cmd: zero })).drone;
+  const at = (fcArm) => stateOf(recoverySteps({ status: { ...failsafe, fcArm }, engaged: true })).drone;
   assert.equal(at('disarmed'), 'done');
   assert.equal(at('armed'), 'todo');
   assert.equal(at('unknown'), 'unknown');
 });
 
 test('exactly one step is next: the first one not done', () => {
-  const steps = recoverySteps({ status: failsafe, engaged: false, cmd: { ...zero, throttle: 400 } });
-  assert.deepEqual(steps.filter((s) => s.next).map((s) => s.id), ['throttle']);
-  const ready = recoverySteps({ status: { ...failsafe, fcArm: 'unknown' }, engaged: true, cmd: zero });
+  const steps = recoverySteps({ status: failsafe, engaged: false });
+  assert.deepEqual(steps.filter((s) => s.next).map((s) => s.id), ['control']);
+  const ready = recoverySteps({ status: { ...failsafe, fcArm: 'unknown' }, engaged: true });
   assert.deepEqual(ready.filter((s) => s.next).map((s) => s.id), ['clear']);
   for (const step of ready) assert.ok(step.text.length > 0);
 });

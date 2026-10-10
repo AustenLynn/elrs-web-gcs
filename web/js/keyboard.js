@@ -38,9 +38,11 @@ export class KeyboardModel {
     this.throttle = 0;
   }
 
-  /** Returns true when the key is a flight key (the page should not use it for anything else). */
-  keyDown(code) {
-    this.held.add(code);
+  /** Returns true when the key is a flight key (the page should not use it for anything else).
+   *  An auto-repeat of a key the model does not hold was held through a reset or a release:
+   *  it is ignored until the key is pressed again. */
+  keyDown(code, repeat = false) {
+    if (!repeat || this.held.has(code)) this.held.add(code);
     return code in AXIS_KEYS || code in THROTTLE_KEYS;
   }
 

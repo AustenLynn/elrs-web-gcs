@@ -2,7 +2,7 @@
 // ?observe in the URL opens a read-only view.
 import { Deadman, DEADMAN_TEXT } from './deadman.js';
 import { HoldGesture, bindHold } from './hold.js';
-import { canSwitchInput, loadInputMode, padPositions, readouts, saveInputMode } from './inputmode.js';
+import { canSwitchInput, enteringFailsafe, inputsLocked, loadInputMode, lockedCommand, padPositions, readouts, saveInputMode } from './inputmode.js';
 import { KEY_ACTIONS, KeyboardModel, MODE_KEYS } from './keyboard.js';
 import { REFUSAL_TEXT, RATE_HZ, closeAction, connectionTarget, controlMessage, shouldReclaimPilotSeat, tsyncReply } from './protocol.js';
 import { StepModel, capChangeAllowed } from './stepper.js';
@@ -87,11 +87,14 @@ function handle(msg) {
       document.body.classList.toggle('observer', role !== 'pilot');
       if (wantRole === 'pilot' && role !== 'pilot') toast('Ya hay un piloto conectado: modo observador');
       break;
-    case 'status':
+    case 'status': {
+      const prevState = status?.state;
       status = msg;
+      if (enteringFailsafe(prevState, status.state)) startAgainAfterFailsafe();
       links.update(status, performance.now());
       if (shouldReclaimPilotSeat(wantRole, role, status)) ws.close();   // reconnects with hello pilot
       break;
+    }
     case 'telem':
       if (msg.link) telem.linkAt = performance.now();
       Object.assign(telem, msg);
@@ -124,10 +127,31 @@ function currentCommand(dtMs) {
   return sticksToCommand(left, right, mode);
 }
 
-// 50 Hz control loop. Nothing is queued while disconnected or disengaged.
+/** Every input back to neutral with the throttle at zero, no finger or key held. */
+function resetInputs() {
+  left.reset();
+  right.reset();
+  keyboard.reset();
+  stepper.reset();
+}
+
+/** The core entered FAILSAFE: everything starts again from zero, and the pilot takes control
+ *  again before clearing it (inputmode.js). */
+function startAgainAfterFailsafe() {
+  resetInputs();
+  armKey.release();
+  armHold.release();
+  $('btn-arm').style.setProperty('--progress', 0);
+  deadman.disengage('failsafe');
+}
+
+// 50 Hz control loop. Nothing is queued while disconnected or disengaged. In FAILSAFE every
+// input is held at neutral, throttle 0, whatever the pilot does.
 setInterval(() => {
   const now = performance.now();
-  lastCmd = currentCommand(now - lastTick);
+  const locked = inputsLocked(status);
+  if (locked) resetInputs();
+  lastCmd = locked ? lockedCommand(mode) : currentCommand(now - lastTick);
   lastTick = now;
   const canSend = deadman.canSend({
     visible: document.visibilityState === 'visible',
@@ -145,10 +169,7 @@ function setInputMode(next, { save = true } = {}) {
     return;
   }
   inputMode = next;
-  left.reset();
-  right.reset();
-  keyboard.reset();
-  stepper.reset();
+  resetInputs();
   deadman.disengage('input');
   document.body.dataset.input = next;
   if (save) saveInputMode(storage(), next);
@@ -207,7 +228,7 @@ function renderInput(now) {
     if (document.activeElement !== input && input.value !== shown) input.value = shown;
   }
   // The pads show what is on the air in every mode (touch: the sticks themselves).
-  const cmd = inputMode === 'touch' ? sticksToCommand(left, right, mode) : lastCmd;
+  const cmd = inputMode === 'touch' && !inputsLocked(status) ? sticksToCommand(left, right, mode) : lastCmd;
   const pos = padPositions(cmd);
   const text = readouts(cmd);
   for (const side of ['left', 'right']) {
@@ -260,14 +281,14 @@ function render() {
     $('banner-title').textContent = alert.title;
     $('banner-detail').textContent = alert.detail;
     $('banner-age').textContent = formatCmdAge(status.cmdAgeMs);
-    renderRecovery(recoverySteps({ status, engaged: deadman.engaged, cmd: lastCmd }));
+    renderRecovery(recoverySteps({ status, engaged: deadman.engaged }));
   }
   requestAnimationFrame(render);
 }
 
 bindStick($('stick-left'), left);
 bindStick($('stick-right'), right);
-bindHold($('btn-arm'), 1000, () => send({ t: 'arm' }));
+const armHold = bindHold($('btn-arm'), 1000, () => send({ t: 'arm' }));
 bindHold($('btn-ack'), 2000, () => send({ t: 'ack' }));
 $('btn-take').addEventListener('click', takeControl);
 $('btn-disarm').addEventListener('click', () => send({ t: 'disarm' }));
@@ -313,7 +334,7 @@ const armKey = new HoldGesture(1000, () => send({ t: 'arm' }));
 const typing = (ev) => ev.target instanceof Element && ev.target.matches('input, textarea, select');
 document.addEventListener('keydown', (ev) => {
   if (role !== 'pilot' || typing(ev) || ev.ctrlKey || ev.metaKey || ev.altKey) return;
-  if (inputMode === 'keyboard' && keyboard.keyDown(ev.code)) {
+  if (inputMode === 'keyboard' && keyboard.keyDown(ev.code, ev.repeat)) {
     ev.preventDefault();                             // arrows must not scroll the page
     return;
   }

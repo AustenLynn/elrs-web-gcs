@@ -87,12 +87,18 @@ test('pilot page arms the aircraft, fails safe when the page loses control, and 
   assert.notEqual(await page.evaluate("getComputedStyle(document.getElementById('banner')).display"), 'none', 'banner rendered in FAILSAFE');
 
   // The way back, in the order the core checks it: control is the first step missing (the
-  // throttle is already 0 and the fake drone reports itself disarmed).
+  // page put every input back to zero, and the fake drone reports itself disarmed).
   const nextStep = () => page.evaluate("document.querySelector('#recovery li.next')?.textContent ?? ''");
   await waitFor(async () => /Tomar control/.test(await nextStep()), 2000, 'recovery: take control next');
   await page.evaluate("document.hasFocus = () => true");
   await page.evaluate("document.getElementById('btn-take').click()");
   await waitFor(async () => /Limpiar failsafe/.test(await nextStep()), 3000, 'recovery: clear the failsafe next');
+  // Inputs stay at neutral, throttle 0, for the whole failsafe: holding W sends nothing more.
+  await page.call('input.performActions', {
+    context: page.context,
+    actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: 'w' }, { type: 'pause', duration: 500 }, { type: 'keyUp', value: 'w' }] }],
+  });
+  assert.match(await page.evaluate("document.getElementById('ro-left').textContent"), /^Acel\. 0 %/, 'throttle held at 0 during the failsafe');
   const ack = JSON.parse(await page.evaluate("JSON.stringify(document.getElementById('btn-ack').getBoundingClientRect())"));
   await page.call('input.performActions', {
     context: page.context,
