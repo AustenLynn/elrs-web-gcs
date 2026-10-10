@@ -8,7 +8,7 @@
   "scripts": {
     "start": "node src/main.js",
     "test": "node --test \"test/*.test.js\" \"../web/test/*.test.js\"",
-    "e2e": "node --test \"e2e/*.e2e.js\""
+    "e2e": "node --test --test-concurrency=1 \"e2e/*.e2e.js\""
   },
   "engines": {
     "node": ">=22"

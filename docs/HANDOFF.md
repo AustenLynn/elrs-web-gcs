@@ -123,8 +123,11 @@ npm --prefix relay install && npm --prefix gateway install   # first time only
 npm --prefix relay test               # 11
 npm --prefix gateway test             # 142 (gateway + web)
 python3 -W error -m unittest discover -s tools/analysis -t tools/analysis   # 26
-make -C core && npm --prefix gateway run e2e   # 3 headless-Firefox tests (pilot, layout, video)
+make -C core && npm --prefix gateway run e2e   # 6 headless-Firefox tests (keyboard, layout, pilot, video), one at a time
 ```
+
+The browser tests run one at a time (`--test-concurrency=1`): run in parallel, six Firefoxes on
+the Pi's 4 cores delay the page's commands enough that the arming tests time out.
 
 The video browser test uses `/opt/mediamtx/mediamtx`, or `MEDIAMTX=<path>`. It is skipped
 if MediaMTX is missing. It drops frames when the Pi is throttling, so let the Pi cool
