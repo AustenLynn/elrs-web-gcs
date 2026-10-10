@@ -87,6 +87,8 @@ and `deploy/crsf-core.conf` sets it explicitly.
   **"M · Manual"** (high).
 - The flight-mode telemetry is shown in Spanish: `X-NORMAL` → "N (mantener posición)",
   `X-SPORT` → "S (estable)", `X-MANUAL` → "M (manual)". Unknown text is shown as it is.
+- **Amended 2026-10-09:** the team found the drone's own names easier. The buttons and the
+  telemetry line now read **"Normal"**, **"Sport"** and **"Manual"** (same CH6 values).
 - The gateway and both protocols are unchanged.
 
 ## 4. Verification
