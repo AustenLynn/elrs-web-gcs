@@ -122,3 +122,16 @@ test('step keys follow the chosen step and the throttle limit', () => {
   for (let i = 0; i < 5; i++) s.keyDown('KeyW', false);
   assert.equal(s.target.throttle, 300);              // stops at the 30 % limit
 });
+
+test('step keys with Shift: a fine 1 % step, whatever step is chosen', () => {
+  const s = new StepModel();
+  s.keyDown('KeyW', false, true);
+  s.keyDown('ArrowRight', false, true);
+  assert.deepEqual(s.target, { roll: 10, pitch: 0, yaw: 0, throttle: 10 });
+  s.setStep(100);
+  s.keyDown('KeyW', false, true);
+  assert.equal(s.target.throttle, 20);
+  s.keyDown('KeyW', false);                          // without Shift: the chosen step again
+  assert.equal(s.target.throttle, 120);
+  assert.equal(s.step, 100);                         // Shift never changes the chosen step
+});

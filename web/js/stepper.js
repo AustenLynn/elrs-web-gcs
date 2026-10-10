@@ -2,7 +2,8 @@
 // value and holds it, so a test does not depend on the pilot's precision. StepModel is pure.
 //  - Values move away from neutral at a limited rate (default 20 % per second), never in a jump;
 //    towards neutral they move at once (see ramp.js).
-//  - The keyboard's flight keys (STEP_KEYS) act like the ± buttons: one press, one step.
+//  - The keyboard's flight keys (STEP_KEYS) act like the ± buttons: one press, one step
+//    (with Shift, a fine 1 % step).
 //  - The throttle is limited (default 30 %). The limit can be lowered at any time and raised
 //    only while not armed.
 import { approach } from './ramp.js';
@@ -11,6 +12,7 @@ export const STEP_SIZES = [10, 50, 100];          // 1 %, 5 %, 10 %
 export const THROTTLE_CAPS = [300, 500, 1000];    // 30 %, 50 %, 100 %
 const RANGE = { roll: [-1000, 1000], pitch: [-1000, 1000], yaw: [-1000, 1000], throttle: [0, 1000] };
 const MAX_DT_MS = 100;
+const FINE_STEP = 10;                              // 1 %, with Shift held
 
 /** The keyboard mode's flight keys, one step per press: W/S throttle, A/D yaw, arrows pitch and roll. */
 export const STEP_KEYS = {
@@ -41,16 +43,17 @@ export class StepModel {
     return this.target[axis];
   }
 
-  nudge(axis, dir) {
-    return this.set(axis, this.target[axis] + dir * this.step);
+  nudge(axis, dir, step = this.step) {
+    return this.set(axis, this.target[axis] + dir * step);
   }
 
   /** True when the key is a step key (the page then keeps it from scrolling). A held key's
-   *  auto-repeat does not step again: one press, one step. */
-  keyDown(code, repeat) {
+   *  auto-repeat does not step again: one press, one step. With Shift (fine) the step is 1 %,
+   *  like the keyboard mode's fine control. */
+  keyDown(code, repeat, fine = false) {
     const key = STEP_KEYS[code];
     if (!key) return false;
-    if (!repeat) this.nudge(key[0], key[1]);
+    if (!repeat) this.nudge(key[0], key[1], fine ? FINE_STEP : this.step);
     return true;
   }
 

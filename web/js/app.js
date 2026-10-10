@@ -335,7 +335,7 @@ const typing = (ev) => ev.target instanceof Element && ev.target.matches('input,
 document.addEventListener('keydown', (ev) => {
   if (role !== 'pilot' || typing(ev) || ev.ctrlKey || ev.metaKey || ev.altKey) return;
   if ((inputMode === 'keyboard' && keyboard.keyDown(ev.code, ev.repeat))
-    || (inputMode === 'step' && stepper.keyDown(ev.code, ev.repeat))) {
+    || (inputMode === 'step' && stepper.keyDown(ev.code, ev.repeat, ev.shiftKey))) {
     ev.preventDefault();                             // arrows must not scroll the page
     return;
   }

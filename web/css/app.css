@@ -211,6 +211,10 @@ kbd { display: inline-block; min-width: 1.8em; margin-right: 2px; padding: 1px 6
     justify-content: flex-start; gap: 16px; margin: 16px 20px 16px 0; padding: 16px 18px; overflow: auto;
     border: 1px solid var(--line); border-radius: 16px; }
   body:not([data-input="touch"]) .panel .keys { flex-direction: column; gap: 10px; font-size: 14px; }
+  /* the step panel also holds the axes: its key list takes two columns to fit */
+  body:not([data-input="touch"]) #panel-step .keys { display: grid; grid-template-columns: auto auto; justify-content: start;
+    gap: 6px 16px; font-size: 12px; }
+  body:not([data-input="touch"]) #panel-step .keys li:first-child { grid-column: 1 / -1; }
   body:not([data-input="touch"]) .panel .panel-tools { justify-content: flex-start; }
   body:not([data-input="touch"]) .panel .seg-ctl { align-self: flex-start; }
   body:not([data-input="touch"]) .panel .axis-group { gap: 8px; }

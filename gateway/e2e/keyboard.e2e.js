@@ -22,7 +22,7 @@ const LOW = 192;
 
 after(() => { for (const p of procs) p.kill('SIGKILL'); });
 
-test('keyboard mode: hold R arms, W raises and holds the throttle, Space disarms; step mode keys move 5 % per press', { timeout: 90000 }, async () => {
+test('keyboard mode: hold R arms, W raises and holds the throttle, Space disarms; step mode keys move 5 % per press (Shift 1 %), R and Space work there too', { timeout: 90000 }, async () => {
   const fake = start(procs, 'python3', ['-u', 'fake_tx_cli.py'], { cwd: path.join(repo, 'core/tests/integration') });
   let channels = null;
   const lines = readline.createInterface({ input: fake.stdout });
@@ -77,6 +77,23 @@ test('keyboard mode: hold R arms, W raises and holds the throttle, Space disarms
   await waitFor(async () => (await value('throttle')) === '10', 2000, 'throttle 10 % after W twice');
   assert.equal(await value('pitch'), '5', 'pitch 5 % after one ArrowUp');
   assert.equal(await value('yaw'), '-5', 'yaw -5 % after one A');
+  await page.call('input.performActions', {                // Shift + W: a fine 1 % step
+    context: page.context,
+    actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: '' }, { type: 'keyDown', value: 'w' },
+      { type: 'keyUp', value: 'w' }, { type: 'keyUp', value: '' }] }],
+  });
+  await waitFor(async () => (await value('throttle')) === '11', 2000, 'throttle 11 % after Shift + W');
+
+  // The keyboard mode's action keys work in the step mode too: R arms, Space disarms.
+  // Switching modes released control, so the core still holds the keyboard mode's last
+  // throttle (ARM low): take control again, and the step mode's neutral reaches the channels.
+  await page.evaluate("document.getElementById('btn-neutral').click()");
+  await page.evaluate("document.getElementById('btn-take').click()");
+  await waitFor(() => channels[THROTTLE] === LOW, 2000, 'throttle at minimum after NEUTRO');
+  await hold('r', 1500);
+  await waitFor(() => channels[ARM] === HIGH, 3000, 'ARM channel high after holding R in the step mode');
+  await hold(' ', 50);
+  await waitFor(() => channels[ARM] === LOW, 2000, 'ARM channel low after Space in the step mode');
 
   assert.deepEqual(page.errors, [], 'no JavaScript errors on the page');
 });
