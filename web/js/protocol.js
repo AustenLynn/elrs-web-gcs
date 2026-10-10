@@ -49,7 +49,7 @@ export const REASON_TEXT = {
   gateway_lost: 'el gateway se reinició',
   session_changed: 'cambió el piloto',
   manual: 'activado por el piloto',
-  rf_lost: 'el dron perdió el enlace de radio (se desarmó solo)',
+  rf_lost: 'el dron perdió el enlace de radio',
 
 };
 

@@ -172,3 +172,20 @@ test('commands are integers in protocol range', () => {
   for (const v of [c.roll, c.pitch, c.yaw, c.throttle]) assert.ok(Number.isInteger(v), `${v} is not an integer`);
   assert.equal(c.mode, 1);
 });
+
+test('a key held through a reset is ignored until it is pressed again (auto-repeat does not bring it back)', () => {
+  const k = new KeyboardModel({ throttleRatePerS: 500, cap: 1000 });
+  k.keyDown('KeyW');
+  k.update(100);
+  k.reset();
+  assert.equal(k.keyDown('KeyW', true), true, 'still claimed: the page must not use it for anything else');
+  k.update(100);
+  assert.equal(k.command(0).throttle, 0);
+  k.keyUp('KeyW');
+  k.keyDown('KeyW');
+  k.update(100);
+  assert.equal(k.command(0).throttle, 50, 'a fresh press works');
+  k.keyDown('KeyW', true);
+  k.update(100);
+  assert.equal(k.command(0).throttle, 100, 'repeats of a key that is held are fine');
+});

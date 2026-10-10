@@ -121,7 +121,7 @@ make -C core test                     # 100 C unit tests (UBSan)
 make -C core integration              # 29 tests: real binaries vs a Python fake TX module on a pty
 npm --prefix relay install && npm --prefix gateway install   # first time only
 npm --prefix relay test               # 11
-npm --prefix gateway test             # 131 (gateway + web)
+npm --prefix gateway test             # 142 (gateway + web)
 python3 -W error -m unittest discover -s tools/analysis -t tools/analysis   # 26
 make -C core && npm --prefix gateway run e2e   # 3 headless-Firefox tests (pilot, layout, video)
 ```

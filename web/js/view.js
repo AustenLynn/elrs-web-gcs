@@ -51,6 +51,43 @@ export function failsafeDetail(status) {
   return REASON_TEXT[status.reason] ?? status.reason;
 }
 
+/** What the failsafe alert says. Losing the radio link has its own wording: the drone's own
+ *  receiver failsafe is in charge, whatever the profile does with ARM. */
+export function failsafeAlert(status) {
+  const detail = failsafeDetail(status);
+  if (detail === null) return null;
+  if (status.reason === 'rf_lost') {
+    return { title: 'EL DRON DEJÓ DE RESPONDER', detail: 'El failsafe del receptor ELRS toma el control. Mantén el dron a la vista.' };
+  }
+  return { title: 'FAILSAFE ACTIVO', detail: detail.charAt(0).toUpperCase() + detail.slice(1) };
+}
+
+const CMD_FRESH_MS = 500;   // the core sees our commands (it times out at 300 ms; status lags up to 100 ms)
+
+/** The way back from FAILSAFE, in the order crsf-core checks it before clearing (safety_ack).
+ *  The core's throttle check needs no step: the page holds every input at neutral, throttle 0,
+ *  for the whole failsafe (inputmode.js). Only a guide: the core decides, and its refusals are
+ *  still shown. Each step is 'done', 'todo' or 'unknown' (no data, and the core does not block
+ *  on it); the first step not done is marked next. */
+export function recoverySteps({ status, engaged }) {
+  if (status?.state !== 'FAILSAFE') return null;
+  const commandsFresh = engaged && status.cmdAgeMs !== null && status.cmdAgeMs !== undefined && status.cmdAgeMs <= CMD_FRESH_MS;
+  const drone = { disarmed: ['done', 'Dron desarmado'],
+    armed: ['todo', 'El dron sigue armado: espera a que aterrice y se desarme'] }[status.fcArm]
+    ?? ['unknown', 'Dron: sin datos de armado'];
+  const steps = [
+    { id: 'control', state: commandsFresh ? 'done' : 'todo', text: commandsFresh ? 'Control tomado' : 'Pulsa «Tomar control»' },
+    { id: 'drone', state: drone[0], text: drone[1] },
+    { id: 'clear', state: 'todo', text: 'Mantén «Limpiar failsafe» 2 s; luego comprueba que Dron está en verde y arma de nuevo' },
+  ];
+  const next = steps.find((st) => st.state === 'todo');
+  for (const st of steps) st.next = st === next;
+  return steps;
+}
+
+/** How long ago the core received the last command. */
+export const formatCmdAge = (ms) => (ms === null || ms === undefined ? '—' : ms < 1000 ? 'ahora' : `hace ${(ms / 1000).toFixed(1)} s`);
+
 export const formatBattery = (b) => (b ? `${b.voltage.toFixed(1)} V · ${b.remainingPct} %` : '—');
 
 export const formatLink = (l) => (l ? `LQ ${l.upLq} % · ${l.upRssi1} dBm · ${l.txPowerMw} mW` : '—');

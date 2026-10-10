@@ -27,6 +27,17 @@ export function saveInputMode(storage, mode) {
   } catch { /* the choice is just not remembered */ }
 }
 
+/** A failsafe starts every input again from zero: the page resets the sticks, keys and step
+ *  values when the core enters FAILSAFE, and holds them at neutral, throttle 0, until it is
+ *  cleared. The core already ignores the sticks in FAILSAFE; this makes sure that what the
+ *  page sends afterwards starts from zero too, and that the throttle can never be in the way
+ *  of clearing it. */
+export const enteringFailsafe = (prevState, nextState) => nextState === 'FAILSAFE' && prevState !== 'FAILSAFE';
+
+export const inputsLocked = (status) => status?.state === 'FAILSAFE';
+
+export const lockedCommand = (mode) => ({ roll: 0, pitch: 0, yaw: 0, throttle: 0, mode });
+
 /** Knob positions (−1..1, screen coordinates) that show a command on the two stick pads. */
 export function padPositions(cmd) {
   return {

@@ -31,3 +31,11 @@ test('a layout change under the fingers ends control and says why', () => {
   assert.equal(d.canSend(ok), false);
   assert.match(DEADMAN_TEXT.layout, /pantalla/);
 });
+
+test('a failsafe takes control away and says how to start again', () => {
+  const d = new Deadman();
+  d.engage();
+  d.disengage('failsafe');
+  assert.equal(d.canSend(ok), false);
+  assert.match(DEADMAN_TEXT.failsafe, /Tomar control/);
+});

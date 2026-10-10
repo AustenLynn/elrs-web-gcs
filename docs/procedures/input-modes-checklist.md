@@ -22,13 +22,17 @@ CH1 roll, CH2 pitch, CH3 throttle, CH4 yaw, CH5 ARM, CH6 flight mode.
 | 6 | PC | Press **Space** | DESARMADO at once; CH5 = 192; motors stop | |
 | 7 | PC | Arm again (R), then try to click **Prueba** | the mode buttons are disabled while armed | |
 | 8 | PC | Press **Esc** | control released; FAILSAFE `cmd_timeout` within ~0.3 s; CH5 = 192; motors stop | |
-| 9 | PC | Clear the failsafe (hold the banner button 2 s), switch to **Prueba**, `Tomar control` | step panel visible; throttle limit 30 % | |
+| 9 | PC | Follow the FAILSAFE alert: `Tomar control`, then hold **Limpiar failsafe** 2 s; switch to **Prueba**, `Tomar control` | the alert's list ticks Control tomado and Dron desarmado, then the alert goes; step panel visible; throttle limit 30 % | |
 | 10 | PC | Click **+** on Acelerador twice | target 10 %; CH3 climbs to ~10 % over about half a second, no jump | |
 | 11 | PC | Type 80 in Acelerador, press Enter | clamped to 30 % with a notice; CH3 ramps to 30 % | |
 | 12 | PC | Arm is refused (throttle 30 %); press **NEUTRO** | CH1–CH4 back to neutral at once (throttle 192) | |
 | 13 | PC | Arm (R), then try the **50 %** limit button | disabled while armed; disarm (Space) | |
 | 14 | Phone | Hold-to-arm, fly the sticks with both thumbs, tap Desarmar | unchanged touch behaviour | |
 | 15 | Both | Repeat 8 with the phone locked instead of Esc | FAILSAFE within ~0.3 s | |
+| 16 | Phone | Arm, raise the throttle to about half, lock the phone; unlock | FAILSAFE alert; the left stick is back at 0 by itself; held sideways only the next step shows (→ Pulsa «Tomar control») | |
+| 17 | Phone | `Tomar control`, push the left stick up, then hold **Limpiar failsafe** 2 s | the stick does not move CH3 (stays 192) during the failsafe; DESARMADO; the alert goes; Dron green before arming again | |
+| 18 | PC | **Teclado**, `Tomar control`, arm (R), hold **W** 2 s | CH3 stops at ~30 % (the keyboard limit); 50 % and 100 % disabled while armed | |
+| 19 | Both | Switch the drone off while armed | alert reads EL DRON DEJÓ DE RESPONDER; battery and link values turn grey after ~2 s | |
 
 **Rule:** disarm before anyone touches the drone or its battery.
 

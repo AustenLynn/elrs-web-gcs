@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { INPUT_MODES, canSwitchInput, defaultInputMode, loadInputMode, padPositions, readouts, saveInputMode } from '../js/inputmode.js';
+import { INPUT_MODES, canSwitchInput, defaultInputMode, enteringFailsafe, inputsLocked, loadInputMode, lockedCommand, padPositions, readouts, saveInputMode } from '../js/inputmode.js';
 
 const memory = (init = {}) => {
   const data = { ...init };
@@ -47,4 +47,21 @@ test('pad positions mirror the Mode 2 stick layout', () => {
 test('readouts show every axis in percent', () => {
   assert.deepEqual(readouts({ roll: -250, pitch: 100, yaw: 0, throttle: 355 }),
     { left: 'Acel. 36 % · Guiñ. 0 %', right: 'Cab. +10 % · Alab. −25 %' });
+});
+
+test('inputs start again from zero when the core enters FAILSAFE, once', () => {
+  assert.equal(enteringFailsafe('ARMED', 'FAILSAFE'), true);
+  assert.equal(enteringFailsafe('DISARMED', 'FAILSAFE'), true);
+  assert.equal(enteringFailsafe(undefined, 'FAILSAFE'), true, 'page connected during a failsafe');
+  assert.equal(enteringFailsafe('FAILSAFE', 'FAILSAFE'), false);
+  assert.equal(enteringFailsafe('FAILSAFE', 'DISARMED'), false);
+  assert.equal(enteringFailsafe('ARMED', 'ARMED'), false);
+});
+
+test('inputs stay locked at neutral, throttle 0, for the whole failsafe', () => {
+  assert.equal(inputsLocked({ state: 'FAILSAFE' }), true);
+  assert.equal(inputsLocked({ state: 'DISARMED' }), false);
+  assert.equal(inputsLocked({ state: 'ARMED' }), false);
+  assert.equal(inputsLocked(null), false, 'no status: the core holds the drone anyway');
+  assert.deepEqual(lockedCommand(2), { roll: 0, pitch: 0, yaw: 0, throttle: 0, mode: 2 }, 'the flight mode passes through');
 });

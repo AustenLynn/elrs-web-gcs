@@ -35,4 +35,5 @@ export const DEADMAN_TEXT = {
   layout: 'Control perdido: la pantalla cambió de tamaño o de orientación',
   input: 'Cambiaste el modo de control: pulsa «Tomar control» de nuevo',
   released: 'Soltaste el control (Esc)',
+  failsafe: 'Failsafe: los mandos volvieron a cero. Pulsa «Tomar control» para empezar de nuevo',
 };

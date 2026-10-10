@@ -189,7 +189,7 @@ connects them to the page.
 | Sides | Two stick pads (landscape: either side of the video; portrait: below it). In the keyboard and step modes they only display the values, and they are hidden on upright or short screens |
 | Mode panel | Keyboard: key guide, intensity, throttle limit. Step: per-axis controls, step size, throttle limit, NEUTRO. On large screens (at least 1100 × 640 px) in these two modes the panel is a column on the right |
 | Footer | `Tomar control`, `Armar` (hold), `Desarmar`, `FAILSAFE`, flight mode N / S / M |
-| Banner | Shown in FAILSAFE: the reason and `Limpiar failsafe` (hold) |
+| Banner | Shown in FAILSAFE: the reason (its own wording when the radio link was lost), the age of the last command the core received, the way back as a checklist (`recoverySteps` in `view.js`: `Tomar control` → drone disarmed → `Limpiar failsafe`, the order the core checks; the throttle needs no step, see §5.2), and `Limpiar failsafe` (hold). An overlay that never moves the sticks; touches outside its button reach them. On short screens only the next step shows |
 
 The UI text is in Spanish; code and documentation are in English.
 
@@ -223,6 +223,12 @@ Rules common to all modes:
   at any time, which brings the throttle down to it at once, and raised only while not ARMED
   (`capChangeAllowed`). Each mode keeps its own limit. It is a convenience for bench tests, not a
   safety rule: crsf-core does not know about it.
+- **A failsafe starts every input again from zero.** When the core enters FAILSAFE the page
+  resets the sticks, keys and step values to neutral with throttle 0, cancels an arm hold and
+  disengages the dead-man; until the failsafe is cleared it sends only neutral, throttle 0,
+  whatever the pilot touches (`inputsLocked`). A finger or key held through it is ignored until
+  lifted and pressed again. The core already ignores the sticks in FAILSAFE; this makes the
+  core's throttle check on clearing always pass and the first command afterwards neutral.
 - The on-air line always shows what is being sent.
 
 **Keyboard mode** (`keyboard.js`). Keys are read by physical position (`KeyboardEvent.code`),
