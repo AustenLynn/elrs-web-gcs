@@ -121,7 +121,7 @@ make -C core test                     # 100 C unit tests (UBSan)
 make -C core integration              # 29 tests: real binaries vs a Python fake TX module on a pty
 npm --prefix relay install && npm --prefix gateway install   # first time only
 npm --prefix relay test               # 11
-npm --prefix gateway test             # 142 (gateway + web)
+npm --prefix gateway test             # 146 (gateway + web)
 python3 -W error -m unittest discover -s tools/analysis -t tools/analysis   # 26
 make -C core && npm --prefix gateway run e2e   # 6 headless-Firefox tests (keyboard, layout, pilot, video), one at a time
 ```
@@ -145,6 +145,14 @@ first. The gateway's relay tests import `relay/`, so install both packages.
   - **Before reusing a tunnel**, put a login in front: Cloudflare Access with a named tunnel, or
     the M7 relay with its pilot token. Otherwise keep the page on the local network.
   - Stop the tunnel when the test ends (kill the `cloudflared` process).
+  - A quick tunnel was used again, still without login, for the 2026-10-09 flights.
+
+- **First flights, 2026-10-09: see `docs/flight-tests/2026-10-09-first-flights.md`.**
+  - The web controller feels less smooth than the physical one.
+  - In Normal mode the drone came down to the ground with the motors running.
+  - One in-flight `cmd_timeout` failsafe, and three arms that failed safe at once (`rf_lost`).
+  - §5 of that report lists the open items. Several are team decisions: Prueba ramp, a
+    failsafe that lands, the 300 ms timeout (P1), the CH7 sensitivity.
 
 - **Resolved 2026-10-07: the drone does not run Betaflight.** The team kept the Aquila20.
   - crsf-core has `fc_profile = aquila20 | betaflight`. In `aquila20` (the default), FAILSAFE drops
