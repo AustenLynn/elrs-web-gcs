@@ -30,6 +30,8 @@ typedef struct {
     int32_t last_offset_0p1us;
     int64_t late_max_ns;
     char flight_mode[16];
+    bool stick_logging;            /* armed at the last stick-log line: one more line follows */
+    int64_t last_stick_log_ns;
 } rtloop_t;
 
 void rtloop_init(rtloop_t *l, const config_t *cfg, mailbox_t *mb, atomic_bool *stop);

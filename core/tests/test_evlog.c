@@ -25,6 +25,22 @@ static void test_refused_and_timing_events(void)
     CHECK(strstr(out, "\"interval_us\":4000.0,\"offset_us\":-123.4}") != NULL);
 }
 
+static void test_sticks_event(void)
+{
+    /* Values on the air while armed, in % like the page's readouts (flight test 2026-10-09). */
+    core_event_t ev = { .kind = EV_STICKS, .t_ns = 5, .a = -120, .b = 50, .c = 0, .d = 235,
+                        .e = 0, .f = 1, .cmd_age_ms = 14 };
+    char out[512];
+    CHECK(evlog_format(out, sizeof out, &ev, W) > 0);
+    CHECK_STR(out, "{\"t_ns\":5,\"wall\":\"2026-10-05T18:20:01.123Z\",\"ev\":\"sticks\",\"roll\":-12.0,"
+                   "\"pitch\":5.0,\"yaw\":0.0,\"thr\":23.5,\"mode\":0,\"arm\":true,\"cmd_age_ms\":14}");
+    ev.f = 0;
+    ev.a = -5;
+    CHECK(evlog_format(out, sizeof out, &ev, W) > 0);
+    CHECK(strstr(out, "\"roll\":-0.5,") != NULL);
+    CHECK(strstr(out, "\"arm\":false,") != NULL);
+}
+
 static void test_text_from_aircraft_is_sanitised(void)
 {
     core_event_t ev = { .kind = EV_FLIGHT_MODE, .t_ns = 1 };
@@ -45,6 +61,7 @@ int main(void)
 {
     RUN(test_state_event);
     RUN(test_refused_and_timing_events);
+    RUN(test_sticks_event);
     RUN(test_text_from_aircraft_is_sanitised);
     RUN(test_small_buffer_returns_zero);
     return CHECK_EXIT();

@@ -447,6 +447,14 @@ stateDiagram-v2
 - `events.jsonl` (always on): state changes with `cmd_age_ms`, refusals, flight-mode changes,
   serial up/down, module identity and firmware, ELRS timing samples, gateway connects.
   Monotonic time plus wall-clock time.
+- **Stick lines** in `events.jsonl` (`stick_log_ms`, default 100 ms, 0 = off): while armed,
+  the values **on the air** (after the safety rules) every 100 ms, and one more line in the
+  first frame after leaving ARMED, so a flight's last values are always logged.
+  - Example: `"ev":"sticks","roll":0.0,"pitch":-5.0,"yaw":0.0,"thr":23.5,"mode":0,"arm":true,"cmd_age_ms":14`.
+  - Sticks are in % (as on the page); `mode` is 0/1/2 = Normal/Sport/Manual.
+  - `cmd_age_ms` is the age of the pilot's last command, which shows network delays.
+  - These lines go to the file only, not to the journal. About 5 MB per hour of flying.
+  - Added after the 2026-10-09 flights.
 - `timing.csv` (only while measuring C1, ~80 MB/hour): deadline, wake-up, write start and end,
   period and shift for every frame.
 

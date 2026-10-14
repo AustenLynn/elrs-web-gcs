@@ -63,6 +63,12 @@ size_t evlog_format(char *out, size_t cap, const core_event_t *ev, const char *w
     case EV_START:
         m = snprintf(p, left, "\"ev\":\"start\",\"version\":\"%s\"}", text);
         break;
+    case EV_STICKS:   /* per mille -> % with one decimal, like the page's readouts */
+        m = snprintf(p, left, "\"ev\":\"sticks\",\"roll\":%.1f,\"pitch\":%.1f,\"yaw\":%.1f,\"thr\":%.1f,"
+                     "\"mode\":%d,\"arm\":%s,\"cmd_age_ms\":%d}",
+                     ev->a / 10.0, ev->b / 10.0, ev->c / 10.0, ev->d / 10.0, ev->e, ev->f ? "true" : "false",
+                     ev->cmd_age_ms);
+        break;
     default:
         m = snprintf(p, left, "\"ev\":\"unknown\"}");
         break;
@@ -110,7 +116,7 @@ void evlog_event(evlog_t *e, const core_event_t *ev)
         return;
     if (e->events != NULL)
         fprintf(e->events, "%s\n", line);
-    if (ev->kind != EV_TIMING)
+    if (ev->kind != EV_TIMING && ev->kind != EV_STICKS)   /* 10 per second: file only */
         fprintf(stderr, "crsf-core: %s\n", line);
 }
 

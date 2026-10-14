@@ -7,7 +7,7 @@ import tempfile
 import time
 import unittest
 
-from core_client import ACK, ARM, CONTROL, FAILSAFE, CoreClient, Pilot, msg
+from core_client import ACK, ARM, CONTROL, DISARM, FAILSAFE, CoreClient, Pilot, msg
 from fake_tx import FakeTx
 
 CORE_DIR = os.path.join(os.path.dirname(__file__), "..", "..")
@@ -235,6 +235,32 @@ class SafetyTest(CoreHarness):
         self.assertTrue(self.client.wait(lambda c: ("arm_refused", "throttle_high", 14) in c.events))
         pilot.stop()
         self.assertEqual(self.tx.last_channels()[CH_ARM], LOW)
+
+
+class StickLogTest(CoreHarness):
+    def test_values_on_the_air_are_logged_while_armed(self):
+        # Flight test 2026-10-09: the log could not show the throttle when the drone came
+        # down. While armed, the core logs the values on the air every 100 ms, plus one line
+        # after leaving ARMED; nothing while disarmed.
+        pilot = Pilot(self.client, session=18)
+        time.sleep(0.5)                                    # disarmed: no lines
+        self.arm(pilot)
+        pilot.throttle = 235
+        time.sleep(1.0)
+        self.client.send(DISARM, 18)
+        self.assertIsNotNone(self.tx.wait_for(lambda ch: ch[CH_ARM] == LOW), "ARM never went low")
+        time.sleep(0.3)
+        pilot.stop()
+        sticks = [e for e in self.read_events() if e["ev"] == "sticks"]
+        armed = [e for e in sticks if e["arm"]]
+        self.assertTrue(8 <= len(armed) <= 14, len(armed))  # about 10 per second for about 1 s
+        self.assertEqual(armed[-1]["thr"], 23.5)
+        self.assertEqual(armed[-1]["mode"], 0)
+        self.assertLess(armed[-1]["cmd_age_ms"], 100)
+        gaps = [(b["t_ns"] - a["t_ns"]) / 1e6 for a, b in zip(armed, armed[1:])]
+        self.assertTrue(all(95 <= g <= 150 for g in gaps), gaps)
+        self.assertFalse(sticks[-1]["arm"])                 # the line that shows how it ended
+        self.assertEqual(len(sticks), len(armed) + 1)       # and nothing after it
 
 
 class BetaflightTest(CoreHarness):

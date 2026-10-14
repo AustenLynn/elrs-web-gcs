@@ -182,6 +182,27 @@ static void publish(rtloop_t *l, const uint16_t ch[CRSF_NUM_CHANNELS])
     l->late_max_ns = 0;
 }
 
+/* While armed, log the values on the air every stick_log_ms, and once more in the first
+ * frame after leaving ARMED (disarm or failsafe), so the log shows how a flight ended. */
+static void log_sticks(rtloop_t *l, const uint16_t ch[CRSF_NUM_CHANNELS])
+{
+    if (l->cfg->stick_log_ms <= 0)
+        return;
+    bool armed = l->safety.state == SAFETY_ARMED;
+    if (armed && l->stick_logging &&
+        l->now_ns - l->last_stick_log_ns < (int64_t)l->cfg->stick_log_ms * NS_PER_MS)
+        return;
+    if (!armed && !l->stick_logging)
+        return;
+    const rc_outputs_t *o = &l->safety.out;
+    core_event_t ev = { .kind = EV_STICKS, .t_ns = l->now_ns, .a = o->roll, .b = o->pitch, .c = o->yaw,
+                        .d = o->throttle, .e = o->mode, .f = ch[l->cfg->ch_arm] > CRSF_CH_MID,
+                        .session = l->safety.session, .cmd_age_ms = cmd_age_ms(l) };
+    mailbox_push_event(l->mb, &ev);
+    l->last_stick_log_ns = l->now_ns;
+    l->stick_logging = armed;
+}
+
 static void tick(rtloop_t *l, int64_t deadline)
 {
     l->now_ns = mono_ns();
@@ -208,6 +229,7 @@ static void tick(rtloop_t *l, int64_t deadline)
     uint8_t frame[CRSF_RC_FRAME_LEN];
     chmap_build(l->cfg, &l->safety.out, ch);
     crsf_build_rc_frame(frame, ch);
+    log_sticks(l, ch);
 
     timing_sample_t ts = { .deadline_ns = deadline, .wake_ns = l->now_ns, .period_ns = l->sched.period_ns };
     ts.write_start_ns = mono_ns();
