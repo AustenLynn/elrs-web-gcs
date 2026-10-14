@@ -188,7 +188,7 @@ connects them to the page.
 | Centre | Video (WebRTC), telemetry (battery, link, flight mode, `Latencia`, `Comando`), the on-air line (the stick values being sent, in %), dead-man message, notifications |
 | Sides | Two stick pads (landscape: either side of the video; portrait: below it). In the keyboard and step modes they only display the values, and they are hidden on upright or short screens |
 | Mode panel | Keyboard: key guide, intensity, throttle limit. Step: per-axis controls, step size, throttle limit, NEUTRO. On large screens (at least 1100 × 640 px) in these two modes the panel is a column on the right |
-| Footer | `Tomar control`, `Armar` (hold), `Desarmar`, `FAILSAFE`, flight mode N / S / M |
+| Footer | `Tomar control`, `Armar` (hold), `Desarmar`, `FAILSAFE`, flight mode Normal / Sport / Manual |
 | Banner | Shown in FAILSAFE: the reason (its own wording when the radio link was lost), the age of the last command the core received, the way back as a checklist (`recoverySteps` in `view.js`: `Tomar control` → drone disarmed → `Limpiar failsafe`, the order the core checks; the throttle needs no step, see §5.2), and `Limpiar failsafe` (hold). An overlay that never moves the sticks; touches outside its button reach them. On short screens only the next step shows |
 
 The UI text is in Spanish; code and documentation are in English.
@@ -244,7 +244,7 @@ so the keyboard layout does not matter.
 | R (hold 1 s) | arm | same hold rule as the button; the core still checks throttle ≤ 5 % |
 | Space | disarm | immediate. On the Aquila20, disarming in flight stops the motors |
 | F | FAILSAFE | |
-| 1 / 2 / 3 | flight mode N / S / M | |
+| 1 / 2 / 3 | flight mode Normal / Sport / Manual | |
 | Esc | release control | the dead-man disengages. Leaving full screen does the same outside the touch mode, because browsers keep the Esc key that leaves full screen |
 
 The action keys (R, Space, F, 1–3, Esc) also work in the other modes; no key does anything while
@@ -266,7 +266,7 @@ the window loses focus or the page is hidden.
 - Re-gripping the throttle does not make it jump: a held axis moves relative to where the
   finger landed.
 - Output: `roll, pitch, yaw` in −1000..1000 and `throttle` in 0..1000; `mode` 0..2
-  (N / S / M → CH6 1000 / 1500 / 2000 µs).
+  (Normal / Sport / Manual → CH6 1000 / 1500 / 2000 µs).
 
 ### 5.3 Dead-man (`deadman.js`)
 
@@ -435,7 +435,7 @@ stateDiagram-v2
 |---------|----------|-------------|
 | CH1–CH4 | roll, pitch, throttle, yaw (AETR) | 1000–2000 |
 | CH5 | ARM | 1000 / 2000 |
-| CH6 | flight mode N / S / M | 1000 / 1500 / 2000 |
+| CH6 | flight mode Normal / Sport / Manual | 1000 / 1500 / 2000 |
 | CH7 | `aquila20`: the drone's stick sensitivity, always 1000 (S). `betaflight`: FAILSAFE switch | 1000 / 2000 |
 | CH8–CH16 | unused | 1000 |
 
