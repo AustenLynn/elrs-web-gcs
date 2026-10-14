@@ -49,6 +49,7 @@ and `deploy/crsf-core.conf` sets it explicitly.
 | Flight-mode telemetry | forwarded and logged only; never read as "armed" | `*` at the end means disarmed; any other text means armed (P3 interlock) |
 | Clearing failsafe (ack) | session, fresh link, throttle ≤ `throttle_arm_max` | same, plus "FC not reporting armed in the last 3 s" |
 | Radio link lost while armed | **FAILSAFE `rf_lost`** after 1 s without a link report with LQ > 0 (added after review: the drone disarms itself silently) | none in the core (Betaflight runs its RX-loss failsafe and reports it) |
+| Arming with no radio link | **refused, `rf_down`**: no link report with LQ > 0 in the last 1 s (added 2026-10-14 after the first flights, where such an arm failed safe at once) | not checked |
 
 **Unchanged in both profiles:**
 - the safety state machine (§5.3 of the main spec): when to fail safe, the 300 ms timeout, latching,

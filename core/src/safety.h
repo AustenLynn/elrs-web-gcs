@@ -38,6 +38,7 @@ typedef enum {
     REFUSE_LINK_STALE,
     REFUSE_THROTTLE_HIGH,
     REFUSE_FC_STILL_ARMED,
+    REFUSE_RF_DOWN,            /* arm: no radio link with the drone (only with an rf timeout) */
 } refuse_t;
 
 typedef struct {

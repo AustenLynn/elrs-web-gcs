@@ -11,7 +11,7 @@ export const STATES = ['DISARMED', 'ARMED', 'FAILSAFE'];
 export const REASONS = ['none', 'cmd_timeout', 'pilot_lost', 'gateway_lost', 'session_changed', 'manual', 'rf_lost'];
 export const FC_ARM = ['unknown', 'disarmed', 'armed'];
 export const REFUSALS = ['none', 'wrong_session', 'not_disarmed', 'not_in_failsafe', 'link_stale',
-  'throttle_high', 'fc_still_armed'];
+  'throttle_high', 'fc_still_armed', 'rf_down'];
 
 const MAX_MSG = 255;
 const NO_CMD_AGE = 0xffffffff;

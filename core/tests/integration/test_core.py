@@ -211,6 +211,23 @@ class SafetyTest(CoreHarness):
         self.assertTrue(self.failsafe_on(self.tx.last_channels()))
         pilot.stop()
 
+    def test_arm_refused_while_the_drone_is_not_linked(self):
+        # Flight test 2026-10-09: right after the module reconnected, arming armed and failed
+        # safe (rf_lost) at once. With the module up but the drone not linked (LQ 0), arming
+        # must be refused (rf_down) and ARM must stay low; once the drone links, it arms.
+        self.tx.link_lq = 0
+        time.sleep(1.3)                                    # the last LQ > 0 report ages out
+        pilot = Pilot(self.client, session=17)
+        self.assertTrue(self.client.wait(lambda c: c.status["last_seq"] > 0))
+        self.client.send(ARM, 17)
+        self.assertTrue(self.client.wait(lambda c: ("arm_refused", "rf_down", 17) in c.events))
+        self.assertEqual(self.client.status["state_name"], "DISARMED")
+        self.assertEqual(self.tx.last_channels()[CH_ARM], LOW)
+        self.tx.link_lq = 100
+        time.sleep(0.5)
+        self.arm(pilot)
+        pilot.stop()
+
     def test_arm_refused_with_throttle_up(self):
         pilot = Pilot(self.client, session=14, throttle=400)
         self.assertTrue(self.client.wait(lambda c: c.status["last_seq"] > 0))

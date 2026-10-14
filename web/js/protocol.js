@@ -59,5 +59,6 @@ export const REFUSAL_TEXT = {
   not_disarmed: 'Ya está armado o en failsafe',
   not_in_failsafe: 'No hay failsafe que limpiar',
   fc_still_armed: 'El dron sigue armado: espera a que aterrice y se desarme',
+  rf_down: 'Sin enlace de radio con el dron: enciéndelo y espera a que «Dron» esté en verde',
   wrong_session: 'Tu sesión de piloto venció: recarga la página',
 };

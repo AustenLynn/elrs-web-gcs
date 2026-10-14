@@ -69,7 +69,7 @@ CH5 arm, CH6 flight mode. The difference is how the values are produced:
 
 | # | Item | Kind |
 |---|------|------|
-| 1 | **Refuse to arm while there is no radio link with the drone** (new refusal, e.g. `rf_down`, with a clear message), instead of arming and failing safe at once as at 20:44–20:46 | fix, safe to make |
+| 1 | **Refuse to arm while there is no radio link with the drone** (new refusal, e.g. `rf_down`, with a clear message), instead of arming and failing safe at once as at 20:44–20:46 | **done 2026-10-14** (`rf_down`) |
 | 2 | **Log stick values** in the core's event log during flight (for example every 100 ms), so the next flight shows the throttle at each moment. Also useful for C1/C3. | tooling |
 | 3 | **Prueba: ramp both ways** for pitch, roll and yaw. NEUTRO, Space and F stay instant. **Open question:** should the throttle also come down gradually? | team decision |
 | 4 | **A failsafe that lands in Normal mode:** sticks centred, throttle at minimum, ARM kept high for a few seconds while the drone lands itself, then disarm. Softer than today's instant disarm (approach A), but the motors run for those seconds after the core has lost the page. | safety decision for the team (changes spec §5.3 / Aquila20 spec §3) |

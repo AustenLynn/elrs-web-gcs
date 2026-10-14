@@ -61,6 +61,39 @@ static void test_radio_link_check_is_off_by_default(void)
     CHECK_EQ_INT(s.state, SAFETY_ARMED);
 }
 
+static void test_arm_needs_a_live_radio_link_when_enabled(void)
+{
+    /* Flight test 2026-10-09: arming right after the TX module reconnected, before its radio
+     * link to the drone was back, armed and failed safe (rf_lost) in the same tick. Arming
+     * must be refused instead, with its own reason, and work once the link reports in. */
+    safety_t s;
+    setup(&s);
+    safety_set_rf_timeout(&s, 1000 * MS);
+    safety_session_start(&s, 7);
+    CHECK(safety_control(&s, 7, 1, &LOW, 5000 * MS));
+    CHECK_EQ_INT(safety_arm(&s, 7, 5000 * MS), REFUSE_RF_DOWN);  /* no link report ever */
+    CHECK_EQ_INT(s.state, SAFETY_DISARMED);
+    CHECK(!s.out.arm);
+    safety_rf_link(&s, true, 5100 * MS);
+    CHECK(safety_control(&s, 7, 2, &LOW, 5200 * MS));
+    CHECK_EQ_INT(safety_arm(&s, 7, 5200 * MS), REFUSE_NONE);
+    safety_disarm(&s);
+    safety_rf_link(&s, false, 6000 * MS);                         /* LQ 0 does not count */
+    CHECK(safety_control(&s, 7, 3, &LOW, 6200 * MS));
+    CHECK_EQ_INT(safety_arm(&s, 7, 6200 * MS), REFUSE_RF_DOWN);  /* 1100 ms since LQ > 0 */
+    CHECK_STR(safety_refuse_name(REFUSE_RF_DOWN), "rf_down");
+}
+
+static void test_arm_ignores_the_radio_link_by_default(void)
+{
+    /* Betaflight profile: no radio-link check, so no link report is needed to arm. */
+    safety_t s;
+    setup(&s);
+    safety_session_start(&s, 7);
+    CHECK(safety_control(&s, 7, 1, &LOW, 5000 * MS));
+    CHECK_EQ_INT(safety_arm(&s, 7, 5000 * MS), REFUSE_NONE);
+}
+
 static void test_starts_disarmed_with_safe_outputs(void)
 {
     safety_t s;
@@ -336,5 +369,7 @@ int main(void)
     RUN(test_names);
     RUN(test_radio_link_loss_fails_safe_when_enabled);
     RUN(test_radio_link_check_is_off_by_default);
+    RUN(test_arm_needs_a_live_radio_link_when_enabled);
+    RUN(test_arm_ignores_the_radio_link_by_default);
     return CHECK_EXIT();
 }
