@@ -70,7 +70,7 @@ CH5 arm, CH6 flight mode. The difference is how the values are produced:
 | # | Item | Kind |
 |---|------|------|
 | 1 | **Refuse to arm while there is no radio link with the drone** (new refusal, e.g. `rf_down`, with a clear message), instead of arming and failing safe at once as at 20:44–20:46 | **done 2026-10-14** (`rf_down`) |
-| 2 | **Log stick values** in the core's event log during flight (for example every 100 ms), so the next flight shows the throttle at each moment. Also useful for C1/C3. | tooling |
+| 2 | **Log stick values** in the core's event log during flight (for example every 100 ms), so the next flight shows the throttle at each moment. Also useful for C1/C3. | **done 2026-10-14** (`stick_log_ms`, see §6) |
 | 3 | **Prueba: ramp both ways** for pitch, roll and yaw. NEUTRO, Space and F stay instant. **Open question:** should the throttle also come down gradually? | team decision |
 | 4 | **A failsafe that lands in Normal mode:** sticks centred, throttle at minimum, ARM kept high for a few seconds while the drone lands itself, then disarm. Softer than today's instant disarm (approach A), but the motors run for those seconds after the core has lost the page. | safety decision for the team (changes spec §5.3 / Aquila20 spec §3) |
 | 5 | **Command timeout (P1, 300 ms)** over the internet: the 20:07:49 failsafe may have been a tunnel delay. A longer timeout cuts fewer flights short but reacts more slowly. | team decision (P1 still unconfirmed) |
@@ -88,5 +88,15 @@ Propellers on only in a safe, open space, with the physical controller at hand.
    - the % when the throttle is let go;
    - how long at what % before it lands itself.
 3. **If a FAILSAFE banner appears,** note its reason text.
+   The core now also logs what was on the air every 100 ms while armed. After the flight:
+   ```bash
+   grep -E '"ev":"(sticks|state)"' /var/log/crsf-core/events.jsonl | tail -300
+   ```
+   - `thr` is the throttle % the drone got;
+   - `cmd_age_ms` is how old the pilot's last command was (network delay);
+   - the last line of each flight shows the values at the moment it ended;
+   - `wall` is in UTC (local time + 6 h).
+
+   Note the local time of anything odd (the drone touching down, a jerk) so it can be found in the log.
 4. **To land, hold the throttle at the bottom** until the drone lands itself. Disarm only on the
    ground: Desarmar and every failsafe stop the motors at any height.

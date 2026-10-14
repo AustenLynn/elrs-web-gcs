@@ -30,6 +30,7 @@ typedef struct {
     char status_socket_path[CONFIG_PATH_MAX];   /* read-only observers (crsf-ctl status/watch); "" = off */
     char event_log[CONFIG_PATH_MAX];   /* JSON lines; "" = disabled */
     char timing_log[CONFIG_PATH_MAX];  /* per-frame CSV; "" = disabled */
+    int stick_log_ms;                  /* while armed, log the values on the air this often; 0 = off */
     int default_period_us;             /* frame period until the module sends timing frames */
     int sync_margin_us;                /* aim frames this much earlier than the module asks */
     int cmd_timeout_ms;                /* armed + no fresh command this long -> failsafe */

@@ -27,6 +27,22 @@ static void test_defaults_are_valid(void)
     CHECK_EQ_INT(config_validate(&c, err, sizeof err), 0);
     CHECK_EQ_INT(c.ch_arm, 4);
     CHECK_EQ_INT(c.cmd_timeout_ms, 300);
+    CHECK_EQ_INT(c.stick_log_ms, 100);
+}
+
+static void test_stick_log_period(void)
+{
+    /* 0 = off; otherwise 20..1000 ms (faster than the page's 50 Hz adds nothing). */
+    config_t c;
+    config_defaults(&c);
+    CHECK_EQ_INT(config_set(&c, "stick_log_ms", "0", err, sizeof err), 0);
+    CHECK_EQ_INT(config_validate(&c, err, sizeof err), 0);
+    c.stick_log_ms = 10;
+    CHECK(config_validate(&c, err, sizeof err) != 0);
+    c.stick_log_ms = 1001;
+    CHECK(config_validate(&c, err, sizeof err) != 0);
+    c.stick_log_ms = 20;
+    CHECK_EQ_INT(config_validate(&c, err, sizeof err), 0);
 }
 
 static void test_status_socket_is_separate_from_the_control_socket(void)
@@ -177,6 +193,7 @@ static void test_production_config_is_valid(void)
 int main(void)
 {
     RUN(test_defaults_are_valid);
+    RUN(test_stick_log_period);
     RUN(test_fc_profile_defaults_to_aquila20);
     RUN(test_aquila20_keeps_ch7_for_its_sensitivity_switch);
     RUN(test_status_socket_is_separate_from_the_control_socket);
