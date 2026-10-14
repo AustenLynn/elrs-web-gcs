@@ -10,7 +10,8 @@ test('messages match what the gateway hub expects', () => {
 });
 
 test('every refusal the core can send has a text', () => {
-  for (const r of ['wrong_session', 'not_disarmed', 'not_in_failsafe', 'link_stale', 'throttle_high', 'fc_still_armed']) {
+  for (const r of ['wrong_session', 'not_disarmed', 'not_in_failsafe', 'link_stale', 'throttle_high', 'fc_still_armed',
+    'rf_down']) {
     assert.ok(REFUSAL_TEXT[r], r);
   }
 });

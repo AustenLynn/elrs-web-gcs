@@ -78,6 +78,8 @@ refuse_t safety_arm(safety_t *s, uint32_t session, int64_t now)
         return REFUSE_LINK_STALE;
     if (s->cmd.throttle > s->throttle_arm_max)
         return REFUSE_THROTTLE_HIGH;
+    if (s->rf_timeout_ns > 0 && now - s->rf_ok_ns > s->rf_timeout_ns)
+        return REFUSE_RF_DOWN;     /* armed now, it would fail safe (rf_lost) on the next tick */
     s->state = SAFETY_ARMED;
     s->out.arm = true;
     return REFUSE_NONE;
@@ -193,6 +195,7 @@ const char *safety_refuse_name(refuse_t r)
     case REFUSE_LINK_STALE: return "link_stale";
     case REFUSE_THROTTLE_HIGH: return "throttle_high";
     case REFUSE_FC_STILL_ARMED: return "fc_still_armed";
+    case REFUSE_RF_DOWN: return "rf_down";
     }
     return "?";
 }

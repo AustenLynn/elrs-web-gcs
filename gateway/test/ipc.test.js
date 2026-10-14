@@ -67,6 +67,7 @@ test('telemetry decoders', () => {
     origin: 0xee, version: '3.5.3', serial: 0x454c5253, name: 'FAK',
   });
   assert.deepEqual(decodeEvent(Buffer.from([1, 5, 9, 0, 0, 0])), { what: 'arm', refused: 'throttle_high', session: 9 });
+  assert.deepEqual(decodeEvent(Buffer.from([1, 7, 9, 0, 0, 0])), { what: 'arm', refused: 'rf_down', session: 9 });
   assert.throws(() => decodeLink(Buffer.alloc(3)), RangeError);
   assert.throws(() => decodeFlightMode(Buffer.from([9, 65])), RangeError);
 });

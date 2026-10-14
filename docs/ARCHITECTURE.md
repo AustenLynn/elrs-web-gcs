@@ -408,7 +408,7 @@ Pure logic: the caller passes the time in, which makes every rule unit-testable.
 ```mermaid
 stateDiagram-v2
     [*] --> DISARMED
-    DISARMED --> ARMED: arm<br/>(session ok, fresh link, throttle ≤ 5 %)
+    DISARMED --> ARMED: arm<br/>(session ok, fresh link, throttle ≤ 5 %,<br/>radio link up: aquila20)
     ARMED --> DISARMED: disarm
     ARMED --> FAILSAFE: no fresh command 300 ms<br/>pilot lost / gateway lost<br/>new session / manual<br/>rf_lost (aquila20, 1 s)
     DISARMED --> FAILSAFE: manual
@@ -425,6 +425,9 @@ stateDiagram-v2
   - `betaflight`: FAILSAFE switch (CH7) high, ARM unchanged, Betaflight runs its own procedure.
 - **`rf_lost` (aquila20 only):** armed with no link report with uplink LQ > 0 for 1 s →
   FAILSAFE, so the core's state matches a drone that has disarmed itself.
+  For the same reason, **arming is refused (`rf_down`)** when there has been no such report in
+  the last second. Before this (flight test 2026-10-09), arming right after the TX module
+  reconnected armed and failed safe in the same instant.
 - The core starts DISARMED and is **not** restarted automatically by systemd. A restarted core
   would send ARM low, which is a disarm in flight; without a restart, the drone's own RX-loss
   failsafe acts.

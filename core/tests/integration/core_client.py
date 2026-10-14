@@ -10,7 +10,7 @@ STATES = {0: "DISARMED", 1: "ARMED", 2: "FAILSAFE"}
 REASONS = {0: "none", 1: "cmd_timeout", 2: "pilot_lost", 3: "gateway_lost", 4: "session_changed", 5: "manual",
            6: "rf_lost"}
 REFUSALS = {0: "none", 1: "wrong_session", 2: "not_disarmed", 3: "not_in_failsafe",
-            4: "link_stale", 5: "throttle_high", 6: "fc_still_armed"}
+            4: "link_stale", 5: "throttle_high", 6: "fc_still_armed", 7: "rf_down"}
 
 STATUS_FMT = "<BBBB" + "I" * 8 + "i" + "I" * 2 + "16H"   # 80 bytes, see ipc_status_t
 STATUS_FIELDS = ("state", "fs_reason", "fc_arm", "serial_ok", "session", "last_seq", "cmd_age_ms",
