@@ -117,7 +117,7 @@ Run the hardware tasks in this order: M1 T9, M3 T8, M4 T10, M5 T3–4, M6 T6, M7
 ## 5. Tests
 
 ```bash
-make -C core test                     # 109 C unit tests (UBSan)
+make -C core test                     # 110 C unit tests (UBSan)
 make -C core integration              # 33 tests: real binaries vs a Python fake TX module on a pty
 npm --prefix relay install && npm --prefix gateway install   # first time only
 npm --prefix relay test               # 11

@@ -125,6 +125,7 @@ void safety_pilot_lost(safety_t *s, uint32_t session)
         enter_failsafe(s, FS_PILOT_LOST);
     s->session = 0;            /* late messages from that session are ignored */
     s->have_cmd = false;
+    s->cmd.turtle = s->out.turtle = false;   /* nobody in control: not even disarmed */
 }
 
 void safety_gateway_lost(safety_t *s)
@@ -133,6 +134,7 @@ void safety_gateway_lost(safety_t *s)
         enter_failsafe(s, FS_GATEWAY_LOST);
     s->session = 0;
     s->have_cmd = false;
+    s->cmd.turtle = s->out.turtle = false;
 }
 
 void safety_trigger(safety_t *s, fs_reason_t reason)
