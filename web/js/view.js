@@ -92,13 +92,19 @@ export const formatBattery = (b) => (b ? `${b.voltage.toFixed(1)} V · ${b.remai
 
 export const formatLink = (l) => (l ? `LQ ${l.upLq} % · ${l.upRssi1} dBm · ${l.txPowerMw} mW` : '—');
 
-// The Aquila20 reports "<sensitivity>-<mode>" (e.g. "S-NORMAL"); the pilot chose the mode.
+// The Aquila20 reports "<speed>-<mode>" (e.g. "S-NORMAL"): speed S/M/F is CH7, the mode is
+// CH6, or TURTLE while it is in turtle mode (CH8 high and upside down).
 const AQUILA_MODES = { NORMAL: 'Normal', SPORT: 'Sport', MANUAL: 'Manual' };   // as on the mode buttons
+const AQUILA_SPEEDS = { S: 'Slow', M: 'Mid', F: 'Fast' };                      // as on the speed buttons
+const AQUILA_REPORT = /^([SMF])-(NORMAL|SPORT|MANUAL|TURTLE)$/;
 
 export function formatFlightMode(text) {
   if (!text) return '—';
-  const mode = /^[SMF]-(NORMAL|SPORT|MANUAL)$/.exec(text);
-  return mode ? AQUILA_MODES[mode[1]] : text;
+  const m = AQUILA_REPORT.exec(text);
+  if (!m) return text;
+  return m[2] === 'TURTLE' ? 'TURTLE' : `${AQUILA_MODES[m[2]]} · ${AQUILA_SPEEDS[m[1]]}`;
 }
+
+export const reportsTurtle = (text) => AQUILA_REPORT.exec(text ?? '')?.[2] === 'TURTLE';
 
 export const formatMs = (v) => (v === null || v === undefined ? '—' : `${Math.round(v)} ms`);

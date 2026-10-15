@@ -5,7 +5,9 @@ import { REFUSAL_TEXT, closeAction, connectionTarget, controlMessage, helloMessa
 test('messages match what the gateway hub expects', () => {
   assert.deepEqual(helloMessage('pilot'), { t: 'hello', role: 'pilot' });
   assert.deepEqual(controlMessage(7, 123.5, { roll: 1, pitch: -2, yaw: 3, throttle: 400, mode: 1 }),
-    { t: 'ctl', seq: 7, ts: 123.5, r: 1, p: -2, y: 3, th: 400, m: 1 });
+    { t: 'ctl', seq: 7, ts: 123.5, r: 1, p: -2, y: 3, th: 400, m: 1, sp: 0, tu: 0 });
+  assert.deepEqual(controlMessage(8, 1, { roll: 0, pitch: 0, yaw: 0, throttle: 0, mode: 0 }, { sp: 2, tu: 1 }),
+    { t: 'ctl', seq: 8, ts: 1, r: 0, p: 0, y: 0, th: 0, m: 0, sp: 2, tu: 1 });
   assert.deepEqual(tsyncReply({ t: 'tsync', s0: 99 }, 5000), { t: 'tsync_r', s0: 99, c1: 5000 });
 });
 
