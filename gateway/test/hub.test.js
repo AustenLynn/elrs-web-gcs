@@ -64,8 +64,16 @@ test('messages before hello are refused', () => {
 test('valid control messages are forwarded with the session', () => {
   const { hub, core } = setup();
   const p = join(hub);
-  hub.handle(p, ctl(1, { r: -1000, p: 250, y: 3, th: 1000, m: 2 }));
-  assert.deepEqual(core.calls.at(-1), ['control', 42, 1, { roll: -1000, pitch: 250, yaw: 3, throttle: 1000, mode: 2 }]);
+  hub.handle(p, ctl(1, { r: -1000, p: 250, y: 3, th: 1000, m: 2, sp: 2, tu: 1 }));
+  assert.deepEqual(core.calls.at(-1),
+    ['control', 42, 1, { roll: -1000, pitch: 250, yaw: 3, throttle: 1000, mode: 2, speed: 2, turtle: 1 }]);
+});
+
+test('a page without speed and turtle (older version) flies at Slow with turtle off', () => {
+  const { hub, core } = setup();
+  const p = join(hub);
+  hub.handle(p, ctl(1));
+  assert.deepEqual(core.calls.at(-1)[3], { roll: 0, pitch: 0, yaw: 0, throttle: 0, mode: 0, speed: 0, turtle: 0 });
 });
 
 test('malformed or repeated control messages never reach the core', () => {
@@ -73,7 +81,8 @@ test('malformed or repeated control messages never reach the core', () => {
   const p = join(hub);
   hub.handle(p, ctl(5));
   for (const bad of [ctl(5), ctl(4), ctl(6, { r: 1001 }), ctl(6, { th: -1 }), ctl(6, { m: 3 }),
-    ctl(6, { p: 0.5 }), ctl(6, { ts: 'x' }), { t: 'ctl', seq: 6 }, ctl(2 ** 32)]) {
+    ctl(6, { p: 0.5 }), ctl(6, { ts: 'x' }), { t: 'ctl', seq: 6 }, ctl(2 ** 32),
+    ctl(6, { sp: 3 }), ctl(6, { sp: -1 }), ctl(6, { tu: 2 }), ctl(6, { tu: true }), ctl(6, { sp: 1.5 })]) {
     hub.handle(p, bad);
   }
   assert.equal(core.calls.filter((c) => c[0] === 'control').length, 1);

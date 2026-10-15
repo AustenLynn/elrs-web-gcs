@@ -82,6 +82,9 @@ button.disarm { border-color: var(--muted); font-weight: 700; }
 button.warn { border-color: var(--down); color: #ff8a8a; background: rgba(58, 20, 24, .85); font-weight: 700; letter-spacing: .06em; }
 .modes button { color: var(--muted); }
 .modes button.on { color: #bfe0ff; border-color: var(--accent); background: rgba(91, 168, 255, .18); font-weight: 700; }
+/* Turtle on: the warning colour, so it is never left on unnoticed. */
+.modes button.turtle.on { color: #ffe3b8; border-color: var(--warn); background: rgba(255, 184, 77, .18); }
+.telemetry dd[data-turtle="true"] { color: var(--warn); font-weight: 700; }
 /* The failsafe alert: red interrupts, and only the core clears it (the page just shows it). */
 .banner { position: fixed; left: 50%; top: 56px; transform: translateX(-50%); width: max-content; max-width: min(640px, calc(100% - 32px));
   padding: 14px 18px; border-radius: 14px; background: #2a1115; border: 2px solid var(--down);
@@ -134,6 +137,7 @@ body.observer .pilot-only, body.observer .stick { visibility: hidden; }
   .controls { display: grid; grid-template-columns: repeat(4, 1fr); padding: 6px; }
   .controls > button { padding: 8px 4px; font-size: 13px; }
   .modes { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); }
+  .modes.switches { grid-template-columns: repeat(4, 1fr); }
   .modes button { padding: 8px 4px; font-size: 13px; }
   .links { padding: 2px 8px; }
   .seg { font-size: 11px; padding: 2px 0; }
@@ -214,8 +218,15 @@ kbd { display: inline-block; min-width: 1.8em; margin-right: 2px; padding: 1px 6
   /* the step panel also holds the axes: its key list takes two columns to fit */
   body:not([data-input="touch"]) #panel-step .keys { display: grid; grid-template-columns: auto auto; justify-content: start;
     gap: 6px 16px; font-size: 12px; }
-  body:not([data-input="touch"]) #panel-step .keys li:first-child { grid-column: 1 / -1; }
+  body:not([data-input="touch"]) #panel-step .keys li:first-child,
+  body:not([data-input="touch"]) #panel-step .keys li.wide { grid-column: 1 / -1; }   /* too long for half the panel */
   body:not([data-input="touch"]) .panel .panel-tools { justify-content: flex-start; }
   body:not([data-input="touch"]) .panel .seg-ctl { align-self: flex-start; }
   body:not([data-input="touch"]) .panel .axis-group { gap: 8px; }
+}
+/* Short computer screens: the step panel (axes, selectors and keys) must fit without scrolling. */
+@media (min-width: 1100px) and (min-height: 640px) and (max-height: 760px) {
+  body[data-input="step"] #panel-step { gap: 8px; padding-top: 12px; padding-bottom: 12px; }
+  body[data-input="step"] #panel-step .keys { row-gap: 3px; }
+  body[data-input="step"] #panel-step .axis-group { gap: 4px; }
 }

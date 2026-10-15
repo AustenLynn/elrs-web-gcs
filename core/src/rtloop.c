@@ -195,8 +195,10 @@ static void log_sticks(rtloop_t *l, const uint16_t ch[CRSF_NUM_CHANNELS])
     if (!armed && !l->stick_logging)
         return;
     const rc_outputs_t *o = &l->safety.out;
+    bool aquila = l->cfg->fc_profile == FC_PROFILE_AQUILA20;
     core_event_t ev = { .kind = EV_STICKS, .t_ns = l->now_ns, .a = o->roll, .b = o->pitch, .c = o->yaw,
                         .d = o->throttle, .e = o->mode, .f = ch[l->cfg->ch_arm] > CRSF_CH_MID,
+                        .g = aquila ? o->speed : 0, .h = aquila && ch[l->cfg->ch_turtle] > CRSF_CH_MID,
                         .session = l->safety.session, .cmd_age_ms = cmd_age_ms(l) };
     mailbox_push_event(l->mb, &ev);
     l->last_stick_log_ns = l->now_ns;

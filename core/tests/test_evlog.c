@@ -29,11 +29,11 @@ static void test_sticks_event(void)
 {
     /* Values on the air while armed, in % like the page's readouts (flight test 2026-10-09). */
     core_event_t ev = { .kind = EV_STICKS, .t_ns = 5, .a = -120, .b = 50, .c = 0, .d = 235,
-                        .e = 0, .f = 1, .cmd_age_ms = 14 };
+                        .e = 0, .f = 1, .g = 2, .h = 1, .cmd_age_ms = 14 };
     char out[512];
     CHECK(evlog_format(out, sizeof out, &ev, W) > 0);
     CHECK_STR(out, "{\"t_ns\":5,\"wall\":\"2026-10-05T18:20:01.123Z\",\"ev\":\"sticks\",\"roll\":-12.0,"
-                   "\"pitch\":5.0,\"yaw\":0.0,\"thr\":23.5,\"mode\":0,\"arm\":true,\"cmd_age_ms\":14}");
+                   "\"pitch\":5.0,\"yaw\":0.0,\"thr\":23.5,\"mode\":0,\"speed\":2,\"turtle\":true,\"arm\":true,\"cmd_age_ms\":14}");
     ev.f = 0;
     ev.a = -5;
     CHECK(evlog_format(out, sizeof out, &ev, W) > 0);

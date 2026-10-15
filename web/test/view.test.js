@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { LinkTracker, failsafeAlert, failsafeDetail, formatBattery, formatCmdAge, formatFlightMode, formatLink, formatMs, recoverySteps, segments, stateLabel } from '../js/view.js';
+import { LinkTracker, failsafeAlert, failsafeDetail, formatBattery, formatCmdAge, formatFlightMode, formatLink, formatMs, recoverySteps, reportsTurtle, segments, stateLabel } from '../js/view.js';
 
 const goodStatus = { core: true, serialOk: true, timingFrames: 10, state: 'ARMED', reason: 'none' };
 const link = { upLq: 100, upRssi1: -60, txPowerMw: 100 };
@@ -66,13 +66,17 @@ test('labels and formatting', () => {
   assert.equal(formatMs(null), '—');
 });
 
-test('the Aquila20 flight mode is shown by the button names; other texts as they are', () => {
-  // The Aquila20 reports "<sensitivity>-<mode>"; the mode is what the pilot chose.
-  assert.equal(formatFlightMode('S-NORMAL'), 'Normal');
-  assert.equal(formatFlightMode('F-SPORT'), 'Sport');
-  assert.equal(formatFlightMode('M-MANUAL'), 'Manual');
+test('the Aquila20 report is shown as mode and speed, turtle on its own; other texts as they are', () => {
+  // The Aquila20 reports "<speed>-<mode>": speed S/M/F (CH7), mode NORMAL/SPORT/MANUAL or TURTLE.
+  assert.equal(formatFlightMode('S-NORMAL'), 'Normal · Slow');
+  assert.equal(formatFlightMode('F-SPORT'), 'Sport · Fast');
+  assert.equal(formatFlightMode('M-MANUAL'), 'Manual · Mid');
+  assert.equal(formatFlightMode('S-TURTLE'), 'TURTLE');
   assert.equal(formatFlightMode('ACRO*'), 'ACRO*');            // e.g. Betaflight
   assert.equal(formatFlightMode(null), '—');
+  assert.equal(reportsTurtle('F-TURTLE'), true);
+  assert.equal(reportsTurtle('S-NORMAL'), false);
+  assert.equal(reportsTurtle(null), false);
 });
 
 // Failsafe recovery: the steps the core requires before it clears a failsafe (safety_ack).

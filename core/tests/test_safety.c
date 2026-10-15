@@ -5,7 +5,7 @@
 #define TIMEOUT (300 * MS)
 #define FC_FRESH (3000 * MS)
 
-static const stick_cmd_t LOW = { 0, 0, 0, 0, 0 };
+static const stick_cmd_t LOW = { 0 };
 
 static void setup(safety_t *s)
 {
@@ -344,6 +344,58 @@ static void test_names(void)
     CHECK_STR(safety_refuse_name(REFUSE_FC_STILL_ARMED), "fc_still_armed");
 }
 
+static void test_speed_and_turtle_follow_the_command_and_are_clamped(void)
+{
+    safety_t s;
+    setup(&s);
+    safety_session_start(&s, 7);
+    stick_cmd_t c = { .speed = 2, .turtle = true };
+    CHECK(safety_control(&s, 7, 1, &c, 0));
+    CHECK_EQ_INT(s.out.speed, 2);
+    CHECK(s.out.turtle);
+    c.speed = 9;                                   /* garbage from a buggy client */
+    CHECK(safety_control(&s, 7, 2, &c, 10 * MS));
+    CHECK_EQ_INT(s.out.speed, 2);
+}
+
+static void test_failsafe_forces_turtle_off_and_keeps_speed(void)
+{
+    /* Spec §3.4: like the sticks, turtle must not stay on once the core has lost the pilot. */
+    safety_t s;
+    armed(&s);
+    stick_cmd_t c = { .speed = 1, .turtle = true };
+    CHECK(safety_control(&s, 7, 2, &c, 10 * MS));
+    CHECK(s.out.turtle);
+    safety_tick(&s, 400 * MS);                     /* no fresh command for 390 ms */
+    CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
+    CHECK(!s.out.turtle);
+    CHECK_EQ_INT(s.out.speed, 1);
+    CHECK(safety_control(&s, 7, 3, &c, 410 * MS)); /* commands in FAILSAFE change nothing */
+    CHECK(!s.out.turtle);
+}
+
+static void test_losing_the_pilot_or_gateway_drops_turtle_even_disarmed(void)
+{
+    /* Review: disarmed, Turtle on, then the tab dies or the gateway goes. Nobody is in
+     * control, so CH8 must not stay high (an upside-down drone would stay latched in turtle). */
+    safety_t s;
+    setup(&s);
+    safety_session_start(&s, 7);
+    stick_cmd_t c = { .speed = 1, .turtle = true };
+    CHECK(safety_control(&s, 7, 1, &c, 0));
+    CHECK(s.out.turtle);
+    safety_pilot_lost(&s, 7);
+    CHECK_EQ_INT(s.state, SAFETY_DISARMED);
+    CHECK(!s.out.turtle);
+    CHECK_EQ_INT(s.out.speed, 1);
+
+    safety_session_start(&s, 8);
+    CHECK(safety_control(&s, 8, 1, &c, 10 * MS));
+    CHECK(s.out.turtle);
+    safety_gateway_lost(&s);
+    CHECK(!s.out.turtle);
+}
+
 int main(void)
 {
     RUN(test_starts_disarmed_with_safe_outputs);
@@ -371,5 +423,8 @@ int main(void)
     RUN(test_radio_link_check_is_off_by_default);
     RUN(test_arm_needs_a_live_radio_link_when_enabled);
     RUN(test_arm_ignores_the_radio_link_by_default);
+    RUN(test_speed_and_turtle_follow_the_command_and_are_clamped);
+    RUN(test_failsafe_forces_turtle_off_and_keeps_speed);
+    RUN(test_losing_the_pilot_or_gateway_drops_turtle_even_disarmed);
     return CHECK_EXIT();
 }

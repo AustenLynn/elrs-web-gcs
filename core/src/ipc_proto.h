@@ -15,7 +15,8 @@
 
 /* gateway -> core */
 #define IPC_SESSION     0x01  /* u32 session: a pilot took control */
-#define IPC_CONTROL     0x02  /* u32 session, u32 seq, i16 roll, i16 pitch, i16 yaw, u16 throttle, u8 mode */
+#define IPC_CONTROL     0x02  /* u32 session, u32 seq, i16 roll, i16 pitch, i16 yaw, u16 throttle, u8 mode,
+                                 u8 speed, u8 turtle (19 bytes; 17 = older gateway: speed 0, turtle off) */
 #define IPC_ARM         0x03  /* u32 session */
 #define IPC_DISARM      0x04  /* u32 session */
 #define IPC_ACK         0x05  /* u32 session: clear a latched failsafe */

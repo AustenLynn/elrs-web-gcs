@@ -3,8 +3,8 @@
 
 /* Shared with gateway/test/ipc.test.js: both implementations must produce/accept these. */
 static const uint8_t CONTROL_GOLDEN[] = {
-    0x12, 0x00, 0x02, 0x04, 0x03, 0x02, 0x01, 0x05, 0x00, 0x00, 0x00,
-    0x18, 0xFC, 0xFA, 0x00, 0x00, 0x00, 0xE8, 0x03, 0x02,
+    0x14, 0x00, 0x02, 0x04, 0x03, 0x02, 0x01, 0x05, 0x00, 0x00, 0x00,
+    0x18, 0xFC, 0xFA, 0x00, 0x00, 0x00, 0xE8, 0x03, 0x02, 0x02, 0x01,
 };
 
 static ipc_status_t sample_status(void)
@@ -39,7 +39,8 @@ static void on_msg(uint8_t type, const uint8_t *payload, size_t plen, void *user
 static void test_control_golden_bytes(void)
 {
     ipc_control_t c = { .session = 0x01020304, .seq = 5,
-                        .sticks = { .roll = -1000, .pitch = 250, .yaw = 0, .throttle = 1000, .mode = 2 } };
+                        .sticks = { .roll = -1000, .pitch = 250, .yaw = 0, .throttle = 1000, .mode = 2,
+                                    .speed = 2, .turtle = true } };
     uint8_t buf[64];
     CHECK_EQ_INT(ipc_encode_control(buf, sizeof buf, &c), sizeof CONTROL_GOLDEN);
     CHECK_MEM(buf, CONTROL_GOLDEN, sizeof CONTROL_GOLDEN);
@@ -52,6 +53,19 @@ static void test_control_golden_bytes(void)
     CHECK_EQ_INT(d.sticks.pitch, 250);
     CHECK_EQ_INT(d.sticks.throttle, 1000);
     CHECK_EQ_INT(d.sticks.mode, 2);
+    CHECK_EQ_INT(d.sticks.speed, 2);
+    CHECK(d.sticks.turtle);
+}
+
+static void test_control_from_an_older_gateway_is_still_accepted(void)
+{
+    /* 17 bytes, no speed/turtle: a gateway not yet restarted after an update. */
+    ipc_control_t d;
+    CHECK_EQ_INT(ipc_decode_control(CONTROL_GOLDEN + 3, 17, &d), 0);
+    CHECK_EQ_INT(d.sticks.mode, 2);
+    CHECK_EQ_INT(d.sticks.speed, 0);
+    CHECK(!d.sticks.turtle);
+    CHECK_EQ_INT(ipc_decode_control(CONTROL_GOLDEN + 3, 18, &d), -1);
 }
 
 static void test_status_round_trip_and_layout(void)
@@ -101,7 +115,7 @@ static void test_reader_handles_split_and_batched_messages(void)
         CHECK_EQ_INT(ipc_reader_feed(&r, stream + i, 1, on_msg, &g), 0);
     CHECK_EQ_INT(g.count, 2);
     CHECK_EQ_INT(g.type, IPC_CONTROL);
-    CHECK_EQ_INT(g.plen, 17);
+    CHECK_EQ_INT(g.plen, 19);
 
     got_t h = { 0 };
     ipc_reader_init(&r);
@@ -125,6 +139,7 @@ static void test_reader_rejects_bad_lengths(void)
 int main(void)
 {
     RUN(test_control_golden_bytes);
+    RUN(test_control_from_an_older_gateway_is_still_accepted);
     RUN(test_status_round_trip_and_layout);
     RUN(test_small_messages);
     RUN(test_reader_handles_split_and_batched_messages);

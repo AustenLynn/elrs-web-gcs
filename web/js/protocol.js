@@ -30,8 +30,8 @@ export function closeAction(code, room) {
   }
 }
 
-export const controlMessage = (seq, ts, cmd) => ({
-  t: 'ctl', seq, ts, r: cmd.roll, p: cmd.pitch, y: cmd.yaw, th: cmd.throttle, m: cmd.mode,
+export const controlMessage = (seq, ts, cmd, sw = { sp: 0, tu: 0 }) => ({
+  t: 'ctl', seq, ts, r: cmd.roll, p: cmd.pitch, y: cmd.yaw, th: cmd.throttle, m: cmd.mode, sp: sw.sp, tu: sw.tu,
 });
 
 export const tsyncReply = (msg, now) => ({ t: 'tsync_r', s0: msg.s0, c1: now });

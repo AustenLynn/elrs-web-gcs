@@ -49,8 +49,9 @@ class CoreClient:
     def send(self, mtype, session):
         self.sock.sendall(msg(mtype, struct.pack("<I", session)))
 
-    def control(self, session, seq, roll=0, pitch=0, yaw=0, throttle=0, mode=0):
-        self.sock.sendall(msg(CONTROL, struct.pack("<IIhhhHB", session, seq, roll, pitch, yaw, throttle, mode)))
+    def control(self, session, seq, roll=0, pitch=0, yaw=0, throttle=0, mode=0, speed=0, turtle=0):
+        self.sock.sendall(msg(CONTROL, struct.pack("<IIhhhHBBB", session, seq, roll, pitch, yaw, throttle, mode,
+                                                   speed, turtle)))
 
     def wait(self, predicate, timeout=2.0):
         end = time.monotonic() + timeout
@@ -110,6 +111,8 @@ class Pilot:
         self.client = client
         self.session = session
         self.throttle = throttle
+        self.speed = 0
+        self.turtle = 0
         self.seq = 0
         self.running = True
         self.paused = False
@@ -122,7 +125,8 @@ class Pilot:
             if not self.paused:
                 self.seq += 1
                 try:
-                    self.client.control(self.session, self.seq, throttle=self.throttle)
+                    self.client.control(self.session, self.seq, throttle=self.throttle,
+                                        speed=self.speed, turtle=self.turtle)
                 except OSError:
                     return
             time.sleep(0.02)

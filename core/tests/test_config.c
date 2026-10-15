@@ -72,22 +72,30 @@ static void test_fc_profile_defaults_to_aquila20(void)
     CHECK(strstr(err, "aquila20 or betaflight") != NULL);
 }
 
-static void test_aquila20_keeps_ch7_for_its_sensitivity_switch(void)
+static void test_aquila20_reserves_ch7_and_ch8_for_speed_and_turtle(void)
 {
-    /* On the Aquila20, CH7 selects stick sensitivity: it must stay at its default (low = S).
-     * ch_failsafe is not used, so it may point anywhere without clashing. */
+    /* Aquila20: CH7 = speed (SC), CH8 = turtle (SD). No stick or switch may share them;
+     * ch_failsafe is not used, so it may point anywhere. Betaflight: CH7 is the FAILSAFE
+     * switch and speed/turtle are unused. */
     config_t c;
     config_defaults(&c);
+    CHECK_EQ_INT(c.ch_speed, 6);
+    CHECK_EQ_INT(c.ch_turtle, 7);
     CHECK_EQ_INT(config_validate(&c, err, sizeof err), 0);
     CHECK_EQ_INT(config_set(&c, "ch_yaw", "7", err, sizeof err), 0);
-    CHECK_EQ_INT(config_set(&c, "ch_failsafe", "4", err, sizeof err), 0);
     CHECK_EQ_INT(config_validate(&c, err, sizeof err), -1);
-    CHECK(strstr(err, "CH7") != NULL);
     config_defaults(&c);
-    CHECK_EQ_INT(config_set(&c, "ch_failsafe", "4", err, sizeof err), 0);   /* same as ch_yaw: unused */
+    CHECK_EQ_INT(config_set(&c, "ch_mode", "8", err, sizeof err), 0);
+    CHECK_EQ_INT(config_validate(&c, err, sizeof err), -1);
+    config_defaults(&c);
+    CHECK_EQ_INT(config_set(&c, "ch_failsafe", "4", err, sizeof err), 0);   /* unused in aquila20 */
     CHECK_EQ_INT(config_validate(&c, err, sizeof err), 0);
     CHECK_EQ_INT(config_set(&c, "fc_profile", "betaflight", err, sizeof err), 0);
     CHECK_EQ_INT(config_validate(&c, err, sizeof err), -1);                /* betaflight uses it */
+    config_defaults(&c);
+    CHECK_EQ_INT(config_set(&c, "fc_profile", "betaflight", err, sizeof err), 0);
+    CHECK_EQ_INT(config_validate(&c, err, sizeof err), 0);   /* ch_failsafe = ch_speed = CH7: fine */
+    CHECK_EQ_INT(config_set(&c, "ch_turtle", "17", err, sizeof err), -1); /* 1..16 at parse time */
 }
 
 static void test_load_file_with_comments_and_spaces(void)
@@ -195,7 +203,7 @@ int main(void)
     RUN(test_defaults_are_valid);
     RUN(test_stick_log_period);
     RUN(test_fc_profile_defaults_to_aquila20);
-    RUN(test_aquila20_keeps_ch7_for_its_sensitivity_switch);
+    RUN(test_aquila20_reserves_ch7_and_ch8_for_speed_and_turtle);
     RUN(test_status_socket_is_separate_from_the_control_socket);
     RUN(test_load_file_with_comments_and_spaces);
     RUN(test_windows_line_endings);

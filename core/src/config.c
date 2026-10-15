@@ -31,6 +31,8 @@ void config_defaults(config_t *c)
     c->ch_arm = 4;       /* CH5 = AUX1: ExpressLRS sends it with every packet */
     c->ch_mode = 5;      /* CH6 = AUX2 */
     c->ch_failsafe = 6;  /* CH7 = AUX3 (betaflight profile only) */
+    c->ch_speed = 6;     /* CH7 = AUX3 (aquila20: speed) */
+    c->ch_turtle = 7;    /* CH8 = AUX4 (aquila20: turtle) */
     c->fc_profile = FC_PROFILE_AQUILA20;
 }
 
@@ -97,6 +99,8 @@ int config_set(config_t *c, const char *key, const char *value, char *err, size_
         { "ch_arm", offsetof(config_t, ch_arm) },
         { "ch_mode", offsetof(config_t, ch_mode) },
         { "ch_failsafe", offsetof(config_t, ch_failsafe) },
+        { "ch_speed", offsetof(config_t, ch_speed) },
+        { "ch_turtle", offsetof(config_t, ch_turtle) },
     };
     char *base = (char *)c;
 
@@ -185,14 +189,17 @@ int config_validate(const config_t *c, char *err, size_t errlen)
     if (c->ch_arm != 4)
         return fail(err, errlen, "ch_arm must be 5: ExpressLRS sends AUX1 (CH5) with every packet");
 
-    /* ch_failsafe is a function only in the betaflight profile (it comes last). */
-    const int chans[] = { c->ch_roll, c->ch_pitch, c->ch_throttle, c->ch_yaw,
-                          c->ch_arm, c->ch_mode, c->ch_failsafe };
-    const int n = (int)(sizeof chans / sizeof chans[0]) - (c->fc_profile == FC_PROFILE_AQUILA20 ? 1 : 0);
+    /* The functions each profile drives: aquila20 adds speed and turtle, betaflight the
+     * FAILSAFE switch. No two may share a channel. */
+    int chans[8] = { c->ch_roll, c->ch_pitch, c->ch_throttle, c->ch_yaw, c->ch_arm, c->ch_mode };
+    int n = 6;
+    if (c->fc_profile == FC_PROFILE_AQUILA20) {
+        chans[n++] = c->ch_speed;
+        chans[n++] = c->ch_turtle;
+    } else {
+        chans[n++] = c->ch_failsafe;
+    }
     for (int i = 0; i < n; i++) {
-        if (c->fc_profile == FC_PROFILE_AQUILA20 && chans[i] == AQUILA20_SENSITIVITY_CH)
-            return fail(err, errlen, "fc_profile aquila20: CH7 is the drone's sensitivity switch, "
-                                     "no function may use it");
         if (chans[i] < 0 || chans[i] > 15)
             return fail(err, errlen, "channel numbers must be 1..16");
         for (int j = i + 1; j < n; j++)

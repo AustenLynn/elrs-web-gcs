@@ -85,6 +85,42 @@ static void test_custom_channel_order(void)
     CHECK_EQ_INT(crsf_ch_to_us(ch[1]), 2000);   /* roll right on CH2 */
 }
 
+static void test_aquila20_speed_on_ch7_and_turtle_on_ch8(void)
+{
+    config_t c;
+    config_defaults(&c);
+    rc_outputs_t o = { .speed = 0 };
+    uint16_t ch[CRSF_NUM_CHANNELS];
+    for (int sp = 0; sp <= 2; sp++) {
+        o.speed = (uint8_t)sp;
+        chmap_build(&c, &o, ch);
+        CHECK_EQ_INT(crsf_ch_to_us(ch[6]), 1000 + sp * 500);
+    }
+    CHECK_EQ_INT(crsf_ch_to_us(ch[7]), 1000);
+    o.turtle = true;
+    chmap_build(&c, &o, ch);
+    CHECK_EQ_INT(crsf_ch_to_us(ch[7]), 2000);
+    o.failsafe = true;                               /* defence in depth: FAILSAFE drops turtle */
+    chmap_build(&c, &o, ch);
+    CHECK_EQ_INT(crsf_ch_to_us(ch[7]), 1000);
+    CHECK_EQ_INT(crsf_ch_to_us(ch[6]), 2000);        /* speed kept */
+    o.speed = 7;                                     /* clamped */
+    chmap_build(&c, &o, ch);
+    CHECK_EQ_INT(crsf_ch_to_us(ch[6]), 2000);
+}
+
+static void test_betaflight_ignores_speed_and_turtle(void)
+{
+    config_t c;
+    config_defaults(&c);
+    c.fc_profile = FC_PROFILE_BETAFLIGHT;
+    rc_outputs_t o = { .speed = 2, .turtle = true };
+    uint16_t ch[CRSF_NUM_CHANNELS];
+    chmap_build(&c, &o, ch);
+    CHECK_EQ_INT(crsf_ch_to_us(ch[6]), 1000);        /* the FAILSAFE switch, off */
+    CHECK_EQ_INT(crsf_ch_to_us(ch[7]), 1000);
+}
+
 int main(void)
 {
     RUN(test_neutral_outputs);
@@ -92,5 +128,7 @@ int main(void)
     RUN(test_aquila20_failsafe_drops_arm_and_keeps_ch7_low);
     RUN(test_out_of_range_inputs_are_clamped);
     RUN(test_custom_channel_order);
+    RUN(test_aquila20_speed_on_ch7_and_turtle_on_ch8);
+    RUN(test_betaflight_ignores_speed_and_turtle);
     return CHECK_EXIT();
 }

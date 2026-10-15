@@ -42,7 +42,7 @@ typedef enum {
     EV_TIMING,       /* a = interval (0.1 us), b = offset (0.1 us) */
     EV_GATEWAY,      /* a = 1 connected, 0 disconnected */
     EV_START,        /* text = version */
-    EV_STICKS,       /* values on the air: a..d = roll, pitch, yaw, throttle (per mille), e = mode, f = arm; cmd_age_ms */
+    EV_STICKS,       /* values on the air: a..d = roll, pitch, yaw, throttle (per mille), e = mode, f = arm, g = speed, h = turtle; cmd_age_ms */
 } event_kind_t;
 
 typedef struct {
@@ -50,6 +50,7 @@ typedef struct {
     int64_t t_ns;          /* CLOCK_MONOTONIC */
     int32_t a, b, c, d;
     int32_t e, f;          /* EV_STICKS only */
+    int32_t g, h;          /* EV_STICKS only: speed, turtle */
     uint32_t session;
     int32_t cmd_age_ms;    /* -1 = no command received yet */
     char text[32];

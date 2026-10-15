@@ -17,6 +17,8 @@ const tmp = mkdtempSync(path.join(tmpdir(), 'gcs-e2e-kbd-'));
 const procs = [];
 const THROTTLE = 2;
 const ARM = 4;
+const SPEED = 6;    // CH7 (aquila20)
+const TURTLE = 7;   // CH8 (aquila20)
 const HIGH = 1792;
 const LOW = 192;
 
@@ -94,6 +96,17 @@ test('keyboard mode: hold R arms, W raises and holds the throttle, Space disarms
   await waitFor(() => channels[ARM] === HIGH, 3000, 'ARM channel high after holding R in the step mode');
   await hold(' ', 50);
   await waitFor(() => channels[ARM] === LOW, 2000, 'ARM channel low after Space in the step mode');
+
+  // Speed and turtle (Aquila20 CH7, CH8): keys and buttons, in any input mode.
+  await hold('6', 50);
+  await waitFor(() => channels[SPEED] === HIGH, 2000, 'CH7 high (Fast) after 6');
+  await hold('t', 50);
+  await waitFor(() => channels[TURTLE] === HIGH, 2000, 'CH8 high (turtle) after T');
+  assert.equal(await page.evaluate("document.getElementById('btn-turtle').classList.contains('on')"), true);
+  await page.evaluate("document.getElementById('btn-turtle').click()");
+  await waitFor(() => channels[TURTLE] === LOW, 2000, 'CH8 low after the Turtle button');
+  await page.evaluate("document.querySelector('[data-speed=\"0\"]').click()");
+  await waitFor(() => channels[SPEED] === LOW, 2000, 'CH7 low (Slow) after the Slow button');
 
   assert.deepEqual(page.errors, [], 'no JavaScript errors on the page');
 });

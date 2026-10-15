@@ -102,7 +102,9 @@
       <li><kbd>R</kbd> mantener 1 s: armar</li>
       <li><kbd>Espacio</kbd> desarmar</li>
       <li><kbd>F</kbd> failsafe</li>
-      <li><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> Normal / Sport / Manual</li>
+      <li class="wide"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> Normal / Sport / Manual</li>
+      <li class="wide"><kbd>4</kbd><kbd>5</kbd><kbd>6</kbd> Slow / Mid / Fast</li>
+      <li><kbd>T</kbd> Turtle</li>
       <li><kbd>Esc</kbd> soltar control</li>
     </ul>
   </section>
@@ -119,6 +121,8 @@
       <li><kbd>Espacio</kbd> desarmar</li>
       <li><kbd>F</kbd> failsafe</li>
       <li><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> Normal / Sport / Manual</li>
+      <li><kbd>4</kbd><kbd>5</kbd><kbd>6</kbd> Slow / Mid / Fast</li>
+      <li><kbd>T</kbd> Turtle</li>
       <li><kbd>Esc</kbd> soltar control</li>
     </ul>
     <div class="seg-ctl" role="group" aria-label="Intensidad de las teclas">
@@ -140,6 +144,12 @@
       <button data-mode="0" class="on" title="Mantener posición">Normal</button>
       <button data-mode="1" title="Autonivelado">Sport</button>
       <button data-mode="2" title="Sin estabilización">Manual</button>
+    </div>
+    <div class="modes switches">
+      <button data-speed="0" class="on" title="Velocidad lenta (CH7)">Slow</button>
+      <button data-speed="1" title="Velocidad media (CH7)">Mid</button>
+      <button data-speed="2" title="Velocidad rápida (CH7)">Fast</button>
+      <button id="btn-turtle" class="turtle" title="Modo tortuga: voltea el dron si cayó boca abajo (CH8)">Turtle</button>
     </div>
   </footer>
 

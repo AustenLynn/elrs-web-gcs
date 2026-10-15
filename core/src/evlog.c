@@ -65,9 +65,9 @@ size_t evlog_format(char *out, size_t cap, const core_event_t *ev, const char *w
         break;
     case EV_STICKS:   /* per mille -> % with one decimal, like the page's readouts */
         m = snprintf(p, left, "\"ev\":\"sticks\",\"roll\":%.1f,\"pitch\":%.1f,\"yaw\":%.1f,\"thr\":%.1f,"
-                     "\"mode\":%d,\"arm\":%s,\"cmd_age_ms\":%d}",
-                     ev->a / 10.0, ev->b / 10.0, ev->c / 10.0, ev->d / 10.0, ev->e, ev->f ? "true" : "false",
-                     ev->cmd_age_ms);
+                     "\"mode\":%d,\"speed\":%d,\"turtle\":%s,\"arm\":%s,\"cmd_age_ms\":%d}",
+                     ev->a / 10.0, ev->b / 10.0, ev->c / 10.0, ev->d / 10.0, ev->e, ev->g,
+                     ev->h ? "true" : "false", ev->f ? "true" : "false", ev->cmd_age_ms);
         break;
     default:
         m = snprintf(p, left, "\"ev\":\"unknown\"}");

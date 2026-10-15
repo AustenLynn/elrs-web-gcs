@@ -11,6 +11,8 @@ typedef struct {
     int16_t roll, pitch, yaw;  /* -1000..1000, 0 = centred */
     uint16_t throttle;         /* 0..1000 */
     uint8_t mode;              /* flight-mode switch position 0..2 */
+    uint8_t speed;             /* aquila20: CH7 position 0..2 (Slow, Mid, Fast) */
+    bool turtle;               /* aquila20: CH8 high */
     bool arm;                  /* ARM switch high */
     bool failsafe;             /* in FAILSAFE (betaflight: switch high; aquila20: ARM forced low) */
 } rc_outputs_t;
