@@ -6,9 +6,10 @@ import { canSwitchInput, enteringFailsafe, inputsLocked, loadInputMode, lockedCo
 import { KEY_ACTIONS, KeyboardModel, MODE_KEYS } from './keyboard.js';
 import { REFUSAL_TEXT, RATE_HZ, closeAction, connectionTarget, controlMessage, shouldReclaimPilotSeat, tsyncReply } from './protocol.js';
 import { StepModel, capChangeAllowed } from './stepper.js';
+import { Switches } from './switches.js';
 import { fullscreenTip } from './fullscreen.js';
 import { StickModel, bindStick, layoutAction, orientationLock, padsMoved, sticksToCommand } from './sticks.js';
-import { LinkTracker, failsafeAlert, formatBattery, formatCmdAge, formatFlightMode, formatLink, formatMs, recoverySteps, segments, stateLabel } from './view.js';
+import { LinkTracker, failsafeAlert, formatBattery, formatCmdAge, formatFlightMode, formatLink, formatMs, recoverySteps, reportsTurtle, segments, stateLabel } from './view.js';
 import { keepPlaying } from './whep.js';
 
 const $ = (id) => document.getElementById(id);
@@ -37,6 +38,7 @@ let role = null;
 let status = null;
 let seq = 0;
 let mode = 0;
+const switches = new Switches();   // speed (CH7) and turtle (CH8)
 let lastMsgAt = 0;
 let wakeLock = null;
 let inputMode = 'touch';
@@ -140,6 +142,7 @@ function resetInputs() {
  *  again before clearing it (inputmode.js). */
 function startAgainAfterFailsafe() {
   resetInputs();
+  switches.turtleOff();
   armKey.release();
   armHold.release();
   $('btn-arm').style.setProperty('--progress', 0);
@@ -159,7 +162,7 @@ setInterval(() => {
     focused: document.hasFocus(),
     wsOpen: wsOpen() && role === 'pilot',
   });
-  if (canSend) send(controlMessage(++seq, now, lastCmd));
+  if (canSend) send(controlMessage(++seq, now, lastCmd, switches.wire(locked)));
 }, 1000 / RATE_HZ);
 
 /** Changes how the pilot flies. Refused while armed; every input starts again from neutral
@@ -171,6 +174,7 @@ function setInputMode(next, { save = true } = {}) {
   }
   inputMode = next;
   resetInputs();
+  switches.turtleOff();
   deadman.disengage('input');
   document.body.dataset.input = next;
   if (save) saveInputMode(storage(), next);
@@ -225,6 +229,8 @@ function renderInput(now) {
   }
   markOn('[data-step]', (b) => Number(b.dataset.step) === stepper.step);
   markOn('[data-intensity]', (b) => Number(b.dataset.intensity) === keyboard.intensity);
+  markOn('[data-speed]', (b) => Number(b.dataset.speed) === switches.speed);
+  $('btn-turtle').classList.toggle('on', switches.turtle);
   for (const [selector, attr, model] of CAP_CONTROLS) {
     for (const b of document.querySelectorAll(selector)) {
       const cap = Number(b.dataset[attr]);
@@ -278,6 +284,7 @@ function render() {
   $('t-battery').textContent = formatBattery(telem.battery);
   $('t-link').textContent = formatLink(telem.link);
   $('t-mode').textContent = formatFlightMode(telem.flightMode);
+  $('t-mode').dataset.turtle = String(reportsTurtle(telem.flightMode));
   // Values from the drone are its last known ones once its link is down: shown dimmed.
   for (const id of ['t-battery', 't-link', 't-mode']) $(id).dataset.stale = String(seg.drone === 'down');
   document.body.dataset.state = status?.state ?? 'none';
@@ -306,6 +313,10 @@ $('btn-failsafe').addEventListener('click', () => send({ t: 'failsafe' }));
 for (const b of document.querySelectorAll('[data-mode]')) {
   b.addEventListener('click', () => setFlightMode(Number(b.dataset.mode)));
 }
+for (const b of document.querySelectorAll('[data-speed]')) {
+  b.addEventListener('click', () => switches.setSpeed(Number(b.dataset.speed)));
+}
+$('btn-turtle').addEventListener('click', () => switches.toggleTurtle());
 
 // Input modes and the step panel.
 for (const b of document.querySelectorAll('[data-input]')) b.addEventListener('click', () => setInputMode(b.dataset.input));
@@ -347,6 +358,10 @@ document.addEventListener('keydown', (ev) => {
   if ((inputMode === 'keyboard' && keyboard.keyDown(ev.code, ev.repeat))
     || (inputMode === 'step' && stepper.keyDown(ev.code, ev.repeat, ev.shiftKey))) {
     ev.preventDefault();                             // arrows must not scroll the page
+    return;
+  }
+  if (switches.keyDown(ev.code, ev.repeat)) {        // T turtle, 4/5/6 speed: every input mode
+    ev.preventDefault();
     return;
   }
   const action = KEY_ACTIONS[ev.code];
