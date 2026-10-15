@@ -139,7 +139,7 @@ sequenceDiagram
     G->>I: SESSION (random 32-bit session)
     G-->>B: welcome {role: pilot, session}
     loop every 20 ms (50 Hz) while the dead-man is engaged
-        B->>G: ctl {seq, ts, r, p, y, th, m}
+        B->>G: ctl {seq, ts, r, p, y, th, m, sp, tu}
         Note over G: validate ranges, seq > last,<br/>age <= 200 ms, rate <= 120/s
         G->>I: CONTROL (session, seq, sticks)
         I->>M: push command
@@ -188,7 +188,7 @@ connects them to the page.
 | Centre | Video (WebRTC), telemetry (battery, link, flight mode, `Latencia`, `Comando`), the on-air line (the stick values being sent, in %), dead-man message, notifications |
 | Sides | Two stick pads (landscape: either side of the video; portrait: below it). In the keyboard and step modes they only display the values, and they are hidden on upright or short screens |
 | Mode panel | Keyboard: key guide, intensity, throttle limit. Step: per-axis controls, step size, throttle limit, NEUTRO. On large screens (at least 1100 × 640 px) in these two modes the panel is a column on the right |
-| Footer | `Tomar control`, `Armar` (hold), `Desarmar`, `FAILSAFE`, flight mode Normal / Sport / Manual |
+| Footer | `Tomar control`, `Armar` (hold), `Desarmar`, `FAILSAFE`, flight mode Normal / Sport / Manual, speed Slow / Mid / Fast, `Turtle` |
 | Banner | Shown in FAILSAFE: the reason (its own wording when the radio link was lost), the age of the last command the core received, the way back as a checklist (`recoverySteps` in `view.js`: `Tomar control` → drone disarmed → `Limpiar failsafe`, the order the core checks; the throttle needs no step, see §5.2), and `Limpiar failsafe` (hold). An overlay that never moves the sticks; touches outside its button reach them. On short screens only the next step shows |
 
 The UI text is in Spanish; code and documentation are in English.
@@ -245,6 +245,8 @@ so the keyboard layout does not matter.
 | Space | disarm | immediate. On the Aquila20, disarming in flight stops the motors |
 | F | FAILSAFE | |
 | 1 / 2 / 3 | flight mode Normal / Sport / Manual | |
+| 4 / 5 / 6 | speed Slow / Mid / Fast (Aquila20 CH7) | |
+| T | turtle on/off (Aquila20 CH8) | a held key toggles once |
 | Esc | release control | the dead-man disengages. Leaving full screen does the same outside the touch mode, because browsers keep the Esc key that leaves full screen |
 
 The action keys (R, Space, F, 1–3, Esc) also work in the other modes; no key does anything while
@@ -447,8 +449,9 @@ stateDiagram-v2
 | CH1–CH4 | roll, pitch, throttle, yaw (AETR) | 1000–2000 |
 | CH5 | ARM | 1000 / 2000 |
 | CH6 | flight mode Normal / Sport / Manual | 1000 / 1500 / 2000 |
-| CH7 | `aquila20`: the drone's stick sensitivity, always 1000 (S). `betaflight`: FAILSAFE switch | 1000 / 2000 |
-| CH8–CH16 | unused | 1000 |
+| CH7 | `aquila20`: speed Slow / Mid / Fast (`ch_speed`). `betaflight`: FAILSAFE switch | 1000 / 1500 / 2000 |
+| CH8 | `aquila20`: turtle (`ch_turtle`); FAILSAFE drops it. `betaflight`: unused | 1000 / 2000 |
+| CH9–CH16 | unused | 1000 |
 
 ### 7.6 Evidence logs (`evlog.c`)
 
@@ -458,7 +461,7 @@ stateDiagram-v2
 - **Stick lines** in `events.jsonl` (`stick_log_ms`, default 100 ms, 0 = off): while armed,
   the values **on the air** (after the safety rules) every 100 ms, and one more line in the
   first frame after leaving ARMED, so a flight's last values are always logged.
-  - Example: `"ev":"sticks","roll":0.0,"pitch":-5.0,"yaw":0.0,"thr":23.5,"mode":0,"arm":true,"cmd_age_ms":14`.
+  - Example: `"ev":"sticks","roll":0.0,"pitch":-5.0,"yaw":0.0,"thr":23.5,"mode":0,"speed":0,"turtle":false,"arm":true,"cmd_age_ms":14`.
   - Sticks are in % (as on the page); `mode` is 0/1/2 = Normal/Sport/Manual.
   - `cmd_age_ms` is the age of the pilot's last command, which shows network delays.
   - These lines go to the file only, not to the journal. About 5 MB per hour of flying.
@@ -475,7 +478,7 @@ stateDiagram-v2
 | Browser → gateway | Meaning |
 |-------------------|---------|
 | `hello {role: "pilot" \| "observer"}` | must be the first message |
-| `ctl {seq, ts, r, p, y, th, m}` | 50 Hz; `r,p,y` −1000..1000, `th` 0..1000, `m` 0..2, `ts` = `performance.now()` |
+| `ctl {seq, ts, r, p, y, th, m, sp, tu}` | 50 Hz; `r,p,y` −1000..1000, `th` 0..1000, `m` 0..2, `sp` 0..2 and `tu` 0/1 (optional, default 0), `ts` = `performance.now()` |
 | `arm`, `disarm`, `ack`, `failsafe` | pilot only |
 | `tsync_r {s0, c1}` | reply to `tsync` |
 | `ping {id, ts}` | answered with `pong` |
@@ -498,7 +501,7 @@ golden bytes in both test suites.
 | Type | Direction | Payload |
 |------|-----------|---------|
 | `0x01` SESSION | gw → core | u32 session |
-| `0x02` CONTROL | gw → core | u32 session, u32 seq, i16 roll, i16 pitch, i16 yaw, u16 throttle, u8 mode |
+| `0x02` CONTROL | gw → core | u32 session, u32 seq, i16 roll, i16 pitch, i16 yaw, u16 throttle, u8 mode, u8 speed, u8 turtle (a 17-byte one is still accepted) |
 | `0x03`–`0x07` ARM, DISARM, ACK, PILOT_LOST, FAILSAFE | gw → core | u32 session |
 | `0x81` STATUS | core → gw | 80 bytes, 10 Hz (state, reason, session, last seq, command age, counters, period, ELRS offset, worst wake-up, 16 channels) |
 | `0x82`–`0x85` LINK, BATTERY, FLIGHT_MODE, DEVICE | core → gw | decoded telemetry |

@@ -51,6 +51,9 @@ and `deploy/crsf-core.conf` sets it explicitly.
 | Radio link lost while armed | **FAILSAFE `rf_lost`** after 1 s without a link report with LQ > 0 (added after review: the drone disarms itself silently) | none in the core (Betaflight runs its RX-loss failsafe and reports it) |
 | Arming with no radio link | **refused, `rf_down`**: no link report with LQ > 0 in the last 1 s (added 2026-10-14 after the first flights, where such an arm failed safe at once) | not checked |
 
+- **Amended 2026-10-14:** CH7 (speed) and CH8 (turtle) are now set by the pilot, so CH7 is no
+  longer fixed at S. See `2026-10-14-speed-turtle-design.md`.
+
 **Unchanged in both profiles:**
 - the safety state machine (§5.3 of the main spec): when to fail safe, the 300 ms timeout, latching,
   sessions and sequence numbers;

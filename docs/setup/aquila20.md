@@ -12,12 +12,12 @@ Its receiver is built in ("BFPV AIO 2G4RX", ExpressLRS 3.5.6). crsf-core drives 
 | CH1–CH4 | roll, pitch, throttle, yaw | 1000–2000 µs |
 | **CH5** | **ARM** (high = armed, motors spin) | 1000 / 2000 µs |
 | CH6 | flight mode: low `NORMAL` (N, position hold), mid `SPORT` (S, self-levelling), high `MANUAL` (M) | 1000 / 1500 / 2000 µs |
-| CH7 | stick sensitivity: low `S`, mid `M`, high `F`. **crsf-core keeps it low (S)** | 1000 µs |
-| CH8 | no visible effect | — |
+| CH7 | speed (the radio's SC): low SLOW (`S`), mid MID (`M`), high FAST (`F`). Set by the pilot: Slow / Mid / Fast buttons, keys 4/5/6; the page starts at Slow | 1000 / 1500 / 2000 µs |
+| CH8 | turtle mode (the radio's SD): high = on. Turtle button, key T. Acts only upside down; latches until the drone is upright (§4) | 1000 / 2000 µs |
 
-Flight-mode telemetry reads `<sensitivity>-<mode>`, for example `S-NORMAL`. **It never says
-whether the drone is armed.** The pilot page shows it as "Normal", "Sport"
-or "Manual", the names on its mode buttons.
+Flight-mode telemetry reads `<speed>-<mode>`, for example `S-NORMAL`, or `S-TURTLE` in turtle
+mode. **It never says whether the drone is armed.** The pilot page shows it with the names on its
+buttons, for example "Normal · Slow", and "TURTLE" in the warning colour.
 
 ## 2. Failsafe behaviour
 
@@ -50,13 +50,32 @@ Do these with **propellers off**, the TX module on its XT30 supply, and the dron
 6. **Power-on with ARM high:** with the drone's battery off, arm from `crsf-ctl pilot`, then
    connect the battery. The motors **must not** spin. Bench 2026-10-07: PASS. With no link to the
    drone, crsf-core fails safe (`rf_lost`) in the same frame, so ARM never stays high. Whether the
-   firmware itself would arm at power-on with CH5 high is still unknown (§4), but our core never
+   firmware itself would arm at power-on with CH5 high is still unknown (§5), but our core never
    leaves CH5 high without a link.
 
 **Rule for every session:** press **"Desarmar"** (or `d` in `crsf-ctl pilot`) before anyone walks
 up to the drone or changes its battery, even after a failsafe.
 
-## 4. Not yet known
+## 4. Turtle mode (spike 2026-10-14)
+
+Measured with propellers off and ARM held low throughout. A throwaway script drove the TX module
+directly and logged every flight-mode report.
+
+| Drone | Channels | Reported |
+|---|---|---|
+| upright | CH8–CH12 high one at a time | `S-NORMAL` throughout |
+| upside down | all spare channels low (15 s) | `S-NORMAL` |
+| upside down | CH8 high | **`S-TURTLE` within 0.7 s** |
+| upside down | CH8 low again (2 × 15 s) | **still `S-TURTLE`**: latched |
+| turned upright by hand | all low | `S-NORMAL` within about 1 s |
+
+So turtle needs the drone **upside down and CH8 high**, and ends when the drone is **upright again**,
+not when CH8 drops.
+
+**Not yet tested:** the motors when armed in turtle mode (the manual: they spin in reverse when a
+stick moves). Bench check 3 of `docs/superpowers/specs/2026-10-14-speed-turtle-design.md` §6.
+
+## 5. Not yet known
 
 - Whether the Aquila20 arms at power-on if CH5 is already high (bench check 6).
 - Whether it refuses to arm when not level, which matters for re-arming after a failsafe.
