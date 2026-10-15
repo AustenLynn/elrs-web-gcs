@@ -283,6 +283,14 @@ browser, phone locked, Wi-Fi lost) ends the same way.
 `Tomar control` also requests full screen, locks the current orientation and requests a screen
 wake lock, where the browser supports them.
 
+**iPhone Safari cannot put a web page in full screen.** The page can be added to the home screen
+instead (`manifest.webmanifest`, the `apple-*` tags in `index.html`, icons in `web/icons/`). It
+then opens from its icon without the browser's bars.
+- Where full screen is impossible and the page is not the home-screen app, `Tomar control`
+  shows the steps once per visit (`fullscreen.js`).
+- The icon keeps the address it was added from. A Cloudflare quick tunnel gets a new address on
+  every start, so the icon must be added again after each new tunnel.
+
 ### 5.4 Dangerous actions (`hold.js`)
 
 | Action | Gesture | Final check (in the core) |

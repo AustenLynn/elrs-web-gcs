@@ -5,6 +5,7 @@ import http from 'node:http';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import WebSocket from 'ws';
 import { DEFAULTS } from '../src/config.js';
@@ -26,7 +27,7 @@ async function fakeCore(dir) {
   return fake;
 }
 
-async function setup(t, { tls = false } = {}) {
+async function setup(t, { tls = false, webRoot = null } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), 'gcs-gw-'));
   writeFileSync(path.join(dir, 'index.html'), '<h1>pilot</h1>');
   mkdirSync(path.join(dir, 'fonts'));
@@ -38,7 +39,7 @@ async function setup(t, { tls = false } = {}) {
     execFileSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-nodes',
       '-days', '1', '-subj', '/CN=localhost', '-keyout', tlsCfg.key, '-out', tlsCfg.cert], { stdio: 'ignore' });
   }
-  const cfg = { ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 }, tls: tlsCfg, coreSocket: core.path, webRoot: dir };
+  const cfg = { ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 }, tls: tlsCfg, coreSocket: core.path, webRoot: webRoot ?? dir };
   const gw = await startGateway(cfg);
   t.after(async () => { await gw.close(); await core.close(); });
   await waitFor(() => core.conn !== null);
@@ -87,6 +88,25 @@ test('serves the web fonts as font/woff2', async (t) => {
   const res = await fetch(`${base}/fonts/barlow-400.woff2`);
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('content-type'), 'font/woff2');
+});
+
+test('serves the home-screen manifest and its icons (iPhone: no full screen for web pages)', async (t) => {
+  const { base } = await setup(t, { webRoot: fileURLToPath(new URL('../../web', import.meta.url)) });
+  const res = await fetch(`${base}/manifest.webmanifest`);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type'), 'application/manifest+json');
+  const m = await res.json();
+  assert.equal(m.display, 'fullscreen');
+  assert.equal(m.start_url, './');
+  assert.ok(m.icons.length >= 2);
+  for (const icon of m.icons) {
+    const img = await fetch(`${base}/${icon.src}`);
+    assert.equal(img.status, 200, icon.src);
+    assert.equal(img.headers.get('content-type'), 'image/png');
+    const size = Number(icon.sizes.split('x')[0]);
+    const png = Buffer.from(await img.arrayBuffer());
+    assert.equal(png.readUInt32BE(16), size, `${icon.src} is ${size} px wide`);   // IHDR width
+  }
 });
 
 test('pilot session end to end: hello, control, status, disconnect', async (t) => {

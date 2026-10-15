@@ -6,6 +6,7 @@ import { canSwitchInput, enteringFailsafe, inputsLocked, loadInputMode, lockedCo
 import { KEY_ACTIONS, KeyboardModel, MODE_KEYS } from './keyboard.js';
 import { REFUSAL_TEXT, RATE_HZ, closeAction, connectionTarget, controlMessage, shouldReclaimPilotSeat, tsyncReply } from './protocol.js';
 import { StepModel, capChangeAllowed } from './stepper.js';
+import { fullscreenTip } from './fullscreen.js';
 import { StickModel, bindStick, layoutAction, orientationLock, padsMoved, sticksToCommand } from './sticks.js';
 import { LinkTracker, failsafeAlert, formatBattery, formatCmdAge, formatFlightMode, formatLink, formatMs, recoverySteps, segments, stateLabel } from './view.js';
 import { keepPlaying } from './whep.js';
@@ -47,12 +48,12 @@ const storage = () => { try { return window.localStorage; } catch { return null;
 const wsOpen = () => ws?.readyState === WebSocket.OPEN;
 const send = (msg) => { if (wsOpen()) ws.send(JSON.stringify(msg)); };
 
-function toast(text, persist = false) {
+function toast(text, persist = false, ms = 4000) {
   const el = $('toast');
   el.textContent = text;
   el.hidden = false;
   clearTimeout(toast.timer);
-  if (!persist) toast.timer = setTimeout(() => { el.hidden = true; }, 4000);
+  if (!persist) toast.timer = setTimeout(() => { el.hidden = true; }, ms);
 }
 
 function connect() {
@@ -185,6 +186,7 @@ function setFlightMode(n) {
 const padBoxes = () => [$('stick-left'), $('stick-right')].map((p) => p.getBoundingClientRect());
 let padsAtEngage = null;
 let engagedAt = 0;
+let fullscreenTipShown = false;   // once per visit
 
 async function takeControl() {
   if (role !== 'pilot') return;
@@ -192,6 +194,14 @@ async function takeControl() {
     await document.documentElement.requestFullscreen?.();
     await screen.orientation?.lock?.(orientationLock(screen.orientation.type));
   } catch { /* not supported (desktop browsers): fine */ }
+  const tip = fullscreenTip({
+    canFullscreen: typeof document.documentElement.requestFullscreen === 'function',
+    standalone: navigator.standalone === true || matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches,
+  });
+  if (tip && !fullscreenTipShown) {
+    fullscreenTipShown = true;
+    toast(tip, false, 10000);                // two steps to read
+  }
   deadman.engage();
   engagedAt = performance.now();
   padsAtEngage = padBoxes();
