@@ -132,16 +132,18 @@ export class ControlHub {
   }
 
   #control(c, m) {
+    const optional = (v, hi) => v === undefined || isInt(v, 0, hi);   // older pages omit sp/tu
     const valid = isInt(m.seq, c.lastSeq + 1, 0xffffffff) && typeof m.ts === 'number' &&
       isInt(m.r, -1000, 1000) && isInt(m.p, -1000, 1000) && isInt(m.y, -1000, 1000) &&
-      isInt(m.th, 0, 1000) && isInt(m.m, 0, 2);
+      isInt(m.th, 0, 1000) && isInt(m.m, 0, 2) && optional(m.sp, 2) && optional(m.tu, 1);
     if (!valid) return; // garbage never refreshes the core's failsafe timer
     c.lastSeq = m.seq;
     if (c.clock.ready && c.clock.age(m.ts, this.now()) > this.maxCommandAgeMs) {
       this.staleDropped++;
       return;
     }
-    this.core.control(c.session, m.seq, { roll: m.r, pitch: m.p, yaw: m.y, throttle: m.th, mode: m.m });
+    this.core.control(c.session, m.seq,
+      { roll: m.r, pitch: m.p, yaw: m.y, throttle: m.th, mode: m.m, speed: m.sp ?? 0, turtle: m.tu ?? 0 });
   }
 
   #statusMsg() {

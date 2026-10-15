@@ -34,8 +34,8 @@ export function encodeSessionMsg(type, session) {
   return frame(type, p);
 }
 
-export function encodeControl({ session, seq, roll, pitch, yaw, throttle, mode }) {
-  const p = Buffer.alloc(17);
+export function encodeControl({ session, seq, roll, pitch, yaw, throttle, mode, speed = 0, turtle = 0 }) {
+  const p = Buffer.alloc(19);
   p.writeUInt32LE(session >>> 0, 0);
   p.writeUInt32LE(seq >>> 0, 4);
   p.writeInt16LE(roll, 8);
@@ -43,6 +43,8 @@ export function encodeControl({ session, seq, roll, pitch, yaw, throttle, mode }
   p.writeInt16LE(yaw, 12);
   p.writeUInt16LE(throttle, 14);
   p.writeUInt8(mode, 16);
+  p.writeUInt8(speed, 17);
+  p.writeUInt8(turtle ? 1 : 0, 18);
   return frame(MSG.CONTROL, p);
 }
 

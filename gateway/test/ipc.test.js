@@ -8,8 +8,8 @@ import { CoreClient, FrameReader, MSG, REASONS, decodeBattery, decodeDevice, dec
 
 // Same bytes as CONTROL_GOLDEN in core/tests/test_ipc_proto.c
 const CONTROL_GOLDEN = Buffer.from([
-  0x12, 0x00, 0x02, 0x04, 0x03, 0x02, 0x01, 0x05, 0x00, 0x00, 0x00,
-  0x18, 0xfc, 0xfa, 0x00, 0x00, 0x00, 0xe8, 0x03, 0x02,
+  0x14, 0x00, 0x02, 0x04, 0x03, 0x02, 0x01, 0x05, 0x00, 0x00, 0x00,
+  0x18, 0xfc, 0xfa, 0x00, 0x00, 0x00, 0xe8, 0x03, 0x02, 0x02, 0x01,
 ]);
 // Produced by the C encoder (ipc_encode_status) for the sample in core/tests/test_ipc_proto.c
 const STATUS_GOLDEN = Buffer.from([
@@ -23,8 +23,10 @@ const STATUS_GOLDEN = Buffer.from([
 ]);
 
 test('control message matches the C encoder byte for byte', () => {
-  const buf = encodeControl({ session: 0x01020304, seq: 5, roll: -1000, pitch: 250, yaw: 0, throttle: 1000, mode: 2 });
+  const buf = encodeControl({ session: 0x01020304, seq: 5, roll: -1000, pitch: 250, yaw: 0, throttle: 1000, mode: 2,
+    speed: 2, turtle: 1 });
   assert.deepEqual(buf, CONTROL_GOLDEN);
+  assert.equal(encodeControl({ session: 1, seq: 1, roll: 0, pitch: 0, yaw: 0, throttle: 0, mode: 0 }).at(-1), 0);
 });
 
 test('session-style messages', () => {
@@ -106,7 +108,7 @@ test('core client connects, decodes, sends and reconnects', async (t) => {
   serverSide.write(STATUS_GOLDEN.subarray(10));
   assert.equal((await status).state, 'FAILSAFE');
 
-  client.control(0x01020304, 5, { roll: -1000, pitch: 250, yaw: 0, throttle: 1000, mode: 2 });
+  client.control(0x01020304, 5, { roll: -1000, pitch: 250, yaw: 0, throttle: 1000, mode: 2, speed: 2, turtle: 1 });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(received.length, 1);
   assert.deepEqual(received[0].payload, CONTROL_GOLDEN.subarray(3));
