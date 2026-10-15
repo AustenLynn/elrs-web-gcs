@@ -14,6 +14,7 @@ CORE_DIR = os.path.join(os.path.dirname(__file__), "..", "..")
 CORE = os.path.join(CORE_DIR, "build", "crsf-core")
 CTL = os.path.join(CORE_DIR, "build", "crsf-ctl")
 CH_ARM, CH_FAILSAFE, CH_THROTTLE = 4, 6, 2   # CH_FAILSAFE: betaflight profile only
+CH_SPEED, CH_TURTLE = 6, 7                   # aquila20 profile
 CH_SENSITIVITY = 6                            # aquila20: CH7 is the drone's sensitivity switch
 HIGH, LOW = 1792, 192
 
@@ -261,6 +262,21 @@ class StickLogTest(CoreHarness):
         self.assertTrue(all(95 <= g <= 150 for g in gaps), gaps)
         self.assertFalse(sticks[-1]["arm"])                 # the line that shows how it ended
         self.assertEqual(len(sticks), len(armed) + 1)       # and nothing after it
+
+    def test_speed_and_turtle_reach_ch7_and_ch8_and_failsafe_drops_turtle(self):
+        pilot = Pilot(self.client, session=19)
+        self.arm(pilot)
+        pilot.speed, pilot.turtle = 2, 1
+        self.assertIsNotNone(self.tx.wait_for(lambda ch: ch[CH_SPEED] == HIGH and ch[CH_TURTLE] == HIGH),
+                             "speed/turtle never reached CH7/CH8")
+        pilot.paused = True                                # the page stops sending
+        self.assertTrue(self.client.wait(lambda c: c.status["reason_name"] == "cmd_timeout", timeout=2))
+        ch = self.tx.last_channels()
+        self.assertEqual((ch[CH_ARM], ch[CH_TURTLE], ch[CH_SPEED]), (LOW, LOW, HIGH))
+        pilot.stop()
+        sticks = [e for e in self.read_events() if e["ev"] == "sticks"]
+        self.assertTrue(any(e["speed"] == 2 and e["turtle"] for e in sticks))
+        self.assertFalse(sticks[-1]["turtle"])             # the line after FAILSAFE
 
 
 class BetaflightTest(CoreHarness):

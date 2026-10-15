@@ -34,5 +34,7 @@ void chmap_build(const config_t *c, const rc_outputs_t *o, uint16_t ch[CRSF_NUM_
         ch[c->ch_failsafe] = sw(c, o->failsafe);
     } else {
         ch[c->ch_arm] = sw(c, o->arm && !o->failsafe);   /* Aquila20: FAILSAFE = disarm */
+        ch[c->ch_speed] = crsf_us_to_ch(c->stick_min_us + clampi(o->speed, 0, 2) * span / 2);
+        ch[c->ch_turtle] = sw(c, o->turtle && !o->failsafe);
     }
 }

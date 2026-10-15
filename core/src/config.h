@@ -10,14 +10,12 @@
 /* Which flight-controller firmware is on the aircraft (docs/superpowers/specs/
  * 2026-10-07-aquila20-profile-design.md):
  *  - AQUILA20: BetaFPV's own firmware. FAILSAFE drops ARM over a live link; CH7 is the
- *    drone's stick-sensitivity switch and stays low (S); the flight-mode text never says
- *    whether the drone is armed.
+ *    drone's speed switch (Slow/Mid/Fast) and CH8 its turtle mode, both set by the pilot
+ *    (2026-10-14-speed-turtle-design.md); the flight-mode text never says whether the drone
+ *    is armed.
  *  - BETAFLIGHT: FAILSAFE raises the ch_failsafe switch and leaves ARM to Betaflight;
  *    a flight mode ending in '*' means disarmed. */
 typedef enum { FC_PROFILE_AQUILA20 = 0, FC_PROFILE_BETAFLIGHT = 1 } fc_profile_t;
-
-/* The Aquila20's stick-sensitivity switch (0-based CH7): no function may use it. */
-#define AQUILA20_SENSITIVITY_CH 6
 
 /* Armed + no radio link report with uplink LQ > 0 for this long -> FAILSAFE rf_lost
  * (aquila20 only: the drone disarms itself on link loss and never reports it). */
@@ -45,6 +43,7 @@ typedef struct {
     int stick_max_us;
     /* 0-based channel indexes. The file uses 1-based numbers (ch_arm = 5 means CH5). */
     int ch_roll, ch_pitch, ch_throttle, ch_yaw, ch_arm, ch_mode, ch_failsafe;
+    int ch_speed, ch_turtle;           /* aquila20 only: CH7 speed (Slow/Mid/Fast), CH8 turtle */
 } config_t;
 
 void config_defaults(config_t *c);
