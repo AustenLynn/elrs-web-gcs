@@ -14,6 +14,8 @@ static void apply_sticks(safety_t *s)
     s->out.yaw = s->cmd.yaw;
     s->out.throttle = s->cmd.throttle;
     s->out.mode = s->cmd.mode;
+    s->out.speed = s->cmd.speed;
+    s->out.turtle = s->cmd.turtle;
 }
 
 static void enter_failsafe(safety_t *s, fs_reason_t reason)
@@ -25,6 +27,7 @@ static void enter_failsafe(safety_t *s, fs_reason_t reason)
     s->out.failsafe = true;
     s->out.roll = s->out.pitch = s->out.yaw = 0;
     s->out.throttle = 0;
+    s->out.turtle = false;     /* speed is kept: it only changes how the drone responds */
     /* out.arm unchanged: Betaflight decides what happens next (drop, land, rescue). */
 }
 
@@ -63,6 +66,8 @@ bool safety_control(safety_t *s, uint32_t session, uint32_t seq, const stick_cmd
     s->cmd.yaw = (int16_t)clampi(cmd->yaw, -1000, 1000);
     s->cmd.throttle = (uint16_t)clampi(cmd->throttle, 0, 1000);
     s->cmd.mode = (uint8_t)clampi(cmd->mode, 0, 2);
+    s->cmd.speed = (uint8_t)clampi(cmd->speed, 0, 2);
+    s->cmd.turtle = cmd->turtle;
     if (s->state != SAFETY_FAILSAFE)
         apply_sticks(s);
     return true;

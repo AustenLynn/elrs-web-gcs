@@ -45,6 +45,8 @@ typedef struct {
     int16_t roll, pitch, yaw;  /* -1000..1000 */
     uint16_t throttle;         /* 0..1000 */
     uint8_t mode;              /* 0..2 */
+    uint8_t speed;             /* 0..2 (aquila20 CH7: Slow, Mid, Fast) */
+    bool turtle;               /* aquila20 CH8 */
 } stick_cmd_t;
 
 typedef struct {

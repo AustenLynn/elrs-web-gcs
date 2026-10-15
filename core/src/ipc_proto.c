@@ -119,6 +119,8 @@ size_t ipc_encode_control(uint8_t *out, size_t cap, const ipc_control_t *c)
     put_u16(&w, (uint16_t)c->sticks.yaw);
     put_u16(&w, c->sticks.throttle);
     put_u8(&w, c->sticks.mode);
+    put_u8(&w, c->sticks.speed);
+    put_u8(&w, c->sticks.turtle ? 1 : 0);
     return finish(&w);
 }
 
@@ -210,7 +212,7 @@ int ipc_decode_session_msg(const uint8_t *p, size_t n, uint32_t *session)
 
 int ipc_decode_control(const uint8_t *p, size_t n, ipc_control_t *c)
 {
-    if (n != 17)
+    if (n != 17 && n != 19)
         return -1;
     rbuf_t r = { .p = p, .len = n };
     c->session = get_u32(&r);
@@ -220,6 +222,8 @@ int ipc_decode_control(const uint8_t *p, size_t n, ipc_control_t *c)
     c->sticks.yaw = (int16_t)get_u16(&r);
     c->sticks.throttle = get_u16(&r);
     c->sticks.mode = get_u8(&r);
+    c->sticks.speed = n == 19 ? get_u8(&r) : 0;
+    c->sticks.turtle = n == 19 ? get_u8(&r) != 0 : false;
     return 0;
 }
 
