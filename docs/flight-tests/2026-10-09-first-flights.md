@@ -57,6 +57,18 @@ CH5 arm, CH6 flight mode. The difference is how the values are produced:
 
 ## 4. Why the drone came down (two hypotheses, to be tested)
 
+**Resolved 2026-10-14:** the pilot found the drone was not given enough throttle to climb high
+enough. So hypothesis 2 (or a throttle too low to hover) is the likely one, not a fault.
+
+The same day, the new stick log showed another **in-flight `cmd_timeout` at 83 % throttle**
+(17:38:54 local, over the tunnel):
+- commands had arrived every 20 ms;
+- then they came late and in bursts (144, 248, 139, 103, 204 ms);
+- then nothing for 300 ms.
+
+The page kept sending, and the network held the commands back. This is the second such cut;
+it adds weight to §5 items 4 and 5.
+
 1. **The throttle was left close to the bottom.** Flight controllers usually treat a band near
    the bottom as "minimum". With about 1.4 % per pixel, the touch throttle can easily be left
    there. The drone then lands itself and idles on the ground until disarmed, which matches
