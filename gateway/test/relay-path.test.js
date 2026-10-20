@@ -37,7 +37,7 @@ test('a remote pilot through the relay gets a session and controls the core', as
   const relay = await startRelay({ listen: { host: '127.0.0.1', port: 0 }, rooms: { pi1: { bridgeToken: BRIDGE, pilotToken: PILOT } } });
   t.after(() => relay.close());
   const gw = await startGateway({
-    ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 }, coreSocket: coreSock, webRoot: dir,
+    ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 }, coreSocket: coreSock, webRoot: dir, auth: { usersFile: path.join(dir, 'users.json') },
     relay: { url: `ws://127.0.0.1:${relay.port}/relay`, room: 'pi1', token: BRIDGE },
   });
   t.after(() => gw.close());
@@ -71,7 +71,7 @@ test('if the relay dies, the remote pilot is lost and the core is told at once',
   t.after(() => core.close());
   const relay = await startRelay({ listen: { host: '127.0.0.1', port: 0 }, rooms: { pi1: { bridgeToken: BRIDGE, pilotToken: PILOT } } });
   const gw = await startGateway({
-    ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 }, coreSocket: coreSock, webRoot: dir,
+    ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 }, coreSocket: coreSock, webRoot: dir, auth: { usersFile: path.join(dir, 'users.json') },
     relay: { url: `ws://127.0.0.1:${relay.port}/relay`, room: 'pi1', token: BRIDGE },
   });
   t.after(() => gw.close());
@@ -118,7 +118,7 @@ async function stack(t, { viaProxy = false } = {}) {
     port = srv.address().port;
   }
   const gw = await startGateway({
-    ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 }, coreSocket: coreSock, webRoot: dir,
+    ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 }, coreSocket: coreSock, webRoot: dir, auth: { usersFile: path.join(dir, 'users.json') },
     relay: { url: `ws://127.0.0.1:${port}/relay`, room: 'pi1', token: BRIDGE },
   });
   t.after(() => gw.close());

@@ -29,7 +29,7 @@ test('relay-rtt measures round trips through the relay as an observer', async (t
   const relay = await startRelay({ listen: { host: '127.0.0.1', port: 0 }, rooms: { pi1: { bridgeToken: BRIDGE, pilotToken: PILOT } } });
   t.after(() => relay.close());
   const gw = await startGateway({
-    ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 }, coreSocket: coreSock, webRoot: dir,
+    ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 }, coreSocket: coreSock, webRoot: dir, auth: { usersFile: path.join(dir, 'users.json') },
     relay: { url: `ws://127.0.0.1:${relay.port}/relay`, room: 'pi1', token: BRIDGE },
   });
   t.after(() => gw.close());

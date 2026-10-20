@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import WebSocket from 'ws';
 import { DEFAULTS } from '../src/config.js';
+import { UserStore } from '../src/users.js';
 import { FrameReader, MSG } from '../src/ipc.js';
 import { startGateway } from '../src/server.js';
 
@@ -39,11 +40,24 @@ async function setup(t, { tls = false, webRoot = null } = {}) {
     execFileSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-nodes',
       '-days', '1', '-subj', '/CN=localhost', '-keyout', tlsCfg.key, '-out', tlsCfg.cert], { stdio: 'ignore' });
   }
-  const cfg = { ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 }, tls: tlsCfg, coreSocket: core.path, webRoot: webRoot ?? dir };
+  const usersFile = path.join(dir, 'users.json');
+  const store = new UserStore(usersFile);
+  await store.load();
+  await store.add('ana', 'correcthorse', true);
+  const cfg = { ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 }, tls: tlsCfg, coreSocket: core.path, webRoot: webRoot ?? dir,
+    auth: { usersFile } };
   const gw = await startGateway(cfg);
   t.after(async () => { await gw.close(); await core.close(); });
   await waitFor(() => core.conn !== null);
-  return { gw, core, base: `${tls ? 'https' : 'http'}://127.0.0.1:${gw.port}`, wsUrl: `${tls ? 'wss' : 'ws'}://127.0.0.1:${gw.port}/ws` };
+  const base = `${tls ? 'https' : 'http'}://127.0.0.1:${gw.port}`;
+  // Signs in as ana and returns the Cookie header value for a WebSocket.
+  const login = async () => {
+    const res = await fetch(`${base}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'ana', password: 'correcthorse' }) });
+    assert.equal(res.status, 200);
+    return res.headers.get('set-cookie').split(';')[0];
+  };
+  return { gw, core, base, login, wsUrl: `${tls ? 'wss' : 'ws'}://127.0.0.1:${gw.port}/ws` };
 }
 
 async function waitFor(pred, ms = 2000) {
@@ -208,6 +222,22 @@ test('WebSocket connections from another web origin are refused', async (t) => {
   tool.ws.close();
 });
 
+test('the WebSocket auth comes from the sign-in cookie; no or forged cookie is a spectator', async (t) => {
+  const { gw, wsUrl, login } = await setup(t);
+  const seen = [];
+  const attach = gw.hub.attach.bind(gw.hub);
+  gw.hub.attach = (client, auth) => { seen.push(auth); attach(client, auth); };
+  const cookie = await login();
+  (await connect(wsUrl, { headers: { cookie } })).ws.close();
+  (await connect(wsUrl)).ws.close();
+  (await connect(wsUrl, { headers: { cookie: `gcs_session=${'0'.repeat(64)}` } })).ws.close();
+  assert.deepEqual(seen, [
+    { user: { name: 'ana', admin: true }, relay: false },
+    { user: null, relay: false },
+    { user: null, relay: false },
+  ]);
+});
+
 test('after the core reconnects, the connected pilot is given a new session', async (t) => {
   const { core, wsUrl } = await setup(t);
   const pilot = await connect(wsUrl);
@@ -257,7 +287,7 @@ test('with video configured, the gateway serves WHEP at /video/whep and static f
   const dir = mkdtempSync(path.join(tmpdir(), 'gcs-gw-'));
   writeFileSync(path.join(dir, 'index.html'), '<h1>pilot</h1>');
   const gw = await startGateway({ ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 }, coreSocket: path.join(dir, 'none.sock'),
-    webRoot: dir, video: { whep: `http://127.0.0.1:${up.address().port}/fpv/whep` } });
+    auth: { usersFile: path.join(dir, 'users.json') }, webRoot: dir, video: { whep: `http://127.0.0.1:${up.address().port}/fpv/whep` } });
   t.after(() => gw.close());
   const base = `http://127.0.0.1:${gw.port}`;
   const res = await fetch(`${base}/video/whep`, { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: 'v=0 offer' });

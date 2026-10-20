@@ -43,4 +43,8 @@ echo "== systemd units"
 install -m 0644 "$repo/deploy/crsf-core.service" "$repo/deploy/gcs-gateway.service" "$repo/deploy/gcs-video.service" /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable crsf-core.service gcs-gateway.service gcs-video.service
+if [[ ! -f /var/lib/gcs/users.json ]]; then
+  echo "no pilot accounts yet. create the first admin with:"
+  echo "  sudo -u gcs node /opt/gcs/gateway/src/users-cli.js /var/lib/gcs/users.json add <name> --admin"
+fi
 echo "installed. start with: sudo systemctl restart crsf-core gcs-gateway gcs-video"

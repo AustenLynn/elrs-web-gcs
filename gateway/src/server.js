@@ -3,10 +3,12 @@ import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import { WebSocketServer, WebSocket } from 'ws';
+import { authRoutes, cookieToken, LoginLimiter, Sessions } from './auth.js';
 import { ControlHub } from './hub.js';
 import { CoreClient } from './ipc.js';
 import { RelayClient } from './relayClient.js';
 import { staticHandler } from './static.js';
+import { UserStore } from './users.js';
 import { whepProxy } from './whep.js';
 
 /** Request path, or null when the request line is not a parsable URL (never throw here:
@@ -40,9 +42,15 @@ export async function startGateway(cfg, { core = new CoreClient(cfg.coreSocket) 
   core.on('event', (ev) => hub.onCoreEvent(ev));
   core.start();
 
+  const users = new UserStore(cfg.auth.usersFile);
+  await users.load();
+  const sessions = new Sessions();
+  const auth = authRoutes({ users, sessions, limiter: new LoginLimiter(), secure: !!cfg.tls, hub });
+
   const files = staticHandler(cfg.webRoot);
   const video = cfg.video ? whepProxy(cfg.video.whep) : null;
   const handler = async (req, res) => {
+    if (await auth(req, res)) return;
     if (video && (await video(req, res))) return;
     files(req, res);
   };
@@ -61,16 +69,17 @@ export async function startGateway(cfg, { core = new CoreClient(cfg.coreSocket) 
       socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
       return;
     }
-    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws));
+    const user = sessions.get(cookieToken(req));   // no or stale cookie: a spectator
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, user));
   });
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, user) => {
     const client = {
       send: (obj) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)); },
       close: () => ws.close(),
     };
     ws.isAlive = true;
-    hub.attach(client);
+    hub.attach(client, { user, relay: false });
     ws.on('pong', () => { ws.isAlive = true; });
     ws.on('message', (data, isBinary) => {
       if (isBinary) return;
@@ -113,6 +122,8 @@ export async function startGateway(cfg, { core = new CoreClient(cfg.coreSocket) 
 
   return {
     hub,
+    users,
+    sessions,
     core,
     relay,
     server,

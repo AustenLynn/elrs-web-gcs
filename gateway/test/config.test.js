@@ -36,3 +36,10 @@ test('relay settings need a wss/ws URL, a room and a hex token', () => {
   assert.throws(() => validateConfig({ ...DEFAULTS, relay: { ...good, token: 'REPLACE with: openssl rand -hex 32' } }), /relay/);
   assert.throws(() => validateConfig({ ...DEFAULTS, relay: { ...good, url: 'https://x' } }), /relay/);
 });
+
+test('auth.usersFile is required and must be a string', () => {
+  assert.equal(validateConfig({ ...DEFAULTS, auth: { usersFile: '/tmp/u.json' } }).auth.usersFile, '/tmp/u.json');
+  assert.throws(() => validateConfig({ ...DEFAULTS, auth: undefined }), /auth\.usersFile/);
+  assert.throws(() => validateConfig({ ...DEFAULTS, auth: {} }), /auth\.usersFile/);
+  assert.throws(() => validateConfig({ ...DEFAULTS, auth: { usersFile: 5 } }), /auth\.usersFile/);
+});

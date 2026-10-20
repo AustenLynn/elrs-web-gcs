@@ -27,10 +27,10 @@ export class ControlHub {
     this.staleDropped = 0;
   }
 
-  /** client: { send(obj), close() } */
-  attach(client) {
+  /** client: { send(obj), close() }; auth: { user: {name, admin} | null, relay } (stored for the queue) */
+  attach(client, auth = { user: null, relay: false }) {
     this.clients.set(client, {
-      role: null, session: 0, lastSeq: 0, clock: new ClockSync(),
+      auth, role: null, session: 0, lastSeq: 0, clock: new ClockSync(),
       windowStart: this.now(), windowCount: 0,
     });
   }
