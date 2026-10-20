@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import http from 'node:http';
+import net from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -21,7 +22,7 @@ async function fixture({ secure = false, now = Date.now } = {}) {
   const base = `http://127.0.0.1:${server.address().port}`;
   const post = (p, body, headers = { 'Content-Type': 'application/json' }) =>
     fetch(base + p, { method: 'POST', headers, body: typeof body === 'string' ? body : JSON.stringify(body) });
-  return { users, sessions, limiter, base, post, close: () => new Promise((r) => server.close(r)) };
+  return { users, sessions, limiter, base, port: server.address().port, post, close: () => new Promise((r) => server.close(r)) };
 }
 
 test('login sets an HttpOnly SameSite=Strict cookie for 12 h, Secure only when asked', async (t) => {
@@ -113,6 +114,38 @@ test('a sixth failed login in 60 s is 429 even with the right password, allowed 
   assert.equal((await f.post('/login', { name: 'ana', password: 'correcthorse' })).status, 200);
 });
 
+test('parallel wrong logins for one name: at most 5 are checked, the rest get 429', async (t) => {
+  const f = await fixture();
+  t.after(f.close);
+  const statuses = await Promise.all(Array.from({ length: 30 }, () =>
+    f.post('/login', { name: 'ana', password: 'wrong-pass' }).then((r) => r.status)));
+  assert.equal(statuses.filter((s) => s === 401).length, 5);
+  assert.equal(statuses.filter((s) => s === 429).length, 25);
+});
+
+test('behind the tunnel (loopback peer) the address counter keys on CF-Connecting-IP', async (t) => {
+  const f = await fixture();
+  t.after(f.close);
+  const h = (ip) => ({ 'Content-Type': 'application/json', 'CF-Connecting-IP': ip });
+  for (let i = 0; i < 5; i++) await f.post('/login', { name: `u${i}-x`, password: 'wrong-pass' }, h('9.9.9.9'));
+  assert.equal((await f.post('/login', { name: 'fresh-user', password: 'wrong-pass' }, h('9.9.9.9'))).status, 429);
+  assert.equal((await f.post('/login', { name: 'ana', password: 'correcthorse' }, h('8.8.8.8'))).status, 200);
+});
+
+test('a client that aborts the login body does not take the gateway down', async (t) => {
+  const f = await fixture();
+  t.after(f.close);
+  await new Promise((resolve) => {
+    const s = net.connect(f.port, '127.0.0.1', () => {
+      s.write('POST /login HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{"name":');
+      setTimeout(() => { s.destroy(); resolve(); }, 50);
+    });
+    s.on('error', () => {});
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal((await fetch(`${f.base}/me`)).status, 401);
+});
+
 test('the limiter counts per name and per address', () => {
   const l = new LoginLimiter({ now: () => 0 });
   for (let i = 0; i < 5; i++) l.fail('ana', '1.1.1.1');
@@ -121,6 +154,7 @@ test('the limiter counts per name and per address', () => {
   assert.ok(!l.blocked('luis', '2.2.2.2'));
   l.ok('ana', '1.1.1.1');
   assert.ok(!l.blocked('ana', '2.2.2.2'));
+  assert.ok(!l.blocked('luis', '1.1.1.1'));       // ok() clears the address counter too
 });
 
 test('cookieToken reads gcs_session from the Cookie header', () => {

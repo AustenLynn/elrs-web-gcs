@@ -50,9 +50,20 @@ export async function startGateway(cfg, { core = new CoreClient(cfg.coreSocket) 
   const files = staticHandler(cfg.webRoot);
   const video = cfg.video ? whepProxy(cfg.video.whep) : null;
   const handler = async (req, res) => {
-    if (await auth(req, res)) return;
-    if (video && (await video(req, res))) return;
-    files(req, res);
+    try {
+      if (await auth(req, res)) return;
+      if (video && (await video(req, res))) return;
+      files(req, res);
+    } catch (err) {
+      // An unhandled rejection would kill the process (and fail safe the aircraft).
+      console.error('gateway: error handling a request:', err);
+      if (!res.headersSent) {
+        res.writeHead(500);
+        res.end();
+      } else {
+        res.destroy();
+      }
+    }
   };
   const server = cfg.tls
     ? https.createServer({ cert: readFileSync(cfg.tls.cert), key: readFileSync(cfg.tls.key) }, handler)

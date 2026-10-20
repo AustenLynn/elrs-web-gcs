@@ -69,8 +69,9 @@ export class LoginLimiter {
     for (const key of [`n:${name}`, `a:${addr}`]) this.#fails.set(key, [...this.#recent(key), t]);
   }
 
-  ok(name) {
+  ok(name, addr) {
     this.#fails.delete(`n:${name}`);
+    this.#fails.delete(`a:${addr}`);
   }
 }
 
@@ -102,14 +103,18 @@ async function readJson(req, res) {
   }
   const chunks = [];
   let size = 0;
-  for await (const chunk of req) {
-    size += chunk.length;
-    if (size > MAX_BODY) {
-      send(res, 413, { error: 'body too large' }, { Connection: 'close' });
-      req.destroy();
-      return undefined;
+  try {
+    for await (const chunk of req) {
+      size += chunk.length;
+      if (size > MAX_BODY) {
+        send(res, 413, { error: 'body too large' }, { Connection: 'close' });
+        req.destroy();
+        return undefined;
+      }
+      chunks.push(chunk);
     }
-    chunks.push(chunk);
+  } catch {
+    return undefined;   // the client aborted mid-body: nobody is left to answer
   }
   try {
     const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
@@ -143,17 +148,25 @@ export function authRoutes({ users, sessions, limiter, secure, hub }) {   // hub
     const { name, password } = body;
     if (typeof name !== 'string' || typeof password !== 'string') return send(res, 400, { error: 'name and password are required' }), true;
     const key = name.slice(0, 64);
-    const addr = req.socket.remoteAddress ?? '';
+    const addr = clientAddress(req);
     if (limiter.blocked(key, addr)) return send(res, 429, { error: 'too many attempts' }, { 'Retry-After': '60' }), true;
+    // Count the attempt before the slow hash, so parallel requests cannot all pass blocked().
+    limiter.fail(key, addr);
     const user = await users.verify(name, password);
-    if (!user) {
-      limiter.fail(key, addr);
-      return send(res, 401, { error: 'wrong name or password' }), true;
-    }
-    limiter.ok(key);
+    if (!user) return send(res, 401, { error: 'wrong name or password' }), true;
+    limiter.ok(key, addr);
     send(res, 200, user, { 'Set-Cookie': sessionCookie(sessions.create(user), 43200, secure) });
     return true;
   };
+}
+
+const LOOPBACK = /^(::1|(::ffff:)?127\.\d+\.\d+\.\d+)$/;
+
+/** Behind the Cloudflare tunnel every request arrives from loopback: trust CF-Connecting-IP only then. */
+function clientAddress(req) {
+  const addr = req.socket.remoteAddress ?? '';
+  const forwarded = req.headers['cf-connecting-ip'];
+  return LOOPBACK.test(addr) && typeof forwarded === 'string' && forwarded ? forwarded.slice(0, 64) : addr;
 }
 
 function pathOf(url) {

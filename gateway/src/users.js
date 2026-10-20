@@ -33,14 +33,18 @@ export class UserStore {
   }
 
   async load() {
+    this.#users = await this.#read();
+  }
+
+  async #read() {
     let raw;
     try {
       raw = await readFile(this.#file, 'utf8');
     } catch (err) {
-      if (err.code === 'ENOENT') return;
+      if (err.code === 'ENOENT') return new Map();
       throw err;
     }
-    this.#users = new Map(JSON.parse(raw).users.map((u) => [u.name, { admin: !!u.admin, salt: u.salt, hash: u.hash }]));
+    return new Map(JSON.parse(raw).users.map((u) => [u.name, { admin: !!u.admin, salt: u.salt, hash: u.hash }]));
   }
 
   list() {
@@ -81,10 +85,11 @@ export class UserStore {
     });
   }
 
-  /** Applies fn to a copy, saves it, and only then makes it the live set. */
+  /** Re-reads the file (so a change made by the CLI meanwhile is kept), applies fn to that copy,
+   *  saves it, and only then makes it the live set. */
   #mutate(fn) {
     const run = this.#queue.then(async () => {
-      const next = new Map(this.#users);
+      const next = await this.#read();
       await fn(next);
       await this.#save(next);
       this.#users = next;

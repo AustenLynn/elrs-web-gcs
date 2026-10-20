@@ -85,3 +85,16 @@ test('a missing file is an empty store', async () => {
   await store.load();
   assert.equal(store.size, 0);
 });
+
+test('a change made through another instance meanwhile is not reverted by a later write', async () => {
+  const file = tmpFile();
+  const a = new UserStore(file);
+  const b = new UserStore(file);
+  await a.load();
+  await b.load();
+  await a.add('xavier', 'correcthorse');
+  await b.add('yolanda', 'correcthorse');
+  const c = new UserStore(file);
+  await c.load();
+  assert.deepEqual(c.list().map((u) => u.name).sort(), ['xavier', 'yolanda']);
+});
