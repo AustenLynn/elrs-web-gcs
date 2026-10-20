@@ -5,10 +5,12 @@ import net from 'node:net';
 
 export const MSG = Object.freeze({
   SESSION: 0x01, CONTROL: 0x02, ARM: 0x03, DISARM: 0x04, ACK: 0x05, PILOT_LOST: 0x06, FAILSAFE: 0x07,
+  STANDBY: 0x08,
   STATUS: 0x81, LINK: 0x82, BATTERY: 0x83, FLIGHT_MODE: 0x84, DEVICE: 0x85, EVENT: 0x86,
 });
 export const STATES = ['DISARMED', 'ARMED', 'FAILSAFE'];
 export const REASONS = ['none', 'cmd_timeout', 'pilot_lost', 'gateway_lost', 'session_changed', 'manual', 'rf_lost'];
+const EVENT_KINDS = { 1: 'arm', 2: 'ack', 3: 'handover' };
 export const FC_ARM = ['unknown', 'disarmed', 'armed'];
 export const REFUSALS = ['none', 'wrong_session', 'not_disarmed', 'not_in_failsafe', 'link_stale',
   'throttle_high', 'fc_still_armed', 'rf_down'];
@@ -109,7 +111,10 @@ export function decodeDevice(p) {
 
 export function decodeEvent(p) {
   expectLength(p, 6, 'EVENT');
-  return { what: p[0] === 1 ? 'arm' : 'ack', refused: REFUSALS[p[1]] ?? 'unknown', session: p.readUInt32LE(2) };
+  const what = EVENT_KINDS[p[0]] ?? 'ack';
+  const session = p.readUInt32LE(2);
+  if (what === 'handover') return { what, reason: REASONS[p[1]] ?? 'unknown', session };
+  return { what, refused: REFUSALS[p[1]] ?? 'unknown', session };
 }
 
 /** Splits the byte stream from the core into messages. */
@@ -213,4 +218,5 @@ export class CoreClient extends EventEmitter {
   ack(session) { this.#send(encodeSessionMsg(MSG.ACK, session)); }
   pilotLost(session) { this.#send(encodeSessionMsg(MSG.PILOT_LOST, session)); }
   failsafe(session) { this.#send(encodeSessionMsg(MSG.FAILSAFE, session)); }
+  standby(session) { this.#send(encodeSessionMsg(MSG.STANDBY, session)); }
 }

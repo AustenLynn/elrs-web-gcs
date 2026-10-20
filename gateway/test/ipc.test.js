@@ -33,6 +33,11 @@ test('session-style messages', () => {
   assert.deepEqual(encodeSessionMsg(MSG.ARM, 77), Buffer.from([0x05, 0x00, 0x03, 77, 0, 0, 0]));
 });
 
+test('standby is encoded as a session message 0x08', () => {
+  assert.equal(MSG.STANDBY, 0x08);
+  assert.deepEqual(encodeSessionMsg(MSG.STANDBY, 0), Buffer.from([0x05, 0x00, 0x08, 0, 0, 0, 0]));
+});
+
 test('decodes the STATUS produced by the C encoder', () => {
   const [msg] = new FrameReader().push(STATUS_GOLDEN);
   assert.equal(msg.type, MSG.STATUS);
@@ -70,6 +75,7 @@ test('telemetry decoders', () => {
   });
   assert.deepEqual(decodeEvent(Buffer.from([1, 5, 9, 0, 0, 0])), { what: 'arm', refused: 'throttle_high', session: 9 });
   assert.deepEqual(decodeEvent(Buffer.from([1, 7, 9, 0, 0, 0])), { what: 'arm', refused: 'rf_down', session: 9 });
+  assert.deepEqual(decodeEvent(Buffer.from([3, 2, 9, 0, 0, 0])), { what: 'handover', reason: 'pilot_lost', session: 9 });
   assert.throws(() => decodeLink(Buffer.alloc(3)), RangeError);
   assert.throws(() => decodeFlightMode(Buffer.from([9, 65])), RangeError);
 });
@@ -112,6 +118,10 @@ test('core client connects, decodes, sends and reconnects', async (t) => {
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(received.length, 1);
   assert.deepEqual(received[0].payload, CONTROL_GOLDEN.subarray(3));
+
+  client.standby(0);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.deepEqual(received[1], { type: MSG.STANDBY, payload: Buffer.alloc(4) });
 
   const down = new Promise((resolve) => client.once('down', resolve));
   const upAgain = new Promise((resolve) => client.once('up', resolve));
