@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0d131a">
+  <title>GCS ELRS · Pilotos</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="admin">
+  <header class="bar">
+    <h1>Pilotos</h1>
+    <button id="logout" type="button">Salir</button>
+  </header>
+  <main class="admin-body">
+    <ul id="users" class="user-list" aria-live="polite"></ul>
+    <form id="add" class="user-add" autocomplete="off">
+      <h2>Agregar piloto</h2>
+      <input id="new-name" required minlength="2" maxlength="20" pattern="[a-z0-9_\-]{2,20}" placeholder="Nombre (a-z, 0-9, _ -)" autocapitalize="none" spellcheck="false">
+      <input id="new-pass" type="password" required minlength="8" placeholder="Contraseña (mínimo 8)" autocomplete="new-password">
+      <label class="check"><input id="new-admin" type="checkbox"> admin</label>
+      <button type="submit">Agregar piloto</button>
+    </form>
+    <p id="msg" class="admin-msg" role="status"></p>
+  </main>
+  <script type="module" src="js/admin.js"></script>
+</body>
+</html>

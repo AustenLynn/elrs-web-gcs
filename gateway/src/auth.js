@@ -125,9 +125,11 @@ async function readJson(req, res) {
 }
 
 /** Returns async (req, res) => true when it answered the request. */
-export function authRoutes({ users, sessions, limiter, secure, hub }) {   // hub: used by the admin routes (later)
+export function authRoutes({ users, sessions, limiter, secure, hub }) {
+  const admin = adminRoutes({ users, sessions, hub });
   return async (req, res) => {
     const route = pathOf(req.url);
+    if (route === '/admin' || route?.startsWith('/admin/')) return admin(req, res, route);
     if (route !== '/login' && route !== '/logout' && route !== '/me') return false;
     if (route === '/me') {
       if (req.method !== 'GET') return send(res, 405, { error: 'method not allowed' }, { Allow: 'GET' }), true;
@@ -156,6 +158,86 @@ export function authRoutes({ users, sessions, limiter, secure, hub }) {   // hub
     if (!user) return send(res, 401, { error: 'wrong name or password' }), true;
     limiter.ok(key, addr);
     send(res, 200, user, { 'Set-Cookie': sessionCookie(sessions.create(user), 43200, secure) });
+    return true;
+  };
+}
+
+const USER_PATH = /^\/admin\/users\/([^/]+)(\/password)?$/;
+const ADMIN_STATUS = { bad_name: 400, bad_password: 400, exists: 409, unknown: 404 };
+
+/** Admin screen and its API. Every API call needs an admin cookie and an Origin equal to Host. */
+function adminRoutes({ users, sessions, hub }) {
+  const sameHost = (req) => {
+    try {
+      return new URL(req.headers.origin).host === req.headers.host;
+    } catch {
+      return false;   // no Origin, or not a URL ("null")
+    }
+  };
+  const failed = (res, err) => {
+    const status = ADMIN_STATUS[err?.code];
+    if (!status) throw err;
+    return send(res, status, { error: err.code });
+  };
+  return async (req, res, route) => {
+    const me = sessions.get(cookieToken(req));
+    if (route === '/admin') {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: 'method not allowed' }, { Allow: 'GET, HEAD' }), true;
+      if (!me?.admin) return res.writeHead(302, { Location: '/', 'Cache-Control': 'no-store' }).end(), true;
+      req.url = '/admin.html';   // the static files serve it
+      return false;
+    }
+    if (!me?.admin || !sameHost(req)) return send(res, 403, { error: 'forbidden' }), true;
+
+    if (route === '/admin/users') {
+      if (req.method === 'GET') {
+        const flying = hub.activePilotName();
+        send(res, 200, users.list().map((u) => ({ ...u, flying: u.name === flying })));
+        return true;
+      }
+      if (req.method !== 'POST') return send(res, 405, { error: 'method not allowed' }, { Allow: 'GET, POST' }), true;
+      const body = await readJson(req, res);
+      if (!body) return true;
+      try {
+        await users.add(body.name, body.password, body.admin === true);
+      } catch (err) {
+        return failed(res, err), true;
+      }
+      send(res, 201);
+      return true;
+    }
+
+    const m = USER_PATH.exec(route);
+    if (!m) return send(res, 404, { error: 'not found' }), true;
+    let name;
+    try {
+      name = decodeURIComponent(m[1]);
+    } catch {
+      return send(res, 400, { error: 'bad_name' }), true;
+    }
+    if (m[2]) {
+      if (req.method !== 'POST') return send(res, 405, { error: 'method not allowed' }, { Allow: 'POST' }), true;
+      const body = await readJson(req, res);
+      if (!body) return true;
+      try {
+        await users.setPassword(name, body.password);
+      } catch (err) {
+        return failed(res, err), true;
+      }
+      send(res, 204);
+      return true;
+    }
+    if (req.method !== 'DELETE') return send(res, 405, { error: 'method not allowed' }, { Allow: 'DELETE' }), true;
+    if (name === me.name) return send(res, 409, { error: 'self' }), true;
+    if (name === hub.activePilotName()) return send(res, 409, { error: 'flying' }), true;
+    try {
+      await users.remove(name);
+    } catch (err) {
+      return failed(res, err), true;
+    }
+    sessions.endUser(name);
+    hub.dropUser(name);
+    send(res, 204);
     return true;
   };
 }

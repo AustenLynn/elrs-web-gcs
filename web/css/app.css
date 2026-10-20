@@ -230,3 +230,21 @@ kbd { display: inline-block; min-width: 1.8em; margin-right: 2px; padding: 1px 6
   body[data-input="step"] #panel-step .keys { row-gap: 3px; }
   body[data-input="step"] #panel-step .axis-group { gap: 4px; }
 }
+
+/* Admin screen (admin.html): a normal scrolling page, unlike the cockpit. */
+body.admin { height: auto; min-height: 100%; overflow: auto; touch-action: auto; user-select: text; }
+body.admin h1, body.admin h2 { margin: 0; font-size: 18px; }
+body.admin h2 { font-size: 15px; color: var(--muted); }
+.admin-body { display: flex; flex-direction: column; gap: 16px; max-width: 520px; width: 100%; margin: 0 auto; padding: 12px; }
+.user-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.user-list li { display: grid; grid-template-columns: 1fr auto auto; gap: 6px 8px; align-items: center; padding: 10px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+.user-name { font-weight: 700; grid-column: 1 / -1; }
+.user-note { grid-column: 1 / -1; color: var(--warn); font-size: 13px; }
+.user-note:empty { display: none; }
+.user-add { display: grid; gap: 8px; padding: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+.user-add input[type="text"], .user-add input:not([type]), .user-add input[type="password"] { font: inherit; padding: 10px; color: var(--text);
+  background: var(--bg); border: 1px solid var(--line-strong); border-radius: 10px; }
+.check { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.admin-msg { margin: 0; min-height: 1.3em; color: #ffd59a; }
+body.admin button { padding: 10px 12px; }

@@ -8,13 +8,15 @@ import { test } from 'node:test';
 import { authRoutes, cookieToken, LoginLimiter, Sessions } from '../src/auth.js';
 import { UserStore } from '../src/users.js';
 
-async function fixture({ secure = false, now = Date.now } = {}) {
+async function fixture({ secure = false, now = Date.now, flying = null } = {}) {
   const users = new UserStore(path.join(mkdtempSync(path.join(tmpdir(), 'gcs-auth-')), 'users.json'));
   await users.load();
   await users.add('ana', 'correcthorse', true);
   const sessions = new Sessions({ now });
   const limiter = new LoginLimiter({ now });
-  const routes = authRoutes({ users, sessions, limiter, secure, hub: null });
+  const dropped = [];
+  const hub = { activePilotName: () => flying, dropUser: (name) => dropped.push(name) };
+  const routes = authRoutes({ users, sessions, limiter, secure, hub });
   const server = http.createServer(async (req, res) => {
     if (!(await routes(req, res))) { res.writeHead(404); res.end(); }
   });
@@ -22,7 +24,7 @@ async function fixture({ secure = false, now = Date.now } = {}) {
   const base = `http://127.0.0.1:${server.address().port}`;
   const post = (p, body, headers = { 'Content-Type': 'application/json' }) =>
     fetch(base + p, { method: 'POST', headers, body: typeof body === 'string' ? body : JSON.stringify(body) });
-  return { users, sessions, limiter, base, port: server.address().port, post, close: () => new Promise((r) => server.close(r)) };
+  return { users, sessions, limiter, dropped, base, port: server.address().port, post, close: () => new Promise((r) => server.close(r)) };
 }
 
 test('login sets an HttpOnly SameSite=Strict cookie for 12 h, Secure only when asked', async (t) => {
@@ -161,4 +163,89 @@ test('cookieToken reads gcs_session from the Cookie header', () => {
   assert.equal(cookieToken({ headers: { cookie: 'a=1; gcs_session=abc123; b=2' } }), 'abc123');
   assert.equal(cookieToken({ headers: { cookie: 'a=1' } }), null);
   assert.equal(cookieToken({ headers: {} }), null);
+});
+
+async function adminFixture(t, opts) {
+  const f = await fixture(opts);
+  t.after(f.close);
+  await f.users.add('luis', 'correcthorse', false);
+  const cookieOf = async (name) =>
+    (await f.post('/login', { name, password: 'correcthorse' })).headers.get('set-cookie').split(';')[0];
+  const admin = { cookie: await cookieOf('ana'), origin: f.base };
+  const plain = { cookie: await cookieOf('luis'), origin: f.base };
+  const call = (who, method, p, body) => fetch(f.base + p, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...(who.cookie && { cookie: who.cookie }), ...(who.origin && { origin: who.origin }) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return { ...f, admin, plain, call, tokenOf: (who) => who.cookie.split('=')[1] };
+}
+
+test('admin routes refuse non-admins, no cookie, and a missing or foreign Origin', async (t) => {
+  const f = await adminFixture(t);
+  assert.equal((await f.call(f.plain, 'GET', '/admin/users')).status, 403);
+  assert.equal((await f.call({ origin: f.base }, 'GET', '/admin/users')).status, 403);
+  assert.equal((await f.call({ cookie: f.admin.cookie }, 'GET', '/admin/users')).status, 403);
+  assert.equal((await f.call({ cookie: f.admin.cookie, origin: 'http://evil.example' }, 'GET', '/admin/users')).status, 403);
+  assert.equal((await f.call({ cookie: f.admin.cookie, origin: 'null' }, 'DELETE', '/admin/users/luis')).status, 403);
+  assert.equal(f.users.list().length, 2);
+});
+
+test('admin lists, adds, changes a password and removes pilots', async (t) => {
+  const f = await adminFixture(t, { flying: 'ana' });
+  const list = await f.call(f.admin, 'GET', '/admin/users');
+  assert.deepEqual(await list.json(), [
+    { name: 'ana', admin: true, flying: true },
+    { name: 'luis', admin: false, flying: false },
+  ]);
+
+  assert.equal((await f.call(f.admin, 'POST', '/admin/users', { name: 'eva', password: 'longenough1', admin: false })).status, 201);
+  assert.deepEqual(await f.users.verify('eva', 'longenough1'), { name: 'eva', admin: false });
+  const dup = await f.call(f.admin, 'POST', '/admin/users', { name: 'eva', password: 'longenough1' });
+  assert.equal(dup.status, 409);
+  assert.deepEqual(await dup.json(), { error: 'exists' });
+  const bad = await f.call(f.admin, 'POST', '/admin/users', { name: 'X', password: 'longenough1' });
+  assert.equal(bad.status, 400);
+  assert.deepEqual(await bad.json(), { error: 'bad_name' });
+  const short = await f.call(f.admin, 'POST', '/admin/users', { name: 'eva2', password: 'short' });
+  assert.deepEqual(await short.json(), { error: 'bad_password' });
+
+  assert.equal((await f.call(f.admin, 'POST', '/admin/users/eva/password', { password: 'another-pass' })).status, 204);
+  assert.ok(await f.users.verify('eva', 'another-pass'));
+  assert.equal((await f.call(f.admin, 'POST', '/admin/users/nobody/password', { password: 'another-pass' })).status, 404);
+
+  assert.equal((await f.call(f.admin, 'DELETE', '/admin/users/eva')).status, 204);
+  assert.equal(await f.users.verify('eva', 'another-pass'), null);
+  assert.equal((await f.call(f.admin, 'DELETE', '/admin/users/eva')).status, 404);
+});
+
+test('the flying pilot and yourself cannot be removed', async (t) => {
+  const f = await adminFixture(t, { flying: 'luis' });
+  const flying = await f.call(f.admin, 'DELETE', '/admin/users/luis');
+  assert.equal(flying.status, 409);
+  assert.deepEqual(await flying.json(), { error: 'flying' });
+  const self = await f.call(f.admin, 'DELETE', '/admin/users/ana');
+  assert.equal(self.status, 409);
+  assert.deepEqual(await self.json(), { error: 'self' });
+  assert.equal(f.users.list().length, 2);
+  assert.deepEqual(f.dropped, []);
+});
+
+test('removing a queued user drops them and updates STANDBY', async (t) => {
+  const f = await adminFixture(t, { flying: 'ana' });
+  const token = f.tokenOf(f.plain);
+  assert.ok(f.sessions.get(token));
+  assert.equal((await f.call(f.admin, 'DELETE', '/admin/users/luis')).status, 204);
+  assert.deepEqual(f.dropped, ['luis']);
+  assert.equal(f.sessions.get(token), null);
+});
+
+test('GET /admin serves the page to admins and redirects everyone else to /', async (t) => {
+  const f = await adminFixture(t);
+  const redirect = await fetch(`${f.base}/admin`, { redirect: 'manual', headers: { cookie: f.plain.cookie } });
+  assert.equal(redirect.status, 302);
+  assert.equal(redirect.headers.get('location'), '/');
+  assert.equal((await fetch(`${f.base}/admin`, { redirect: 'manual' })).status, 302);
+  // for an admin the request falls through to the static files as /admin.html (404 in this bare fixture)
+  assert.equal((await fetch(`${f.base}/admin`, { redirect: 'manual', headers: { cookie: f.admin.cookie } })).status, 404);
 });
