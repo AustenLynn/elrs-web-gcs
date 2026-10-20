@@ -22,6 +22,7 @@
 #define IPC_ACK         0x05  /* u32 session: clear a latched failsafe */
 #define IPC_PILOT_LOST  0x06  /* u32 session */
 #define IPC_FAILSAFE    0x07  /* u32 session: pilot pressed FAILSAFE */
+#define IPC_STANDBY     0x08  /* u32 session; 0 = no standby */
 
 /* core -> gateway */
 #define IPC_STATUS      0x81  /* ipc_status_t, 10 times per second */
@@ -33,6 +34,7 @@
 
 #define IPC_EVENT_ARM_REFUSED 1   /* detail = refuse_t */
 #define IPC_EVENT_ACK_REFUSED 2   /* detail = refuse_t */
+#define IPC_EVENT_HANDOVER    3   /* detail = fs_reason_t; session = the new active session */
 
 #define IPC_STATUS_LEN 80         /* payload bytes */
 #define IPC_NO_CMD_AGE 0xFFFFFFFFu

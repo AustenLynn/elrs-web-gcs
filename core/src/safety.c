@@ -157,6 +157,7 @@ void safety_pilot_lost(safety_t *s, uint32_t session, int64_t now)
         enter_failsafe(s, FS_PILOT_LOST);
     s->session = 0;            /* late messages from that session are ignored */
     s->have_cmd = false;
+    s->handover_pending = false;
     s->cmd.turtle = s->out.turtle = false;   /* nobody in control: not even disarmed */
 }
 
@@ -174,7 +175,7 @@ void safety_gateway_lost(safety_t *s)
 
 void safety_set_standby(safety_t *s, uint32_t session)
 {
-    if (s->handover_pending || session == s->session)
+    if (session != 0 && session == s->session)
         return;
     s->standby = session;
 }

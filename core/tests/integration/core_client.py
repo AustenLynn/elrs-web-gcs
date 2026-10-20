@@ -5,6 +5,7 @@ import threading
 import time
 
 SESSION, CONTROL, ARM, DISARM, ACK, PILOT_LOST, FAILSAFE = 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07
+STANDBY = 0x08
 STATUS, LINK, BATTERY, FLIGHT_MODE, DEVICE, EVENT = 0x81, 0x82, 0x83, 0x84, 0x85, 0x86
 STATES = {0: "DISARMED", 1: "ARMED", 2: "FAILSAFE"}
 REASONS = {0: "none", 1: "cmd_timeout", 2: "pilot_lost", 3: "gateway_lost", 4: "session_changed", 5: "manual",
@@ -101,13 +102,16 @@ class CoreClient:
             self.device = {"name": p[9:9 + p[8]].decode(), "version": "%d.%d.%d" % (p[1], p[2], p[3])}
         elif mtype == EVENT:
             kind, detail, session = struct.unpack("<BBI", p)
-            self.events.append(("arm_refused" if kind == 1 else "ack_refused", REFUSALS[detail], session))
+            if kind == 3:
+                self.events.append(("handover", REASONS[detail], session))
+            else:
+                self.events.append(("arm_refused" if kind == 1 else "ack_refused", REFUSALS[detail], session))
 
 
 class Pilot:
     """Sends CONTROL at 50 Hz in a background thread, like the web app does."""
 
-    def __init__(self, client, session, throttle=0):
+    def __init__(self, client, session, throttle=0, announce=True):
         self.client = client
         self.session = session
         self.throttle = throttle
@@ -116,7 +120,8 @@ class Pilot:
         self.seq = 0
         self.running = True
         self.paused = False
-        client.send(SESSION, session)
+        if announce:                      # a standby that took over is already the session: no SESSION
+            client.send(SESSION, session)
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 

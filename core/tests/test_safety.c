@@ -461,12 +461,42 @@ static void test_no_chained_handover(void)
     safety_set_standby(&s, 9);
     safety_pilot_lost(&s, 7, 100 * MS);
     CHECK(s.handover_pending);
-    safety_set_standby(&s, 11);                  /* ignored until 9's first command */
-    CHECK_EQ_INT(s.standby, 0);
+    safety_set_standby(&s, 11);                  /* stored, but not used while the handover is pending */
+    CHECK_EQ_INT(s.standby, 11);
     safety_pilot_lost(&s, 9, 150 * MS);
     CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
     CHECK_STR(safety_reason_name(s.fs_reason), "pilot_lost");
     CHECK_EQ_INT(s.session, 0);
+    CHECK(!s.handover_pending);                  /* no session: nothing is pending */
+}
+
+static void test_standby_stored_during_pending_takes_over_after_the_first_command(void)
+{
+    safety_t s;
+    stick_cmd_t c = { .throttle = 300 };
+    uint32_t to;
+    fs_reason_t why;
+    armed(&s);
+    safety_set_standby(&s, 9);
+    safety_pilot_lost(&s, 7, 100 * MS);
+    safety_set_standby(&s, 11);
+    CHECK(safety_control(&s, 9, 1, &c, 120 * MS));   /* 9 sends: no longer pending */
+    CHECK(safety_take_handover(&s, &to, &why));
+    safety_pilot_lost(&s, 9, 150 * MS);
+    CHECK_EQ_INT(s.state, SAFETY_ARMED);
+    CHECK_EQ_INT(s.session, 11);
+    CHECK(safety_take_handover(&s, &to, &why));
+    CHECK_EQ_INT(to, 11);
+}
+
+static void test_standby_zero_clears_the_standby(void)
+{
+    safety_t s;
+    safety_init(&s, 300 * MS, 500 * MS, 100);
+    safety_set_standby(&s, 9);                   /* registered while session is 0 */
+    CHECK_EQ_INT(s.standby, 9);
+    safety_set_standby(&s, 0);
+    CHECK_EQ_INT(s.standby, 0);
 }
 
 static void test_without_standby_timeout_still_fails_safe(void)
@@ -652,6 +682,8 @@ int main(void)
     RUN(test_pilot_lost_with_standby_hands_over);
     RUN(test_handover_pending_no_command_in_300ms_fails_safe);
     RUN(test_no_chained_handover);
+    RUN(test_standby_stored_during_pending_takes_over_after_the_first_command);
+    RUN(test_standby_zero_clears_the_standby);
     RUN(test_without_standby_timeout_still_fails_safe);
     RUN(test_other_triggers_ignore_the_standby);
     RUN(test_handover_while_disarmed_switches_session);

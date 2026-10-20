@@ -43,6 +43,10 @@ size_t evlog_format(char *out, size_t cap, const core_event_t *ev, const char *w
         m = snprintf(p, left, "\"ev\":\"refused\",\"what\":\"%s\",\"reason\":\"%s\",\"session\":%u}",
                      cmd_name(ev->a), safety_refuse_name((refuse_t)ev->b), ev->session);
         break;
+    case EV_HANDOVER:
+        m = snprintf(p, left, "\"ev\":\"handover\",\"to\":%u,\"reason\":\"%s\",\"cmd_age_ms\":%d}",
+                     ev->session, safety_reason_name((fs_reason_t)ev->a), ev->cmd_age_ms);
+        break;
     case EV_FLIGHT_MODE:
         m = snprintf(p, left, "\"ev\":\"flight_mode\",\"mode\":\"%s\"}", text);
         break;

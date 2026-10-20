@@ -13,6 +13,14 @@ static void test_state_event(void)
                    "\"to\":\"FAILSAFE\",\"reason\":\"cmd_timeout\",\"session\":7,\"cmd_age_ms\":301}");
 }
 
+static void test_handover_line(void)
+{
+    core_event_t ev = { .kind = EV_HANDOVER, .t_ns = 5, .a = FS_PILOT_LOST, .session = 9, .cmd_age_ms = 120 };
+    char out[512];
+    CHECK(evlog_format(out, sizeof out, &ev, W) > 0);
+    CHECK(strstr(out, "\"ev\":\"handover\",\"to\":9,\"reason\":\"pilot_lost\",\"cmd_age_ms\":120}") != NULL);
+}
+
 static void test_refused_and_timing_events(void)
 {
     char out[512];
@@ -60,6 +68,7 @@ static void test_small_buffer_returns_zero(void)
 int main(void)
 {
     RUN(test_state_event);
+    RUN(test_handover_line);
     RUN(test_refused_and_timing_events);
     RUN(test_sticks_event);
     RUN(test_text_from_aircraft_is_sanitised);

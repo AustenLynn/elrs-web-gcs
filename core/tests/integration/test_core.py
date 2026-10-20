@@ -7,7 +7,7 @@ import tempfile
 import time
 import unittest
 
-from core_client import ACK, ARM, CONTROL, DISARM, FAILSAFE, CoreClient, Pilot, msg
+from core_client import ACK, ARM, CONTROL, DISARM, FAILSAFE, STANDBY, CoreClient, Pilot, msg
 from fake_tx import FakeTx
 
 CORE_DIR = os.path.join(os.path.dirname(__file__), "..", "..")
@@ -236,6 +236,46 @@ class SafetyTest(CoreHarness):
         self.assertTrue(self.client.wait(lambda c: ("arm_refused", "throttle_high", 14) in c.events))
         pilot.stop()
         self.assertEqual(self.tx.last_channels()[CH_ARM], LOW)
+
+
+class HandoverTest(CoreHarness):
+    def test_standby_takes_over_when_the_pilot_stops_sending(self):
+        a = Pilot(self.client, session=21)
+        self.arm(a)
+        a.throttle = 300                  # arming needs a low throttle (throttle_arm_max)
+        self.client.send(STANDBY, 22)
+        a.paused = True
+        time.sleep(0.35)
+        b = Pilot(self.client, session=22, throttle=300, announce=False)
+        self.assertIsNone(self.tx.wait_for(self.failsafe_on, timeout=1.5))
+        self.assertEqual(self.tx.last_channels()[CH_ARM], HIGH)
+        self.assertTrue(self.client.wait(lambda c: ("handover", "cmd_timeout", 22) in c.events))
+        a.stop()
+        events = self.read_events()                   # b keeps flying while the log is flushed
+        b.stop()
+        self.assertEqual(len([e for e in events if e["ev"] == "handover"]), 1)
+        self.assertEqual([e for e in events if e["ev"] == "state" and e["to"] == "FAILSAFE"], [])
+
+    def test_without_a_standby_the_drone_still_disarms(self):
+        a = Pilot(self.client, session=21)
+        self.arm(a)
+        a.throttle = 300                  # arming needs a low throttle (throttle_arm_max)
+        a.paused = True
+        self.assertIsNotNone(self.tx.wait_for(lambda ch: ch[CH_ARM] == LOW, timeout=0.45))
+        a.stop()
+
+    def test_standby_that_never_sends_fails_safe_after_the_handover(self):
+        a = Pilot(self.client, session=21)
+        self.arm(a)
+        a.throttle = 300                  # arming needs a low throttle (throttle_arm_max)
+        self.client.send(STANDBY, 22)
+        a.paused = True
+        t_stop = time.monotonic()
+        t_fs = self.tx.wait_for(self.failsafe_on, timeout=1.5)
+        a.stop()
+        self.assertIsNotNone(t_fs)
+        self.assertLess(t_fs - t_stop, 0.75)
+        self.assertTrue(self.client.wait(lambda c: c.status["reason_name"] == "cmd_timeout"))
 
 
 class StickLogTest(CoreHarness):

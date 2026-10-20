@@ -92,8 +92,8 @@ refuse_t safety_ack(safety_t *s, uint32_t session, int64_t now);
 /* Hands over to the standby if one is registered (and no handover is pending). */
 void safety_pilot_lost(safety_t *s, uint32_t session, int64_t now);
 void safety_gateway_lost(safety_t *s);
-/* Registers the standby session (0 = none). Ignored while a handover is pending and when it
- * is the current session. */
+/* Registers the standby session; 0 clears it. A non-zero session equal to the current one is
+ * ignored. Accepted while a handover is pending (stored; try_handover refuses to chain). */
 void safety_set_standby(safety_t *s, uint32_t session);
 /* Returns true once per handover, with the new session and what triggered it. */
 bool safety_take_handover(safety_t *s, uint32_t *to, fs_reason_t *reason);
