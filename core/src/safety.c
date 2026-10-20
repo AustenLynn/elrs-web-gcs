@@ -71,6 +71,7 @@ void safety_session_start(safety_t *s, uint32_t session)
     s->have_cmd = false;
     s->standby = 0;
     s->handover_pending = false;
+    s->handover_to = 0;
 }
 
 bool safety_control(safety_t *s, uint32_t session, uint32_t seq, const stick_cmd_t *cmd, int64_t now)
@@ -99,8 +100,8 @@ refuse_t safety_arm(safety_t *s, uint32_t session, int64_t now)
         return REFUSE_WRONG_SESSION;
     if (s->state != SAFETY_DISARMED)
         return REFUSE_NOT_DISARMED;
-    if (!safety_link_fresh(s, now))
-        return REFUSE_LINK_STALE;
+    if (s->handover_pending || !safety_link_fresh(s, now))
+        return REFUSE_LINK_STALE;      /* after a handover: the new pilot has not sent yet */
     if (s->cmd.throttle > s->throttle_arm_max)
         return REFUSE_THROTTLE_HIGH;
     if (s->rf_timeout_ns > 0 && now - s->rf_ok_ns > s->rf_timeout_ns)
@@ -132,8 +133,8 @@ refuse_t safety_ack(safety_t *s, uint32_t session, int64_t now)
         return REFUSE_WRONG_SESSION;
     if (s->state != SAFETY_FAILSAFE)
         return REFUSE_NOT_IN_FAILSAFE;
-    if (!safety_link_fresh(s, now))
-        return REFUSE_LINK_STALE;
+    if (s->handover_pending || !safety_link_fresh(s, now))
+        return REFUSE_LINK_STALE;      /* after a handover: the new pilot has not sent yet */
     if (s->cmd.throttle > s->throttle_arm_max)
         return REFUSE_THROTTLE_HIGH;
     if (s->fc_arm == FC_ARMED && now - s->fc_arm_ns <= s->fc_fresh_ns)
@@ -167,6 +168,7 @@ void safety_gateway_lost(safety_t *s)
     s->have_cmd = false;
     s->standby = 0;
     s->handover_pending = false;
+    s->handover_to = 0;
     s->cmd.turtle = s->out.turtle = false;
 }
 

@@ -579,6 +579,45 @@ static void test_standby_equal_to_active_is_ignored(void)
     CHECK_EQ_INT(s.standby, 0);
 }
 
+static void test_arm_and_ack_refused_until_the_new_pilot_sends(void)
+{
+    /* After a handover the last command is the old pilot's: the new one must send its own. */
+    safety_t s;
+    setup(&s);
+    safety_session_start(&s, 7);
+    CHECK(safety_control(&s, 7, 1, &LOW, 0));
+    safety_set_standby(&s, 9);
+    safety_pilot_lost(&s, 7, 50 * MS);
+    CHECK_EQ_INT(safety_arm(&s, 9, 60 * MS), REFUSE_LINK_STALE);
+    CHECK(safety_control(&s, 9, 1, &LOW, 70 * MS));
+    CHECK_EQ_INT(safety_arm(&s, 9, 70 * MS), REFUSE_NONE);
+
+    armed(&s);
+    safety_manual_failsafe(&s, 7);
+    safety_set_standby(&s, 9);
+    safety_pilot_lost(&s, 7, 50 * MS);
+    CHECK_EQ_INT(safety_ack(&s, 9, 60 * MS), REFUSE_LINK_STALE);
+    CHECK(safety_control(&s, 9, 1, &LOW, 70 * MS));
+    CHECK_EQ_INT(safety_ack(&s, 9, 70 * MS), REFUSE_NONE);
+}
+
+static void test_session_start_or_gateway_lost_drops_the_handover_report(void)
+{
+    safety_t s;
+    uint32_t to; fs_reason_t why;
+    setup(&s);
+    safety_session_start(&s, 7);
+    safety_set_standby(&s, 9);
+    safety_pilot_lost(&s, 7, 0);                 /* handover, report not taken */
+    safety_session_start(&s, 12);
+    CHECK(!safety_take_handover(&s, &to, &why));
+
+    safety_set_standby(&s, 13);
+    safety_pilot_lost(&s, 12, 0);
+    safety_gateway_lost(&s);
+    CHECK(!safety_take_handover(&s, &to, &why));
+}
+
 int main(void)
 {
     RUN(test_starts_disarmed_with_safe_outputs);
@@ -619,5 +658,7 @@ int main(void)
     RUN(test_handover_in_failsafe_keeps_it_latched);
     RUN(test_old_session_disarm_and_failsafe_ignored_after_handover);
     RUN(test_standby_equal_to_active_is_ignored);
+    RUN(test_arm_and_ack_refused_until_the_new_pilot_sends);
+    RUN(test_session_start_or_gateway_lost_drops_the_handover_report);
     return CHECK_EXIT();
 }
