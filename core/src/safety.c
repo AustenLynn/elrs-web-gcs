@@ -31,6 +31,23 @@ static void enter_failsafe(safety_t *s, fs_reason_t reason)
     /* out.arm unchanged: Betaflight decides what happens next (drop, land, rescue). */
 }
 
+/* The standby takes over instead of a FAILSAFE. State, last command and outputs stay as they
+ * are; the new session gets a fresh timeout for its first command. */
+static bool try_handover(safety_t *s, fs_reason_t why, int64_t now)
+{
+    if (s->standby == 0 || s->handover_pending)
+        return false;
+    s->session = s->standby;
+    s->standby = 0;
+    s->last_seq = 0;
+    s->have_cmd = true;
+    s->last_cmd_ns = now;
+    s->handover_pending = true;
+    s->handover_to = s->session;
+    s->handover_reason = why;
+    return true;
+}
+
 void safety_init(safety_t *s, int64_t timeout_ns, int64_t fc_fresh_ns, uint16_t throttle_arm_max)
 {
     memset(s, 0, sizeof *s);
@@ -52,6 +69,8 @@ void safety_session_start(safety_t *s, uint32_t session)
     s->session = session;
     s->last_seq = 0;
     s->have_cmd = false;
+    s->standby = 0;
+    s->handover_pending = false;
 }
 
 bool safety_control(safety_t *s, uint32_t session, uint32_t seq, const stick_cmd_t *cmd, int64_t now)
@@ -60,6 +79,7 @@ bool safety_control(safety_t *s, uint32_t session, uint32_t seq, const stick_cmd
         return false;
     s->last_seq = seq;
     s->have_cmd = true;
+    s->handover_pending = false;
     s->last_cmd_ns = now;
     s->cmd.roll = (int16_t)clampi(cmd->roll, -1000, 1000);
     s->cmd.pitch = (int16_t)clampi(cmd->pitch, -1000, 1000);
@@ -90,11 +110,20 @@ refuse_t safety_arm(safety_t *s, uint32_t session, int64_t now)
     return REFUSE_NONE;
 }
 
-void safety_disarm(safety_t *s)
+void safety_disarm(safety_t *s, uint32_t session)
 {
+    if (session == 0 || session != s->session)
+        return;
     s->out.arm = false;
     if (s->state == SAFETY_ARMED)
         s->state = SAFETY_DISARMED;
+}
+
+void safety_manual_failsafe(safety_t *s, uint32_t session)
+{
+    if (session == 0 || session != s->session)
+        return;
+    enter_failsafe(s, FS_MANUAL);
 }
 
 refuse_t safety_ack(safety_t *s, uint32_t session, int64_t now)
@@ -117,9 +146,11 @@ refuse_t safety_ack(safety_t *s, uint32_t session, int64_t now)
     return REFUSE_NONE;
 }
 
-void safety_pilot_lost(safety_t *s, uint32_t session)
+void safety_pilot_lost(safety_t *s, uint32_t session, int64_t now)
 {
     if (session == 0 || session != s->session)
+        return;
+    if (try_handover(s, FS_PILOT_LOST, now))
         return;
     if (s->state == SAFETY_ARMED)
         enter_failsafe(s, FS_PILOT_LOST);
@@ -134,7 +165,27 @@ void safety_gateway_lost(safety_t *s)
         enter_failsafe(s, FS_GATEWAY_LOST);
     s->session = 0;
     s->have_cmd = false;
+    s->standby = 0;
+    s->handover_pending = false;
     s->cmd.turtle = s->out.turtle = false;
+}
+
+void safety_set_standby(safety_t *s, uint32_t session)
+{
+    if (s->handover_pending || session == s->session)
+        return;
+    s->standby = session;
+}
+
+bool safety_take_handover(safety_t *s, uint32_t *to, fs_reason_t *reason)
+{
+    if (s->handover_to == 0)
+        return false;
+    *to = s->handover_to;
+    *reason = s->handover_reason;
+    s->handover_to = 0;
+    s->handover_reason = FS_NONE;
+    return true;
 }
 
 void safety_trigger(safety_t *s, fs_reason_t reason)
@@ -162,9 +213,10 @@ void safety_rf_link(safety_t *s, bool linked, int64_t now)
 
 void safety_tick(safety_t *s, int64_t now)
 {
-    if (s->state == SAFETY_ARMED && !safety_link_fresh(s, now))
-        enter_failsafe(s, FS_CMD_TIMEOUT);
-    else if (s->state == SAFETY_ARMED && s->rf_timeout_ns > 0 && now - s->rf_ok_ns > s->rf_timeout_ns)
+    if (s->state == SAFETY_ARMED && !safety_link_fresh(s, now)) {
+        if (!try_handover(s, FS_CMD_TIMEOUT, now))
+            enter_failsafe(s, FS_CMD_TIMEOUT);
+    } else if (s->state == SAFETY_ARMED && s->rf_timeout_ns > 0 && now - s->rf_ok_ns > s->rf_timeout_ns)
         enter_failsafe(s, FS_RF_LOST);
 }
 

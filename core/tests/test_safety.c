@@ -77,7 +77,7 @@ static void test_arm_needs_a_live_radio_link_when_enabled(void)
     safety_rf_link(&s, true, 5100 * MS);
     CHECK(safety_control(&s, 7, 2, &LOW, 5200 * MS));
     CHECK_EQ_INT(safety_arm(&s, 7, 5200 * MS), REFUSE_NONE);
-    safety_disarm(&s);
+    safety_disarm(&s, 7);
     safety_rf_link(&s, false, 6000 * MS);                         /* LQ 0 does not count */
     CHECK(safety_control(&s, 7, 3, &LOW, 6200 * MS));
     CHECK_EQ_INT(safety_arm(&s, 7, 6200 * MS), REFUSE_RF_DOWN);  /* 1100 ms since LQ > 0 */
@@ -213,9 +213,9 @@ static void test_pilot_lost_while_armed(void)
 {
     safety_t s;
     armed(&s);
-    safety_pilot_lost(&s, 8);              /* someone else's session: ignored */
+    safety_pilot_lost(&s, 8, 0);            /* someone else's session: ignored */
     CHECK_EQ_INT(s.state, SAFETY_ARMED);
-    safety_pilot_lost(&s, 7);
+    safety_pilot_lost(&s, 7, 0);
     CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
     CHECK_EQ_INT(s.fs_reason, FS_PILOT_LOST);
     CHECK(!safety_control(&s, 7, 9, &LOW, 1 * MS));   /* late message from that session */
@@ -303,13 +303,13 @@ static void test_disarm(void)
 {
     safety_t s;
     armed(&s);
-    safety_disarm(&s);
+    safety_disarm(&s, 7);
     CHECK_EQ_INT(s.state, SAFETY_DISARMED);
     CHECK(!s.out.arm);
 
     armed(&s);
     safety_trigger(&s, FS_MANUAL);
-    safety_disarm(&s);
+    safety_disarm(&s, 7);
     CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);   /* still latched */
     CHECK(!s.out.arm);
     CHECK(s.out.failsafe);
@@ -319,7 +319,8 @@ static void test_manual_failsafe_from_disarmed(void)
 {
     safety_t s;
     setup(&s);
-    safety_trigger(&s, FS_MANUAL);
+    safety_session_start(&s, 7);
+    safety_manual_failsafe(&s, 7);
     CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
     CHECK(s.out.failsafe);
     CHECK(!s.out.arm);
@@ -384,7 +385,7 @@ static void test_losing_the_pilot_or_gateway_drops_turtle_even_disarmed(void)
     stick_cmd_t c = { .speed = 1, .turtle = true };
     CHECK(safety_control(&s, 7, 1, &c, 0));
     CHECK(s.out.turtle);
-    safety_pilot_lost(&s, 7);
+    safety_pilot_lost(&s, 7, 0);
     CHECK_EQ_INT(s.state, SAFETY_DISARMED);
     CHECK(!s.out.turtle);
     CHECK_EQ_INT(s.out.speed, 1);
@@ -394,6 +395,188 @@ static void test_losing_the_pilot_or_gateway_drops_turtle_even_disarmed(void)
     CHECK(s.out.turtle);
     safety_gateway_lost(&s);
     CHECK(!s.out.turtle);
+}
+
+static void test_timeout_with_standby_hands_over_and_keeps_flying(void)
+{
+    safety_t s;
+    armed(&s);                                   /* session 7, cmd at t=0 */
+    stick_cmd_t c = { .throttle = 400, .roll = 120 };
+    CHECK(safety_control(&s, 7, 2, &c, 10 * MS));
+    safety_set_standby(&s, 9);
+    safety_tick(&s, 311 * MS);                   /* 301 ms after the last command */
+    CHECK_EQ_INT(s.state, SAFETY_ARMED);
+    CHECK_EQ_INT(s.session, 9);
+    CHECK_EQ_INT(s.standby, 0);
+    CHECK_EQ_INT(s.out.throttle, 400);           /* last sticks kept */
+    CHECK_EQ_INT(s.out.roll, 120);
+    CHECK(s.out.arm);
+    uint32_t to; fs_reason_t why;
+    CHECK(safety_take_handover(&s, &to, &why));
+    CHECK_EQ_INT(to, 9);
+    CHECK_STR(safety_reason_name(why), "cmd_timeout");
+    CHECK(!safety_take_handover(&s, &to, &why));
+    CHECK(safety_control(&s, 9, 1, &LOW, 320 * MS));  /* new session starts at seq 1 */
+    CHECK(!s.handover_pending);
+}
+
+static void test_pilot_lost_with_standby_hands_over(void)
+{
+    safety_t s;
+    armed(&s);
+    stick_cmd_t c = { .throttle = 400, .roll = 120 };
+    CHECK(safety_control(&s, 7, 2, &c, 10 * MS));
+    safety_set_standby(&s, 9);
+    safety_pilot_lost(&s, 7, 50 * MS);
+    CHECK_EQ_INT(s.state, SAFETY_ARMED);
+    CHECK(!s.out.failsafe);
+    CHECK_EQ_INT(s.session, 9);
+    CHECK_EQ_INT(s.standby, 0);
+    CHECK_EQ_INT(s.out.throttle, 400);
+    CHECK(s.out.arm);
+    uint32_t to; fs_reason_t why;
+    CHECK(safety_take_handover(&s, &to, &why));
+    CHECK_EQ_INT(to, 9);
+    CHECK_STR(safety_reason_name(why), "pilot_lost");
+    CHECK(!safety_control(&s, 7, 3, &c, 60 * MS));    /* the old session is refused */
+}
+
+static void test_handover_pending_no_command_in_300ms_fails_safe(void)
+{
+    safety_t s;
+    armed(&s);
+    safety_set_standby(&s, 9);
+    safety_pilot_lost(&s, 7, 100 * MS);          /* handover at t = 100 ms: fresh timer */
+    safety_tick(&s, 400 * MS);                   /* 300 ms: still fresh */
+    CHECK_EQ_INT(s.state, SAFETY_ARMED);
+    safety_tick(&s, 401 * MS);                   /* 301 ms, nothing from 9 */
+    CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
+    CHECK_STR(safety_reason_name(s.fs_reason), "cmd_timeout");
+}
+
+static void test_no_chained_handover(void)
+{
+    safety_t s;
+    armed(&s);
+    safety_set_standby(&s, 9);
+    safety_pilot_lost(&s, 7, 100 * MS);
+    CHECK(s.handover_pending);
+    safety_set_standby(&s, 11);                  /* ignored until 9's first command */
+    CHECK_EQ_INT(s.standby, 0);
+    safety_pilot_lost(&s, 9, 150 * MS);
+    CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
+    CHECK_STR(safety_reason_name(s.fs_reason), "pilot_lost");
+    CHECK_EQ_INT(s.session, 0);
+}
+
+static void test_without_standby_timeout_still_fails_safe(void)
+{
+    safety_t s;
+    armed(&s);
+    safety_tick(&s, 301 * MS);
+    CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
+    CHECK_STR(safety_reason_name(s.fs_reason), "cmd_timeout");
+    uint32_t to; fs_reason_t why;
+    CHECK(!safety_take_handover(&s, &to, &why));
+}
+
+static void test_other_triggers_ignore_the_standby(void)
+{
+    safety_t s;
+    uint32_t to; fs_reason_t why;
+
+    armed(&s);
+    safety_set_standby(&s, 9);
+    safety_gateway_lost(&s);
+    CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
+    CHECK_STR(safety_reason_name(s.fs_reason), "gateway_lost");
+    CHECK(!safety_take_handover(&s, &to, &why));
+
+    armed(&s);
+    safety_set_standby(&s, 9);
+    safety_manual_failsafe(&s, 7);
+    CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
+    CHECK_STR(safety_reason_name(s.fs_reason), "manual");
+    CHECK_EQ_INT(s.session, 7);
+    CHECK(!safety_take_handover(&s, &to, &why));
+
+    armed(&s);
+    safety_set_rf_timeout(&s, 1000 * MS);
+    safety_set_standby(&s, 9);
+    for (int t = 100; t <= 1100; t += 100) {     /* commands keep coming, the radio is gone */
+        CHECK(safety_control(&s, 7, (uint32_t)t, &LOW, t * MS));
+        safety_tick(&s, t * MS);
+    }
+    CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
+    CHECK_STR(safety_reason_name(s.fs_reason), "rf_lost");
+    CHECK_EQ_INT(s.session, 7);
+    CHECK(!safety_take_handover(&s, &to, &why));
+
+    armed(&s);
+    safety_set_standby(&s, 9);
+    safety_session_start(&s, 12);
+    CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
+    CHECK_STR(safety_reason_name(s.fs_reason), "session_changed");
+    CHECK_EQ_INT(s.session, 12);
+    CHECK_EQ_INT(s.standby, 0);
+    CHECK(!safety_take_handover(&s, &to, &why));
+}
+
+static void test_handover_while_disarmed_switches_session(void)
+{
+    safety_t s;
+    setup(&s);
+    safety_session_start(&s, 7);
+    CHECK(safety_control(&s, 7, 1, &LOW, 0));
+    safety_set_standby(&s, 9);
+    safety_pilot_lost(&s, 7, 50 * MS);
+    CHECK_EQ_INT(s.state, SAFETY_DISARMED);
+    CHECK_EQ_INT(s.session, 9);
+    CHECK(!s.out.arm);
+    uint32_t to; fs_reason_t why;
+    CHECK(safety_take_handover(&s, &to, &why));
+    CHECK_EQ_INT(to, 9);
+    CHECK_STR(safety_reason_name(why), "pilot_lost");
+}
+
+static void test_handover_in_failsafe_keeps_it_latched(void)
+{
+    safety_t s;
+    armed(&s);
+    safety_manual_failsafe(&s, 7);
+    safety_set_standby(&s, 9);
+    safety_pilot_lost(&s, 7, 50 * MS);
+    CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
+    CHECK(s.out.failsafe);
+    CHECK_EQ_INT(s.session, 9);
+    CHECK_EQ_INT(safety_ack(&s, 7, 60 * MS), REFUSE_WRONG_SESSION);
+    CHECK(safety_control(&s, 9, 1, &LOW, 60 * MS));
+    CHECK_EQ_INT(safety_ack(&s, 9, 60 * MS), REFUSE_NONE);
+    CHECK_EQ_INT(s.state, SAFETY_DISARMED);
+}
+
+static void test_old_session_disarm_and_failsafe_ignored_after_handover(void)
+{
+    safety_t s;
+    armed(&s);
+    safety_set_standby(&s, 9);
+    safety_pilot_lost(&s, 7, 50 * MS);
+    CHECK(safety_control(&s, 9, 1, &LOW, 60 * MS));
+    safety_disarm(&s, 7);                        /* late DISARM from the old pilot's page */
+    safety_manual_failsafe(&s, 7);
+    CHECK_EQ_INT(s.state, SAFETY_ARMED);
+    CHECK(s.out.arm);
+    safety_disarm(&s, 9);
+    CHECK_EQ_INT(s.state, SAFETY_DISARMED);
+    CHECK(!s.out.arm);
+}
+
+static void test_standby_equal_to_active_is_ignored(void)
+{
+    safety_t s;
+    armed(&s);
+    safety_set_standby(&s, 7);
+    CHECK_EQ_INT(s.standby, 0);
 }
 
 int main(void)
@@ -426,5 +609,15 @@ int main(void)
     RUN(test_speed_and_turtle_follow_the_command_and_are_clamped);
     RUN(test_failsafe_forces_turtle_off_and_keeps_speed);
     RUN(test_losing_the_pilot_or_gateway_drops_turtle_even_disarmed);
+    RUN(test_timeout_with_standby_hands_over_and_keeps_flying);
+    RUN(test_pilot_lost_with_standby_hands_over);
+    RUN(test_handover_pending_no_command_in_300ms_fails_safe);
+    RUN(test_no_chained_handover);
+    RUN(test_without_standby_timeout_still_fails_safe);
+    RUN(test_other_triggers_ignore_the_standby);
+    RUN(test_handover_while_disarmed_switches_session);
+    RUN(test_handover_in_failsafe_keeps_it_latched);
+    RUN(test_old_session_disarm_and_failsafe_ignored_after_handover);
+    RUN(test_standby_equal_to_active_is_ignored);
     return CHECK_EXIT();
 }

@@ -46,10 +46,10 @@ static void apply(rtloop_t *l, const core_cmd_t *c)
     case CMD_SESSION:      safety_session_start(s, c->session); break;
     case CMD_CONTROL:      safety_control(s, c->session, c->seq, &c->sticks, l->now_ns); break;
     case CMD_ARM:          r = safety_arm(s, c->session, l->now_ns); break;
-    case CMD_DISARM:       safety_disarm(s); break;
+    case CMD_DISARM:       safety_disarm(s, c->session); break;
     case CMD_ACK:          r = safety_ack(s, c->session, l->now_ns); break;
-    case CMD_PILOT_LOST:   safety_pilot_lost(s, c->session); break;
-    case CMD_FAILSAFE:     safety_trigger(s, FS_MANUAL); break;
+    case CMD_PILOT_LOST:   safety_pilot_lost(s, c->session, l->now_ns); break;
+    case CMD_FAILSAFE:     safety_manual_failsafe(s, c->session); break;
     case CMD_GATEWAY_LOST: safety_gateway_lost(s); break;
     }
     if (r != REFUSE_NONE)
