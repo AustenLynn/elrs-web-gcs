@@ -67,6 +67,16 @@ export class StepModel {
     this.target.throttle = Math.min(this.target.throttle, cap);
   }
 
+  /** Takeover: every axis starts at once at the drone's last command (no ramp), the
+   *  throttle limit raised to fit it. */
+  seed(cmd) {
+    if (cmd.throttle > this.cap) this.cap = THROTTLE_CAPS.find((c) => c >= cmd.throttle) ?? this.cap;
+    for (const axis of Object.keys(this.target)) {
+      this.set(axis, cmd[axis]);
+      this.out[axis] = this.target[axis];
+    }
+  }
+
   neutral() {
     for (const axis of Object.keys(this.target)) this.target[axis] = 0;
   }

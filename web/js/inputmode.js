@@ -46,6 +46,30 @@ export function padPositions(cmd) {
   };
 }
 
+/** Takeover: every input mode starts from the drone's last command (the gateway's
+ *  {r, p, y, th}), so the new pilot's first command never jumps the throttle. */
+export function seedInputs({ left, right, keyboard, stepper }, last) {
+  const cmd = { roll: last.r, pitch: last.p, yaw: last.y, throttle: last.th };
+  const pos = padPositions(cmd);
+  left.seed(pos.left);
+  right.seed(pos.right);
+  keyboard.seed(cmd.throttle);
+  stepper.seed(cmd);
+}
+
+// The channels the core sends (CRSF values, in STATUS) back to a command, for the live sticks
+// of a page that is not flying. Assumes the default map (deploy/crsf-core.conf): CH1-4 roll,
+// pitch, throttle, yaw, sticks 1000-2000 us.
+const chUs = (ch) => 1500 + (ch - 992) * 0.625;
+const clampStick = (v, lo) => Math.max(lo, Math.min(1000, Math.round(v))) || 0;
+
+export function channelsCommand(channels, mode) {
+  if (!Array.isArray(channels) || channels.length < 4) return null;
+  const stick = (ch) => clampStick((chUs(ch) - 1500) * 2, -1000);
+  return { roll: stick(channels[0]), pitch: stick(channels[1]), yaw: stick(channels[3]),
+    throttle: clampStick(chUs(channels[2]) - 1000, 0), mode };
+}
+
 const pct = (v) => Math.round(v / 10);
 const signed = (v) => (pct(v) > 0 ? `+${pct(v)}` : pct(v) < 0 ? `−${-pct(v)}` : '0');
 

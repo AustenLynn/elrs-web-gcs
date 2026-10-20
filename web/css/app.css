@@ -115,6 +115,32 @@ body.observer .banner .pilot-only { display: none; }
 body[data-state="FAILSAFE"] .video { border-color: var(--down); }
 .telemetry dd[data-stale="true"] { color: var(--faint); }
 body.observer .pilot-only, body.observer .stick { visibility: hidden; }
+/* Queued: the drone's live sticks, no flight controls. */
+body.queued .stick { visibility: visible; }
+.pilots { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.pilots:empty { display: none; }
+.auth { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
+.auth[hidden], .auth [hidden] { display: none; }
+.auth button { padding: 4px 10px; }
+.auth-msg { color: var(--warn); }
+.auth-name { color: var(--text); font-weight: 600; }
+.login { position: fixed; z-index: 3; left: 50%; top: 56px; transform: translateX(-50%); width: min(320px, calc(100% - 32px));
+  display: grid; gap: 10px; padding: 16px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 12px; }
+.login[hidden] { display: none; }
+.login label { display: grid; gap: 4px; color: var(--muted); font-size: 13px; }
+.login input { font: inherit; color: var(--text); background: var(--raised); border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 10px; user-select: text; touch-action: auto; }
+.login-msg { min-height: 1.3em; margin: 0; color: var(--warn); }
+.login-buttons { display: flex; gap: 8px; justify-content: flex-end; }
+.standby { display: flex; flex-direction: column; gap: 6px; align-items: center; text-align: center; }
+.standby[hidden] { display: none; }
+.standby p { margin: 0; }
+#btn-ready { border-color: var(--accent); }
+/* Over everything, but never in the way of the sticks under the new pilot's fingers. */
+.takeover { position: fixed; z-index: 4; left: 50%; top: 40%; transform: translate(-50%, -50%); pointer-events: none;
+  padding: 18px 32px; border-radius: 16px; background: rgba(63, 214, 160, .92); color: #06150f;
+  font-size: clamp(28px, 7vw, 56px); font-weight: 800; letter-spacing: .06em; white-space: nowrap; }
+.takeover[hidden] { display: none; }
 /* Short screens (phones held sideways): telemetry in two column pairs, smaller buttons. */
 @media (max-height: 450px) {
   .telemetry { grid-template-columns: auto 1fr auto 1fr; font-size: 13px; padding: 6px 8px; }

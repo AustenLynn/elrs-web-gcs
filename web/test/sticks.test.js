@@ -34,6 +34,26 @@ test('re-gripping the throttle does not move it: the held axis follows the drag,
   assert.equal(left.y, 0.2);
 });
 
+test('seeding sets both axes; sprung axes spring back when the finger first lifts', () => {
+  const left = new StickModel({ springX: true, springY: false, initial: { x: 0, y: 1 } });
+  left.seed({ x: 0.3, y: 0.1 });
+  assert.deepEqual([left.x, left.y], [0.3, 0.1]);
+  left.grab(1, 0, -90, 100);                    // touching must not jump the held throttle
+  assert.equal(left.y, 0.1);
+  left.release(1);
+  assert.deepEqual([left.x, left.y], [0, 0.1]);
+});
+
+test('seeding under a finger moves the held axis from where the finger is now', () => {
+  const left = new StickModel({ springX: true, springY: false, initial: { x: 0, y: 1 } });
+  left.grab(1, 0, 50, 100);
+  left.move(1, 0, 40, 100);
+  left.seed({ x: 0, y: 0.2 });
+  assert.equal(left.y, 0.2);
+  left.move(1, 0, 30, 100);                     // 10 px up from where it was seeded
+  assert.equal(Math.round(left.y * 100) / 100, 0.1);
+});
+
 test('a second finger on the same pad is ignored', () => {
   const right = new StickModel();
   assert.equal(right.grab(1, 50, 0, 100), true);
