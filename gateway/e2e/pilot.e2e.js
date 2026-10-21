@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { after, test } from 'node:test';
 import { DEFAULTS } from '../src/config.js';
 import { startGateway } from '../src/server.js';
-import { firefox, start, waitFor } from './helpers.js';
+import { firefox, login, makeUsers, start, waitFor } from './helpers.js';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const tmp = mkdtempSync(path.join(tmpdir(), 'gcs-e2e-'));
@@ -36,7 +36,8 @@ test('pilot page arms the aircraft, fails safe when the page loses control, and 
   await waitFor(() => channels !== null, 5000, 'RC frames from crsf-core');
 
   // 3. gateway serving the real web app
-  const gw = await startGateway({ ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 }, coreSocket: sock, webRoot: path.join(repo, 'web') });
+  const gw = await startGateway({ ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 }, coreSocket: sock, webRoot: path.join(repo, 'web'),
+    auth: { usersFile: await makeUsers(tmp, [{ name: 'ana', password: 'ana-password' }]) } });
   after(() => gw.close());
   await waitFor(() => gw.core.connected, 5000, 'gateway -> core');
 
@@ -45,7 +46,11 @@ test('pilot page arms the aircraft, fails safe when the page loses control, and 
   after(() => page.close());
   await page.open(`http://127.0.0.1:${gw.port}/`);
 
-  // the page connects and shows state and telemetry from the (fake) aircraft
+  // a spectator until it signs in with the form (a pilot account); then it is the pilot
+  await waitFor(() => page.evaluate("document.getElementById('state').textContent === 'DESARMADO'"), 10000, 'DESARMADO on the page');
+  await login(page, 'ana', 'ana-password');
+
+  // the page shows state and telemetry from the (fake) aircraft
   await waitFor(() => page.evaluate("document.getElementById('state').textContent === 'DESARMADO'"), 10000, 'DESARMADO on the page');
   // the failsafe banner is not on screen while disarmed (the attribute alone is not enough)
   assert.equal(await page.evaluate("getComputedStyle(document.getElementById('banner')).display"), 'none', 'banner hidden while DESARMADO');

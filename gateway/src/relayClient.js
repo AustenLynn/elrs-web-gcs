@@ -1,6 +1,8 @@
 // The gateway's outbound connection to the internet relay. Every remote browser behind
 // the relay becomes an ordinary ControlHub client, so all local rules apply unchanged:
-// one pilot, fresh session per connection, stale-command filter, pilot lost -> failsafe.
+// one pilot queue, fresh session per connection, stale-command filter, pilot lost -> handover
+// to a ready standby or failsafe. The relay already checked the room's pilot token, so remote
+// browsers may join the pilot queue without an account (attached with {relay: true}).
 import WebSocket from 'ws';
 
 export class RelayClient {
@@ -72,7 +74,7 @@ export class RelayClient {
         close: () => send({ t: 'relay', ev: 'kick', id: m.id }),
       };
       this.#clients.set(m.id, client);
-      this.hub.attach(client);
+      this.hub.attach(client, { user: null, relay: true });
     } else if (m.ev === 'msg' && this.#clients.has(m.id)) {
       this.hub.handle(this.#clients.get(m.id), m.msg);
     } else if (m.ev === 'close' && this.#clients.has(m.id)) {

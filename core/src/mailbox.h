@@ -24,6 +24,7 @@ typedef enum {
     CMD_PILOT_LOST,
     CMD_FAILSAFE,
     CMD_GATEWAY_LOST,
+    CMD_STANDBY,           /* session = the standby (0 = none) */
 } cmd_kind_t;
 
 typedef struct {
@@ -42,6 +43,7 @@ typedef enum {
     EV_TIMING,       /* a = interval (0.1 us), b = offset (0.1 us) */
     EV_GATEWAY,      /* a = 1 connected, 0 disconnected */
     EV_START,        /* text = version */
+    EV_HANDOVER,     /* a = fs_reason_t that triggered it; session = the new session; cmd_age_ms */
     EV_STICKS,       /* values on the air: a..d = roll, pitch, yaw, throttle (per mille), e = mode, f = arm, g = speed, h = turtle; cmd_age_ms */
 } event_kind_t;
 

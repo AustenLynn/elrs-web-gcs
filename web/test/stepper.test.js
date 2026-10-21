@@ -135,3 +135,14 @@ test('step keys with Shift: a fine 1 % step, whatever step is chosen', () => {
   assert.equal(s.target.throttle, 120);
   assert.equal(s.step, 100);                         // Shift never changes the chosen step
 });
+
+test('seeding sets every axis at once, raising the throttle limit when the throttle is above it', () => {
+  const s = new StepModel();
+  s.seed({ roll: -100, pitch: 300, yaw: 20, throttle: 700 });
+  assert.equal(s.cap, 1000);
+  assert.deepEqual(s.command(0), { roll: -100, pitch: 300, yaw: 20, throttle: 700, mode: 0 });
+  assert.deepEqual(s.target, { roll: -100, pitch: 300, yaw: 20, throttle: 700 });
+  const low = new StepModel();
+  low.seed({ roll: 0, pitch: 0, yaw: 0, throttle: 100 });
+  assert.equal(low.cap, 300);
+});

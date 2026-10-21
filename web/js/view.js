@@ -85,6 +85,19 @@ export function recoverySteps({ status, engaged }) {
   return steps;
 }
 
+/** What a queued page says: the standby (the first ready page, as the gateway says), its place
+ *  in the queue, or that it just lost the seat. */
+export function queueText({ role, position, lost, standby }, status) {
+  const pilot = status?.pilotName ?? '—';
+  if (role !== 'queued') return '';
+  if (lost) return `Perdiste el control: ahora vuela ${pilot}`;
+  if (standby) return `Estás en espera. Si ${pilot} pierde la conexión, el control pasa a ti al instante.`;
+  return `En la cola: puesto ${position}`;
+}
+
+/** Who is flying and who is standby, for everyone. */
+export const pilotLine = (status) => `Piloto: ${status?.pilotName ?? '—'} · En espera: ${status?.standbyName ?? '—'}`;
+
 /** How long ago the core received the last command. */
 export const formatCmdAge = (ms) => (ms === null || ms === undefined ? '—' : ms < 1000 ? 'ahora' : `hace ${(ms / 1000).toFixed(1)} s`);
 

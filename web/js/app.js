@@ -1,19 +1,22 @@
 // Pilot page: wires the pure modules to the DOM and the gateway WebSocket.
-// ?observe in the URL opens a read-only view.
+// ?observe in the URL opens a read-only view. Flying needs a pilot sign-in (or, with ?room=,
+// the relay room's key): a signed-in page joins the gateway's queue, becomes the standby once
+// the pilot presses «Listo», and takes over from the drone's last command on a handover.
 import { Deadman, DEADMAN_TEXT } from './deadman.js';
 import { HoldGesture, bindHold } from './hold.js';
-import { canSwitchInput, enteringFailsafe, inputsLocked, loadInputMode, lockedCommand, padPositions, readouts, saveInputMode } from './inputmode.js';
+import { canSwitchInput, channelsCommand, enteringFailsafe, inputsLocked, loadInputMode, lockedCommand, padPositions, readouts, saveInputMode, seedInputs } from './inputmode.js';
 import { KEY_ACTIONS, KeyboardModel, MODE_KEYS } from './keyboard.js';
 import { REFUSAL_TEXT, RATE_HZ, closeAction, connectionTarget, controlMessage, shouldReclaimPilotSeat, tsyncReply } from './protocol.js';
 import { StepModel, capChangeAllowed } from './stepper.js';
 import { Switches } from './switches.js';
 import { fullscreenTip } from './fullscreen.js';
 import { StickModel, bindStick, layoutAction, orientationLock, padsMoved, sticksToCommand } from './sticks.js';
-import { LinkTracker, failsafeAlert, formatBattery, formatCmdAge, formatFlightMode, formatLink, formatMs, recoverySteps, reportsTurtle, segments, stateLabel } from './view.js';
+import { LinkTracker, failsafeAlert, formatBattery, formatCmdAge, formatFlightMode, formatLink, formatMs, pilotLine, queueText, recoverySteps, reportsTurtle, segments, stateLabel } from './view.js';
 import { keepPlaying } from './whep.js';
 
 const $ = (id) => document.getElementById(id);
 const wantRole = new URLSearchParams(location.search).has('observe') ? 'observer' : 'pilot';
+const signInShown = wantRole === 'pilot' && !new URLSearchParams(location.search).has('room');
 const tokenKey = (room) => `gcs-token-${room}`;
 const getToken = (room) => {
   let token = sessionStorage.getItem(tokenKey(room));
@@ -34,7 +37,14 @@ const links = new LinkTracker();
 const CAP_CONTROLS = [['[data-cap]', 'cap', stepper], ['[data-key-cap]', 'keyCap', keyboard]];
 const telem = { link: null, linkAt: 0, battery: null, flightMode: null, device: null };
 let ws = null;
-let role = null;
+let role = null;      // 'pilot' | 'queued' | 'observer', from the last welcome
+let welcome = null;
+let queued = null;    // the last queued welcome: {position, lost}
+let readySent = false;
+let lostPending = false;
+let me = null;        // the signed-in pilot ({name, admin}), from GET /me
+let noUsers = false;
+let loginRequired = false;
 let status = null;
 let seq = 0;
 let mode = 0;
@@ -74,8 +84,11 @@ function connect() {
     if (next.clearToken) sessionStorage.removeItem(tokenKey(target.room));   // asked again after a reload
     if (next.text) toast(next.text, next.retryMs === null);
     role = null;
+    welcome = null;
+    queued = null;
+    readySent = false;
     status = null;
-    deadman.disengage('disconnected');
+    disengage('disconnected');
     if (next.retryMs !== null) setTimeout(connect, next.retryMs);
   };
 }
@@ -83,19 +96,19 @@ function connect() {
 function handle(msg) {
   switch (msg.t) {
     case 'welcome':
-      role = msg.role;
-      // A pilot welcome (new connection, or the core came back) starts a new session in the
-      // hub with sequence 0: restart ours too.
-      if (role === 'pilot') seq = 0;
-      document.body.classList.toggle('observer', role !== 'pilot');
-      if (wantRole === 'pilot' && role !== 'pilot') toast('Ya hay un piloto conectado: modo observador');
+      onWelcome(msg);
       break;
     case 'status': {
       const prevState = status?.state;
       status = msg;
       if (enteringFailsafe(prevState, status.state)) startAgainAfterFailsafe();
       links.update(status, performance.now());
-      if (shouldReclaimPilotSeat(wantRole, role, status)) ws.close();   // reconnects with hello pilot
+      if (shouldReclaimPilotSeat(wantRole, welcome, status)) ws.close();   // reconnects with hello pilot
+      if (lostPending) {               // this status names the pilot who took over
+        lostPending = false;
+        toast(queueText({ role: 'queued', lost: true }, status));
+        queued = { ...queued, lost: false };   // told once: from now on the usual queue text
+      }
       break;
     }
     case 'telem':
@@ -104,6 +117,7 @@ function handle(msg) {
       delete telem.t;
       break;
     case 'event':
+      if (msg.what === 'handover') break;   // the welcomes and the status line tell it
       toast(REFUSAL_TEXT[msg.refused] ?? `${msg.what}: ${msg.refused}`);
       break;
     case 'tsync':
@@ -115,6 +129,63 @@ function handle(msg) {
     default:
       break;
   }
+}
+
+function onWelcome(msg) {
+  welcome = msg;
+  role = msg.role;
+  // A pilot welcome (new connection, the core came back, or a takeover) starts a new session
+  // in the hub with sequence 0: restart ours too.
+  if (role === 'pilot') seq = 0;
+  if (role !== 'queued') readySent = false;    // the gateway forgets "ready" off the queue
+  document.body.classList.toggle('observer', role !== 'pilot');
+  document.body.classList.toggle('queued', role === 'queued');
+  loginRequired = role === 'observer' && msg.reason === 'login_required';
+  if (role === 'queued') {
+    queued = msg;
+    if (msg.lost) {                  // the standby took over: back of the queue, not ready
+      readySent = false;
+      lostPending = true;            // toast once the status names the new pilot
+      disengage('lost');
+      releaseKeys();
+      armHold.release();
+      $('btn-arm').style.setProperty('--progress', 0);
+    }
+  } else {
+    queued = null;
+  }
+  if (role === 'pilot' && msg.takeover) takeOver(msg.takeover);
+  if (role === 'observer' && msg.reason === 'pilot_present') toast('Ya hay un piloto conectado: modo observador');
+}
+
+/** Promoted on a handover: every input starts from the drone's last command (the throttle
+ *  never jumps), with its flight mode and switches. The dead-man is still engaged from
+ *  «Listo», so the next tick of the control loop sends. */
+function takeOver(last) {
+  seedInputs({ left, right, keyboard, stepper }, last);
+  setFlightMode(last.m);
+  switches.setSpeed(last.sp);
+  if (switches.turtle !== (last.tu === 1)) switches.toggleTurtle();
+  $('takeover').hidden = false;
+  clearTimeout(takeOver.timer);
+  takeOver.timer = setTimeout(() => { $('takeover').hidden = true; }, 3000);
+  navigator.vibrate?.(300);
+}
+
+/** Every way of losing control goes through here: a queued page tells the gateway at once
+ *  that it is no longer ready (a hidden tab's timers slow to 1 Hz or stop, so the control
+ *  loop is only a backstop). */
+function disengage(reason) {
+  deadman.disengage(reason);
+  setReady(false);
+}
+
+/** Queued: the gateway registers this page as the standby only while it is ready (dead-man
+ *  engaged), and is told at once when it stops being ready. */
+function setReady(on) {
+  if (role !== 'queued' || on === readySent) return;
+  readySent = on;
+  send({ t: 'ready', on });
 }
 
 /** The command from whichever input mode is active; dtMs advances the keyboard and step ramps. */
@@ -146,7 +217,7 @@ function startAgainAfterFailsafe() {
   armKey.release();
   armHold.release();
   $('btn-arm').style.setProperty('--progress', 0);
-  deadman.disengage('failsafe');
+  disengage('failsafe');
 }
 
 // 50 Hz control loop. Nothing is queued while disconnected or disengaged. In FAILSAFE every
@@ -157,12 +228,14 @@ setInterval(() => {
   if (locked) resetInputs();
   lastCmd = locked ? lockedCommand(mode) : currentCommand(now - lastTick);
   lastTick = now;
-  const canSend = deadman.canSend({
+  // Not tied to the role: a ready standby stays engaged and sends from its promotion on.
+  const engaged = deadman.canSend({
     visible: document.visibilityState === 'visible',
     focused: document.hasFocus(),
-    wsOpen: wsOpen() && role === 'pilot',
+    wsOpen: wsOpen(),
   });
-  if (canSend) send(controlMessage(++seq, now, lastCmd, switches.wire(locked)));
+  if (role === 'queued') setReady(engaged);
+  if (engaged && role === 'pilot') send(controlMessage(++seq, now, lastCmd, switches.wire(locked)));
 }, 1000 / RATE_HZ);
 
 /** Changes how the pilot flies. Refused while armed; every input starts again from neutral
@@ -175,7 +248,7 @@ function setInputMode(next, { save = true } = {}) {
   inputMode = next;
   resetInputs();
   switches.turtleOff();
-  deadman.disengage('input');
+  disengage('input');
   document.body.dataset.input = next;
   if (save) saveInputMode(storage(), next);
 }
@@ -193,7 +266,7 @@ let engagedAt = 0;
 let fullscreenTipShown = false;   // once per visit
 
 async function takeControl() {
-  if (role !== 'pilot') return;
+  if (role !== 'pilot' && role !== 'queued') return;
   try {
     await document.documentElement.requestFullscreen?.();
     await screen.orientation?.lock?.(orientationLock(screen.orientation.type));
@@ -243,8 +316,10 @@ function renderInput(now) {
     const shown = String(stepper.target[row.dataset.axis] / 10);
     if (document.activeElement !== input && input.value !== shown) input.value = shown;
   }
-  // The pads show what is on the air in every mode (touch: the sticks themselves).
-  const cmd = inputMode === 'touch' && !inputsLocked(status) ? sticksToCommand(left, right, mode) : lastCmd;
+  // The pads show what is on the air in every mode (touch: the sticks themselves); a page
+  // that is not flying shows the drone's channels.
+  const onAir = role === 'pilot' ? null : channelsCommand(status?.channels, mode);
+  const cmd = onAir ?? (inputMode === 'touch' && !inputsLocked(status) ? sticksToCommand(left, right, mode) : lastCmd);
   const pos = padPositions(cmd);
   const text = readouts(cmd);
   for (const side of ['left', 'right']) {
@@ -290,8 +365,14 @@ function render() {
   document.body.dataset.state = status?.state ?? 'none';
   $('t-rtt').textContent = formatMs(status?.rttMs);
   $('t-age').textContent = formatMs(status?.cmdAgeMs);
-  $('deadman').textContent = deadman.engaged ? '' : DEADMAN_TEXT[deadman.reason] ?? '';
+  const waiting = role === 'queued' && deadman.reason === 'not_engaged';   // «Listo» is right there
+  $('deadman').textContent = deadman.engaged || waiting ? '' : DEADMAN_TEXT[deadman.reason] ?? '';
   $('btn-take').disabled = role !== 'pilot' || deadman.engaged;
+  $('standby').hidden = role !== 'queued';
+  if (queued) $('queue-text').textContent = queueText(queued, status);
+  $('btn-ready').disabled = role !== 'queued' || deadman.engaged;
+  $('pilots').textContent = status ? pilotLine(status) : '';
+  renderAuth();
   const alert = failsafeAlert(status);
   $('banner').hidden = alert === null;
   if (alert !== null) {
@@ -303,11 +384,83 @@ function render() {
   requestAnimationFrame(render);
 }
 
+function renderAuth() {
+  if (!signInShown) return;
+  $('auth').hidden = false;
+  $('btn-login').hidden = me !== null || noUsers;
+  $('auth-name').hidden = me === null;
+  $('auth-name').textContent = me?.name ?? '';
+  $('btn-logout').hidden = me === null;
+  $('btn-logout').disabled = role === 'pilot' && status?.state === 'ARMED';   // disarm first
+  $('auth-msg').textContent = noUsers && me === null
+    ? 'Todavía no hay cuentas de piloto: créalas en la Pi con users-cli.js (ver docs/HANDOFF.md)'
+    : loginRequired && me === null ? 'Inicia sesión para pilotar' : '';
+}
+
+/** Who is signed in (the cookie is HttpOnly: only the gateway can tell). */
+async function loadMe() {
+  try {
+    const res = await fetch('/me');
+    const data = await res.json().catch(() => ({}));
+    me = res.ok ? data : null;
+    noUsers = !res.ok && data.noUsers === true;
+  } catch { /* gateway unreachable: the connection segment shows it */ }
+}
+
+const LOGIN_ERRORS = { 401: 'Nombre o contraseña incorrectos', 429: 'Demasiados intentos: espera un minuto' };
+
+/** Signed in: the WebSocket reconnects, since the gateway reads the cookie at the upgrade. */
+async function login(ev) {
+  ev.preventDefault();
+  const name = $('login-name').value.trim().toLowerCase();
+  let res;
+  try {
+    res = await fetch('/login', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, password: $('login-password').value }) });
+  } catch {
+    $('login-msg').textContent = 'Sin conexión con la Pi';
+    return;
+  }
+  if (!res.ok) {
+    $('login-msg').textContent = LOGIN_ERRORS[res.status] ?? 'Error del servidor';
+    return;
+  }
+  $('login-password').value = '';
+  $('login-msg').textContent = '';
+  $('login').hidden = true;
+  await loadMe();
+  ws?.close();                       // reconnects with hello pilot and the cookie
+}
+
+async function logout() {
+  try {
+    await fetch('/logout', { method: 'POST' });
+  } catch { /* the cookie ends with the gateway anyway */ }
+  me = null;
+  await loadMe();
+  ws?.close();                       // reconnects as a spectator
+}
+
+if (signInShown) {
+  $('btn-login').addEventListener('click', () => {
+    $('login').hidden = false;
+    $('login-name').focus();
+  });
+  $('login-cancel').addEventListener('click', () => { $('login').hidden = true; });
+  $('login').addEventListener('submit', login);
+  $('btn-logout').addEventListener('click', logout);
+  loadMe();
+}
+
 bindStick($('stick-left'), left);
 bindStick($('stick-right'), right);
 const armHold = bindHold($('btn-arm'), 1000, () => send({ t: 'arm' }));
 bindHold($('btn-ack'), 2000, () => send({ t: 'ack' }));
 $('btn-take').addEventListener('click', takeControl);
+$('btn-ready').addEventListener('click', async () => {
+  await takeControl();
+  if (deadman.engaged) setReady(true);
+});
 $('btn-disarm').addEventListener('click', () => send({ t: 'disarm' }));
 $('btn-failsafe').addEventListener('click', () => send({ t: 'failsafe' }));
 for (const b of document.querySelectorAll('[data-mode]')) {
@@ -354,6 +507,10 @@ for (const row of document.querySelectorAll('#panel-step .axis')) {
 const armKey = new HoldGesture(1000, () => send({ t: 'arm' }));
 const typing = (ev) => ev.target instanceof Element && ev.target.matches('input, textarea, select');
 document.addEventListener('keydown', (ev) => {
+  if (role === 'queued' && ev.code === 'Escape' && !typing(ev)) {   // a ready standby lets go
+    disengage('released');
+    return;
+  }
   if (role !== 'pilot' || typing(ev) || ev.ctrlKey || ev.metaKey || ev.altKey) return;
   if ((inputMode === 'keyboard' && keyboard.keyDown(ev.code, ev.repeat))
     || (inputMode === 'step' && stepper.keyDown(ev.code, ev.repeat, ev.shiftKey))) {
@@ -372,7 +529,7 @@ document.addEventListener('keydown', (ev) => {
   if (flightMode !== undefined) setFlightMode(flightMode);
   else if (action === 'disarm') send({ t: 'disarm' });
   else if (action === 'failsafe') send({ t: 'failsafe' });
-  else if (action === 'release') deadman.disengage('released');
+  else if (action === 'release') disengage('released');
   else if (action === 'arm') armKey.press(performance.now());
 });
 document.addEventListener('keyup', (ev) => {
@@ -387,18 +544,18 @@ const releaseKeys = () => {
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') {
-    deadman.disengage('hidden');
+    disengage('hidden');
     releaseKeys();
   }
 });
 window.addEventListener('blur', () => {
-  deadman.disengage('blur');
+  disengage('blur');
   releaseKeys();
 });
 // Esc in full screen is taken by the browser (it leaves full screen and the page never sees
 // the key): outside the touch mode, leaving full screen therefore also releases control.
 document.addEventListener('fullscreenchange', () => {
-  if (!document.fullscreenElement && inputMode !== 'touch') deadman.disengage('released');
+  if (!document.fullscreenElement && inputMode !== 'touch') disengage('released');
 });
 for (const type of ['resize', 'orientationchange', 'fullscreenchange']) {
   window.addEventListener(type, () => {
@@ -408,7 +565,7 @@ for (const type of ['resize', 'orientationchange', 'fullscreenchange']) {
     const action = layoutAction({ engaged: deadman.engaged, msSinceEngage: performance.now() - engagedAt,
       moved: padsMoved(padsAtEngage, boxes) });
     if (action === 'resnapshot') padsAtEngage = boxes;
-    else if (action === 'disengage') deadman.disengage('layout');
+    else if (action === 'disengage') disengage('layout');
   });
 }
 

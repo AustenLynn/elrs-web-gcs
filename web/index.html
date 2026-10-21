@@ -28,8 +28,26 @@
       <button data-input="keyboard" title="Teclado: W/S, A/D y flechas">Teclado</button>
       <button data-input="step" title="Prueba: pasos y valores exactos">Prueba</button>
     </div>
+    <span id="pilots" class="pilots"></span>
+    <!-- Sign-in (not with ?observe or ?room=: relay pilots use the room's key) -->
+    <div id="auth" class="auth" hidden>
+      <span id="auth-msg" class="auth-msg"></span>
+      <button id="btn-login" type="button">Iniciar sesión como piloto</button>
+      <span id="auth-name" class="auth-name" hidden></span>
+      <button id="btn-logout" type="button" hidden>Salir</button>
+    </div>
     <div id="state" class="state">SIN CONEXIÓN</div>
   </header>
+
+  <form id="login" class="login" hidden>
+    <label>Piloto <input id="login-name" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+    <label>Contraseña <input id="login-password" name="password" type="password" autocomplete="current-password" required></label>
+    <p id="login-msg" class="login-msg" role="alert"></p>
+    <div class="login-buttons">
+      <button type="submit">Entrar</button>
+      <button id="login-cancel" type="button">Cancelar</button>
+    </div>
+  </form>
 
   <main class="cockpit">
     <div class="stick" id="stick-left"><div class="knob"></div><span class="label">Acelerador · Guiñada</span></div>
@@ -44,6 +62,11 @@
       </dl>
       <p class="onair" title="Lo que se está enviando al dron"><span id="ro-left"></span><span id="ro-right"></span></p>
       <p id="deadman" class="deadman"></p>
+      <!-- Queued pilot: who flies, and the button that makes this page the standby -->
+      <div id="standby" class="standby" hidden>
+        <p id="queue-text"></p>
+        <button id="btn-ready" type="button">Listo para tomar el control</button>
+      </div>
       <div id="toast" class="toast" hidden></div>
     </section>
     <div class="stick" id="stick-right"><div class="knob"></div><span class="label">Cabeceo · Alabeo</span></div>
@@ -164,6 +187,9 @@
     <ol id="recovery" class="recovery pilot-only" aria-label="Para volver a volar"></ol>
     <button id="btn-ack" class="hold pilot-only">Limpiar failsafe (mantener 2 s)</button>
   </div>
+
+  <!-- Promoted on a handover: the drone keeps flying on this page's sticks from now on. -->
+  <div id="takeover" class="takeover" hidden role="alert">TIENES EL CONTROL</div>
 
   <script type="module" src="js/app.js"></script>
 </body>

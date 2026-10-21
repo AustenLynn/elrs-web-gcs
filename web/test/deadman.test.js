@@ -39,3 +39,19 @@ test('a failsafe takes control away and says how to start again', () => {
   assert.equal(d.canSend(ok), false);
   assert.match(DEADMAN_TEXT.failsafe, /Tomar control/);
 });
+
+test('deadman stays engaged while the socket is open but the page is not the pilot', () => {
+  // A ready standby holds its dead-man: app.js passes wsOpen without the role, and sends
+  // control messages only as the pilot, so the page starts sending the tick it is promoted.
+  const d = new Deadman();
+  d.engage();
+  for (let i = 0; i < 10; i++) assert.equal(d.canSend(ok), true);
+  assert.equal(d.engaged, true);
+});
+
+test('losing the seat to another pilot says how to be the standby again', () => {
+  const d = new Deadman();
+  d.engage();
+  d.disengage('lost');
+  assert.match(DEADMAN_TEXT.lost, /Listo para tomar el control/);
+});

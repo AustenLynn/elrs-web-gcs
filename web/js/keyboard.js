@@ -62,6 +62,12 @@ export class KeyboardModel {
     this.throttle = Math.min(this.throttle, cap);
   }
 
+  /** Takeover: the throttle starts at the drone's last one, the limit raised to fit it. */
+  seed(throttle) {
+    if (throttle > this.cap) this.cap = THROTTLE_CAPS.find((c) => c >= throttle) ?? this.cap;
+    this.throttle = Math.max(0, Math.min(this.cap, throttle));
+  }
+
   reset() {
     this.releaseAll();
     this.out = { roll: 0, pitch: 0, yaw: 0 };

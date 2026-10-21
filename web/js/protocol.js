@@ -12,10 +12,11 @@ export function connectionTarget(loc, role, getToken) {
   return { url: `${scheme}://${loc.host}/relay`, hello: { t: 'hello', role, room, token: getToken(room) }, relay: true, room };
 }
 
-/** The page wanted to fly but got the observer seat (e.g. its new connection arrived
- *  while the old one still held the seat): ask again as soon as the seat is free. */
-export const shouldReclaimPilotSeat = (wantRole, role, status) =>
-  wantRole === 'pilot' && role === 'observer' && status?.pilot === false;
+/** The page wanted to fly but got the observer seat because a pilot was present: ask again
+ *  as soon as the seat is free. A page that is not signed in (login_required) never does:
+ *  it would get the same answer every second. Signed-in pages are queued by the gateway. */
+export const shouldReclaimPilotSeat = (wantRole, welcome, status) =>
+  wantRole === 'pilot' && welcome?.role === 'observer' && welcome.reason === 'pilot_present' && status?.pilot === false;
 
 /** What the page does when its connection closes: relay close codes (spec 4.3) get their
  *  own message; a wrong token stops the retry loop instead of prompting forever. */

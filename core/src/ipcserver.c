@@ -105,6 +105,7 @@ static void on_msg(uint8_t type, const uint8_t *p, size_t n, void *user)
         case IPC_ACK:        c.kind = CMD_ACK; break;
         case IPC_PILOT_LOST: c.kind = CMD_PILOT_LOST; break;
         case IPC_FAILSAFE:   c.kind = CMD_FAILSAFE; break;
+        case IPC_STANDBY:    c.kind = CMD_STANDBY; break;
         default:             ok = 0; break;
         }
     }
@@ -169,7 +170,10 @@ static void drain_events(ipcserver_t *s)
     while ((n = mailbox_take_events(s->mb, evs, 64)) > 0) {
         for (size_t i = 0; i < n; i++) {
             evlog_event(s->log, &evs[i]);
-            if (evs[i].kind == EV_REFUSED) {
+            if (evs[i].kind == EV_HANDOVER)
+                send_msg(s, buf, ipc_encode_event(buf, sizeof buf, IPC_EVENT_HANDOVER, (uint8_t)evs[i].a,
+                                                  evs[i].session));
+            else if (evs[i].kind == EV_REFUSED) {
                 uint8_t kind = evs[i].a == CMD_ARM ? IPC_EVENT_ARM_REFUSED : IPC_EVENT_ACK_REFUSED;
                 send_msg(s, buf, ipc_encode_event(buf, sizeof buf, kind, (uint8_t)evs[i].b, evs[i].session));
             }

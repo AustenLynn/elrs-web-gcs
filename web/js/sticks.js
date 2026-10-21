@@ -16,6 +16,7 @@ export class StickModel {
     this.y = this.initial.y;
     this.owner = null;      // pointerId of the finger that holds this stick
     this.anchor = null;     // held (non-sprung) axes: where the drag started
+    this.last = null;       // where the finger is now
   }
 
   get active() {
@@ -37,6 +38,14 @@ export class StickModel {
     if (id === this.owner) this.#follow(px, py, r);
   }
 
+  /** Takeover: the stick starts where the drone's last command was. A finger already on the
+   *  pad drags the held axis on from there; sprung axes spring back when it first lifts. */
+  seed({ x, y }) {
+    this.x = clamp1(x);
+    this.y = clamp1(y);
+    if (this.anchor) this.anchor = { px: this.last.px, py: this.last.py, x: this.x, y: this.y };
+  }
+
   /** Only the owning finger lifting releases: sprung axes return to centre. */
   release(id) {
     if (id !== this.owner) return;
@@ -48,6 +57,7 @@ export class StickModel {
 
   #follow(px, py, r) {
     const a = this.anchor;
+    this.last = { px, py };
     this.x = clamp1(this.springX ? px / r : a.x + (px - a.px) / r);
     this.y = clamp1(this.springY ? py / r : a.y + (py - a.py) / r);
   }

@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { after, test } from 'node:test';
 import { DEFAULTS } from '../src/config.js';
 import { startGateway } from '../src/server.js';
-import { firefox, openWithInputMode, sleep, start, waitFor } from './helpers.js';
+import { firefox, login, makeUsers, openWithInputMode, sleep, start, waitFor } from './helpers.js';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const tmp = mkdtempSync(path.join(tmpdir(), 'gcs-e2e-kbd-'));
@@ -36,7 +36,8 @@ test('keyboard mode: hold R arms, W raises and holds the throttle, Space disarms
   start(procs, path.join(repo, 'core/build/crsf-core'), ['-c', path.join(tmp, 'core.conf')]);
   await waitFor(() => channels !== null, 5000, 'RC frames from crsf-core');
 
-  const gw = await startGateway({ ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 }, coreSocket: sock, webRoot: path.join(repo, 'web') });
+  const gw = await startGateway({ ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 }, coreSocket: sock, webRoot: path.join(repo, 'web'),
+    auth: { usersFile: await makeUsers(tmp, [{ name: 'ana', password: 'ana-password' }]) } });
   after(() => gw.close());
   await waitFor(() => gw.core.connected, 5000, 'gateway -> core');
 
@@ -44,6 +45,8 @@ test('keyboard mode: hold R arms, W raises and holds the throttle, Space disarms
   after(() => page.close());
   await openWithInputMode(page, `http://127.0.0.1:${gw.port}/`, 'keyboard');
   await waitFor(() => page.evaluate("document.getElementById('state').textContent === 'DESARMADO'"), 10000, 'DESARMADO on the page');
+  await login(page, 'ana', 'ana-password');
+  await waitFor(() => page.evaluate("document.getElementById('state').textContent === 'DESARMADO'"), 10000, 'DESARMADO after signing in');
   assert.equal(await page.evaluate("document.querySelector('[data-input=\"keyboard\"]').classList.contains('on')"), true);
 
   // A headless window never has focus (see pilot.e2e.js): stand in for the window manager.

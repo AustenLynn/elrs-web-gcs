@@ -4,5 +4,6 @@
   "coreSocket": "/run/crsf-core/core.sock",
   "webRoot": "/opt/gcs/web",
   "maxCommandAgeMs": 200,
+  "auth": { "usersFile": "/var/lib/gcs/users.json" },
   "video": { "whep": "http://127.0.0.1:8889/fpv/whep" }
 }

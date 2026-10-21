@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { LinkTracker, failsafeAlert, failsafeDetail, formatBattery, formatCmdAge, formatFlightMode, formatLink, formatMs, recoverySteps, reportsTurtle, segments, stateLabel } from '../js/view.js';
+import { LinkTracker, failsafeAlert, failsafeDetail, formatBattery, formatCmdAge, formatFlightMode, formatLink, formatMs, pilotLine, queueText, recoverySteps, reportsTurtle, segments, stateLabel } from '../js/view.js';
 
 const goodStatus = { core: true, serialOk: true, timingFrames: 10, state: 'ARMED', reason: 'none' };
 const link = { upLq: 100, upRssi1: -60, txPowerMw: 100 };
@@ -128,4 +128,20 @@ test('age of the last command the core received', () => {
   assert.equal(formatCmdAge(null), '—');
   assert.equal(formatCmdAge(40), 'ahora');
   assert.equal(formatCmdAge(1400), 'hace 1.4 s');
+});
+
+test('the queued page says who flies and what happens if they drop', () => {
+  assert.equal(queueText({ role: 'queued', position: 1 }, { pilotName: 'ana' }), 'En la cola: puesto 1');   // not ready yet
+  assert.equal(queueText({ role: 'queued', position: 2, standby: true }, { pilotName: 'ana' }),
+    'Estás en espera. Si ana pierde la conexión, el control pasa a ti al instante.');
+  assert.equal(queueText({ role: 'queued', position: 1, lost: true }, { pilotName: 'luis' }), 'Perdiste el control: ahora vuela luis');
+  assert.equal(queueText({ role: 'queued', position: 1, lost: true }, { pilotName: null }), 'Perdiste el control: ahora vuela —');
+  assert.equal(queueText({ role: 'queued', position: 3 }, { pilotName: 'ana' }), 'En la cola: puesto 3');
+  assert.equal(queueText({ role: 'pilot' }, { pilotName: 'ana' }), '');
+});
+
+test('who is flying and who is standby, with a dash for none', () => {
+  assert.equal(pilotLine({ pilotName: 'ana', standbyName: 'luis' }), 'Piloto: ana · En espera: luis');
+  assert.equal(pilotLine({ pilotName: 'ana', standbyName: null }), 'Piloto: ana · En espera: —');
+  assert.equal(pilotLine(null), 'Piloto: — · En espera: —');
 });

@@ -189,3 +189,14 @@ test('a key held through a reset is ignored until it is pressed again (auto-repe
   k.update(100);
   assert.equal(k.command(0).throttle, 100, 'repeats of a key that is held are fine');
 });
+
+test('seeding the throttle keeps it there and raises the limit only when it is above it', () => {
+  const k = new KeyboardModel();
+  k.seed(450);
+  assert.equal(k.cap, 500);
+  assert.equal(k.command(0).throttle, 450);
+  const low = new KeyboardModel();
+  low.seed(200);
+  assert.equal(low.cap, 300);
+  assert.equal(low.command(0).throttle, 200);
+});

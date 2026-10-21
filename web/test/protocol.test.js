@@ -31,11 +31,17 @@ test('connects to the Pi directly, or through the relay with ?room=', () => {
 
 test('a page that wanted to fly reclaims the pilot seat once it is free', () => {
   // e.g. after a Wi-Fi blip the new connection arrived while the old one still held the seat
-  assert.equal(shouldReclaimPilotSeat('pilot', 'observer', { pilot: false }), true);
-  assert.equal(shouldReclaimPilotSeat('pilot', 'observer', { pilot: true }), false);
-  assert.equal(shouldReclaimPilotSeat('pilot', 'pilot', { pilot: true }), false);
-  assert.equal(shouldReclaimPilotSeat('observer', 'observer', { pilot: false }), false);
-  assert.equal(shouldReclaimPilotSeat('pilot', 'observer', null), false);
+  const seated = { role: 'observer', reason: 'pilot_present' };
+  assert.equal(shouldReclaimPilotSeat('pilot', seated, { pilot: false }), true);
+  assert.equal(shouldReclaimPilotSeat('pilot', seated, { pilot: true }), false);
+  assert.equal(shouldReclaimPilotSeat('pilot', { role: 'pilot' }, { pilot: true }), false);
+  assert.equal(shouldReclaimPilotSeat('observer', { role: 'observer', reason: null }, { pilot: false }), false);
+  assert.equal(shouldReclaimPilotSeat('pilot', seated, null), false);
+});
+
+test('a page that is not signed in never reconnects for the seat (it would loop every second)', () => {
+  assert.equal(shouldReclaimPilotSeat('pilot', { role: 'observer', reason: 'login_required' }, { pilot: false }), false);
+  assert.equal(shouldReclaimPilotSeat('pilot', { role: 'queued', position: 1 }, { pilot: false }), false);
 });
 
 test('relay close codes: what the page does next', () => {

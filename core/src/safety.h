@@ -8,7 +8,10 @@
  *    leaves ARM as it was so Betaflight runs its own failsafe procedure.
  *  - FAILSAFE is latched. Only an explicit acknowledge clears it, and only while the
  *    link is fresh, throttle is low and the FC does not report itself armed. Clearing
- *    always ends DISARMED; flying again needs a new, explicit arm request. */
+ *    always ends DISARMED; flying again needs a new, explicit arm request.
+ *  - With a standby session registered, cmd_timeout and pilot_lost hand control to it
+ *    instead of failing safe: the last sticks stay on the air and the standby gets a fresh
+ *    timeout; until its first command, any further loss fails safe (no chained handover). */
 #ifndef SAFETY_H
 #define SAFETY_H
 
@@ -57,6 +60,10 @@ typedef struct {
     safety_state_t state;
     fs_reason_t fs_reason;
     uint32_t session;          /* current pilot session; 0 = none */
+    uint32_t standby;          /* session that takes over on cmd_timeout/pilot_lost; 0 = none */
+    bool handover_pending;     /* handed over, no fresh command from the new session yet */
+    uint32_t handover_to;      /* handover report waiting to be taken; 0 = none */
+    fs_reason_t handover_reason;
     uint32_t last_seq;
     bool have_cmd;
     int64_t last_cmd_ns;
@@ -76,11 +83,20 @@ void safety_session_start(safety_t *s, uint32_t session);
 /* Returns true if the command was fresh and applied. */
 bool safety_control(safety_t *s, uint32_t session, uint32_t seq, const stick_cmd_t *cmd, int64_t now);
 refuse_t safety_arm(safety_t *s, uint32_t session, int64_t now);
-/* Always allowed. In FAILSAFE it drops ARM but keeps the failsafe latched. */
-void safety_disarm(safety_t *s);
+/* Always allowed for the current session; other sessions are ignored. In FAILSAFE it drops
+ * ARM but keeps the failsafe latched. */
+void safety_disarm(safety_t *s, uint32_t session);
+/* The pilot pressed FAILSAFE. Ignored unless it comes from the current session. */
+void safety_manual_failsafe(safety_t *s, uint32_t session);
 refuse_t safety_ack(safety_t *s, uint32_t session, int64_t now);
-void safety_pilot_lost(safety_t *s, uint32_t session);
+/* Hands over to the standby if one is registered (and no handover is pending). */
+void safety_pilot_lost(safety_t *s, uint32_t session, int64_t now);
 void safety_gateway_lost(safety_t *s);
+/* Registers the standby session; 0 clears it. A non-zero session equal to the current one is
+ * ignored. Accepted while a handover is pending (stored; try_handover refuses to chain). */
+void safety_set_standby(safety_t *s, uint32_t session);
+/* Returns true once per handover, with the new session and what triggered it. */
+bool safety_take_handover(safety_t *s, uint32_t *to, fs_reason_t *reason);
 /* Enter FAILSAFE from any state (keeps the first reason if already in FAILSAFE). */
 void safety_trigger(safety_t *s, fs_reason_t reason);
 /* Betaflight appends '*' to its flight-mode string while disarmed. */

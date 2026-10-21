@@ -34,11 +34,18 @@ static void push(rtloop_t *l, event_kind_t kind, int32_t a, int32_t b, int32_t c
     mailbox_push_event(l->mb, &ev);
 }
 
+static void report_handover(rtloop_t *l)
+{
+    uint32_t to;
+    fs_reason_t why;
+    if (safety_take_handover(&l->safety, &to, &why))
+        push(l, EV_HANDOVER, (int32_t)why, 0, 0, 0, to, cmd_age_ms(l), NULL);
+}
+
 static void apply(rtloop_t *l, const core_cmd_t *c)
 {
     safety_t *s = &l->safety;
     safety_state_t before = s->state;
-    uint32_t session = s->session != 0 ? s->session : c->session;
     int32_t age = cmd_age_ms(l);
     refuse_t r = REFUSE_NONE;
 
@@ -46,16 +53,20 @@ static void apply(rtloop_t *l, const core_cmd_t *c)
     case CMD_SESSION:      safety_session_start(s, c->session); break;
     case CMD_CONTROL:      safety_control(s, c->session, c->seq, &c->sticks, l->now_ns); break;
     case CMD_ARM:          r = safety_arm(s, c->session, l->now_ns); break;
-    case CMD_DISARM:       safety_disarm(s); break;
+    case CMD_DISARM:       safety_disarm(s, c->session); break;
+    case CMD_STANDBY:      safety_set_standby(s, c->session); break;
     case CMD_ACK:          r = safety_ack(s, c->session, l->now_ns); break;
-    case CMD_PILOT_LOST:   safety_pilot_lost(s, c->session); break;
-    case CMD_FAILSAFE:     safety_trigger(s, FS_MANUAL); break;
+    case CMD_PILOT_LOST:   safety_pilot_lost(s, c->session, l->now_ns); break;
+    case CMD_FAILSAFE:     safety_manual_failsafe(s, c->session); break;
     case CMD_GATEWAY_LOST: safety_gateway_lost(s); break;
     }
     if (r != REFUSE_NONE)
         push(l, EV_REFUSED, (int32_t)c->kind, (int32_t)r, 0, 0, c->session, age, NULL);
+    /* The session active after the command: the new one after a handover. */
+    uint32_t session = s->session != 0 ? s->session : c->session;
     if (s->state != before)
         push(l, EV_STATE, (int32_t)before, (int32_t)s->state, (int32_t)s->fs_reason, 0, session, age, NULL);
+    report_handover(l);
 }
 
 static void on_frame(const uint8_t *frame, size_t len, void *user)
@@ -217,12 +228,12 @@ static void tick(rtloop_t *l, int64_t deadline)
         apply(l, &cmds[i]);
 
     safety_state_t before = l->safety.state;
-    uint32_t session = l->safety.session;
     int32_t age = cmd_age_ms(l);
     safety_tick(&l->safety, l->now_ns);
     if (l->safety.state != before)
         push(l, EV_STATE, (int32_t)before, (int32_t)l->safety.state, (int32_t)l->safety.fs_reason, 0,
-             session, age, NULL);
+             l->safety.session, age, NULL);
+    report_handover(l);
 
     if (l->fd < 0)
         try_open(l);

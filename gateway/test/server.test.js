@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import WebSocket from 'ws';
 import { DEFAULTS } from '../src/config.js';
+import { UserStore } from '../src/users.js';
 import { FrameReader, MSG } from '../src/ipc.js';
 import { startGateway } from '../src/server.js';
 
@@ -39,11 +40,24 @@ async function setup(t, { tls = false, webRoot = null } = {}) {
     execFileSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-nodes',
       '-days', '1', '-subj', '/CN=localhost', '-keyout', tlsCfg.key, '-out', tlsCfg.cert], { stdio: 'ignore' });
   }
-  const cfg = { ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 }, tls: tlsCfg, coreSocket: core.path, webRoot: webRoot ?? dir };
+  const usersFile = path.join(dir, 'users.json');
+  const store = new UserStore(usersFile);
+  await store.load();
+  await store.add('ana', 'correcthorse', true);
+  const cfg = { ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 }, tls: tlsCfg, coreSocket: core.path, webRoot: webRoot ?? dir,
+    auth: { usersFile } };
   const gw = await startGateway(cfg);
   t.after(async () => { await gw.close(); await core.close(); });
   await waitFor(() => core.conn !== null);
-  return { gw, core, base: `${tls ? 'https' : 'http'}://127.0.0.1:${gw.port}`, wsUrl: `${tls ? 'wss' : 'ws'}://127.0.0.1:${gw.port}/ws` };
+  const base = `${tls ? 'https' : 'http'}://127.0.0.1:${gw.port}`;
+  // Signs in as ana and returns the Cookie header value for a WebSocket.
+  const login = async () => {
+    const res = await fetch(`${base}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'ana', password: 'correcthorse' }) });
+    assert.equal(res.status, 200);
+    return res.headers.get('set-cookie').split(';')[0];
+  };
+  return { gw, core, base, login, wsUrl: `${tls ? 'wss' : 'ws'}://127.0.0.1:${gw.port}/ws` };
 }
 
 async function waitFor(pred, ms = 2000) {
@@ -109,9 +123,9 @@ test('serves the home-screen manifest and its icons (iPhone: no full screen for 
   }
 });
 
-test('pilot session end to end: hello, control, status, disconnect', async (t) => {
-  const { core, wsUrl } = await setup(t);
-  const pilot = await connect(wsUrl);
+test('pilot session end to end: sign in, hello, control, status, disconnect', async (t) => {
+  const { core, wsUrl, login } = await setup(t);
+  const pilot = await connect(wsUrl, { headers: { cookie: await login() } });
   pilot.send({ t: 'hello', role: 'pilot' });
   await waitFor(() => pilot.msgs.some((m) => m.t === 'welcome'));
   const { session } = pilot.msgs.find((m) => m.t === 'welcome');
@@ -131,14 +145,45 @@ test('pilot session end to end: hello, control, status, disconnect', async (t) =
   core.conn.write(status);
   await waitFor(() => pilot.msgs.some((m) => m.t === 'status' && m.state === 'ARMED'));
 
-  const observer = await connect(wsUrl);
+  const observer = await connect(wsUrl);              // not signed in: a spectator
   observer.send({ t: 'hello', role: 'pilot' });
   await waitFor(() => observer.msgs.some((m) => m.t === 'welcome'));
-  assert.equal(observer.msgs.find((m) => m.t === 'welcome').role, 'observer');
+  assert.deepEqual(observer.msgs.find((m) => m.t === 'welcome'), { t: 'welcome', role: 'observer', reason: 'login_required' });
+  assert.equal(observer.msgs.findLast((m) => m.t === 'status').pilotName, 'ana');
 
   pilot.ws.close();
   await waitFor(() => core.received.some((m) => m.type === MSG.PILOT_LOST));
   observer.ws.close();
+});
+
+test('a ready queued pilot is registered as STANDBY and the core\'s handover event gives it the seat', async (t) => {
+  const { core, wsUrl, login } = await setup(t);
+  const cookie = await login();
+  const a = await connect(wsUrl, { headers: { cookie } });
+  a.send({ t: 'hello', role: 'pilot' });
+  await waitFor(() => a.msgs.some((m) => m.t === 'welcome'));
+  const b = await connect(wsUrl, { headers: { cookie } });
+  b.send({ t: 'hello', role: 'pilot' });
+  await waitFor(() => b.msgs.some((m) => m.t === 'welcome'));
+  assert.deepEqual(b.msgs.find((m) => m.t === 'welcome'), { t: 'welcome', role: 'queued', position: 1 });
+  b.send({ t: 'ready', on: true });
+  await waitFor(() => core.received.some((m) => m.type === MSG.STANDBY));
+  const standby = core.received.find((m) => m.type === MSG.STANDBY).payload.readUInt32LE(0);
+
+  a.ws.close();
+  await waitFor(() => core.received.some((m) => m.type === MSG.PILOT_LOST));
+  const ev = Buffer.alloc(9);                        // EVENT handover, reason pilot_lost, to the standby
+  ev.writeUInt16LE(7, 0);
+  ev[2] = MSG.EVENT;
+  ev[3] = 3;
+  ev[4] = 2;
+  ev.writeUInt32LE(standby, 5);
+  core.conn.write(ev);
+  await waitFor(() => b.msgs.some((m) => m.t === 'welcome' && m.role === 'pilot'));
+  assert.equal(b.msgs.findLast((m) => m.t === 'welcome').session, standby);
+  assert.deepEqual(b.msgs.find((m) => m.t === 'event'), { t: 'event', what: 'handover', reason: 'pilot_lost' });
+  assert.equal(core.received.filter((m) => m.type === MSG.SESSION).length, 1);   // no SESSION for the promoted standby
+  b.ws.close();
 });
 
 test('HTTPS and secure WebSocket with the configured certificate', async (t) => {
@@ -151,8 +196,8 @@ test('HTTPS and secure WebSocket with the configured certificate', async (t) => 
 });
 
 test('binary frames and invalid JSON are ignored without closing the socket', async (t) => {
-  const { core, wsUrl } = await setup(t);
-  const c = await connect(wsUrl);
+  const { core, wsUrl, login } = await setup(t);
+  const c = await connect(wsUrl, { headers: { cookie: await login() } });
   c.ws.send(Buffer.from([1, 2, 3]));
   c.ws.send('{not json');
   c.send({ t: 'hello', role: 'pilot' });
@@ -208,9 +253,25 @@ test('WebSocket connections from another web origin are refused', async (t) => {
   tool.ws.close();
 });
 
+test('the WebSocket auth comes from the sign-in cookie; no or forged cookie is a spectator', async (t) => {
+  const { gw, wsUrl, login } = await setup(t);
+  const seen = [];
+  const attach = gw.hub.attach.bind(gw.hub);
+  gw.hub.attach = (client, auth) => { seen.push(auth); attach(client, auth); };
+  const cookie = await login();
+  (await connect(wsUrl, { headers: { cookie } })).ws.close();
+  (await connect(wsUrl)).ws.close();
+  (await connect(wsUrl, { headers: { cookie: `gcs_session=${'0'.repeat(64)}` } })).ws.close();
+  assert.deepEqual(seen, [
+    { user: { name: 'ana', admin: true }, relay: false },
+    { user: null, relay: false },
+    { user: null, relay: false },
+  ]);
+});
+
 test('after the core reconnects, the connected pilot is given a new session', async (t) => {
-  const { core, wsUrl } = await setup(t);
-  const pilot = await connect(wsUrl);
+  const { core, wsUrl, login } = await setup(t);
+  const pilot = await connect(wsUrl, { headers: { cookie: await login() } });
   pilot.send({ t: 'hello', role: 'pilot' });
   await waitFor(() => core.received.some((m) => m.type === MSG.SESSION));
   const first = core.received.find((m) => m.type === MSG.SESSION).payload.readUInt32LE(0);
@@ -257,7 +318,7 @@ test('with video configured, the gateway serves WHEP at /video/whep and static f
   const dir = mkdtempSync(path.join(tmpdir(), 'gcs-gw-'));
   writeFileSync(path.join(dir, 'index.html'), '<h1>pilot</h1>');
   const gw = await startGateway({ ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 }, coreSocket: path.join(dir, 'none.sock'),
-    webRoot: dir, video: { whep: `http://127.0.0.1:${up.address().port}/fpv/whep` } });
+    auth: { usersFile: path.join(dir, 'users.json') }, webRoot: dir, video: { whep: `http://127.0.0.1:${up.address().port}/fpv/whep` } });
   t.after(() => gw.close());
   const base = `http://127.0.0.1:${gw.port}`;
   const res = await fetch(`${base}/video/whep`, { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: 'v=0 offer' });
