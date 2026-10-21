@@ -117,14 +117,19 @@ Run the hardware tasks in this order: M1 T9, M3 T8, M4 T10, M5 T3–4, M6 T6, M7
 ## 5. Tests
 
 ```bash
-make -C core test                     # 110 C unit tests (UBSan)
-make -C core integration              # 33 tests: real binaries vs a Python fake TX module on a pty
+make -C core test                     # 125 C unit tests (UBSan)
+make -C core integration              # 36 tests: real binaries vs a Python fake TX module on a pty
 npm --prefix relay install && npm --prefix gateway install   # first time only
 npm --prefix relay test               # 11
-npm --prefix gateway test             # 153 (gateway + web)
+npm --prefix gateway test             # 209 (gateway + web)
 python3 -W error -m unittest discover -s tools/analysis -t tools/analysis   # 26
-make -C core && npm --prefix gateway run e2e   # 6 headless-Firefox tests (keyboard, layout, pilot, video), one at a time
+make -C core && npm --prefix gateway run e2e   # 8 headless-Firefox tests (handover, keyboard, layout, pilot, video), one at a time
 ```
+
+Counts from 2026-10-20 (`feat/pilot-auth-handover`), run on an x86 WSL (Kali) machine, where
+the video test was skipped (no MediaMTX). There the tools came from `build-essential`,
+`firefox-esr` (linked as `~/.local/bin/firefox`, the name the tests start) and Node 24: Kali's
+Node 22 package crashes `node --test` (`Missing internal module 'internal/deps/brace-expansion'`).
 
 The browser tests run one at a time (`--test-concurrency=1`): run in parallel, six Firefoxes on
 the Pi's 4 cores delay the page's commands enough that the arming tests time out.
@@ -135,17 +140,23 @@ first. The gateway's relay tests import `relay/`, so install both packages.
 
 ## 6. Open items for the team
 
-- **PENDING, BLOCKING for any real internet use: login on the pilot page.**
-  - **What happened:** on 2026-10-07 the gateway was exposed for a test through a Cloudflare
-    *quick tunnel* (`~/.local/bin/cloudflared tunnel --url https://localhost:8443 --no-tls-verify`,
-    a random `*.trycloudflare.com` address that lives only while that process runs). The team
-    chose to do this without login.
-  - **The risk:** the pilot page has no authentication, so anyone with the URL can take a free
-    pilot seat and arm the drone.
-  - **Before reusing a tunnel**, put a login in front: Cloudflare Access with a named tunnel, or
-    the M7 relay with its pilot token. Otherwise keep the page on the local network.
-  - Stop the tunnel when the test ends (kill the `cloudflared` process).
-  - A quick tunnel was used again, still without login, for the 2026-10-09 flights.
+- **Resolved 2026-10-20 (branch `feat/pilot-auth-handover`, once merged and installed): login on
+  the pilot page.** Before it, the gateway was exposed through a Cloudflare *quick tunnel*
+  (`~/.local/bin/cloudflared tunnel --url https://localhost:8443 --no-tls-verify`) for the
+  2026-10-07 test and the 2026-10-09 flights with no login, so anyone with the URL could arm.
+  - Now only signed-in pilots fly, on the local gateway and through the tunnel. Relay pilots
+    (`?room=`) still fly with the room's pilot token only, not an account.
+  - Pilots queue; a ready standby takes over without FAILSAFE when the pilot's commands stop
+    (`ARCHITECTURE.md` §6.1, §7.4). **With a standby, letting go hands over: Desarmar is the way
+    to stop.**
+  - **Before deploying it, create the first admin on the Pi** (the gateway refuses to start
+    without `auth.usersFile` in `/etc/gcs/gateway.json`; `deploy/gateway.json` has it):
+    `sudo -u gcs node /opt/gcs/gateway/src/users-cli.js /var/lib/gcs/users.json add <name> --admin`.
+    Run it as `gcs`: as root it would create a file the gateway cannot read. More pilots: `/admin`
+    on the page. **Restart `gcs-gateway` after any `users-cli.js` change**: the running gateway
+    keeps the accounts in memory.
+  - Bench steps: `docs/procedures/m4-pilot-checklist.md` 15–17.
+  - Stop a tunnel when the test ends (kill the `cloudflared` process).
 
 - **First flights, 2026-10-09: see `docs/flight-tests/2026-10-09-first-flights.md`.**
   - The web controller feels less smooth than the physical one.
