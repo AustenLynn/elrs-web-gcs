@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { after, test } from 'node:test';
 import { DEFAULTS } from '../src/config.js';
 import { startGateway } from '../src/server.js';
-import { firefox, openWithInputMode } from './helpers.js';
+import { firefox, login, makeUsers, openWithInputMode, waitFor } from './helpers.js';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const procs = [];
@@ -21,16 +21,23 @@ async function openAsPhone(page, port) {
   await page.open(`http://127.0.0.1:${port}/`);
   await page.evaluate("localStorage.setItem('gcs-input-mode', 'touch')");
   await page.open(`http://127.0.0.1:${port}/`);
+  // The header settles once /me and the welcome have answered (a signed-in page has no
+  // message to show): measure after that, not on the spectator page that comes first.
+  await waitFor(() => page.evaluate(`document.getElementById('auth-name').textContent === 'ana'
+    && (!document.body.classList.contains('observer') || document.body.classList.contains('queued'))`),
+    10000, 'the signed-in page');
 }
 
 test('control buttons stay out of the cockpit on landscape phone screens', { timeout: 90000 }, async () => {
   const tmp = mkdtempSync(path.join(tmpdir(), 'gcs-layout-'));
   const gw = await startGateway({ ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 },
-    coreSocket: path.join(tmp, 'no-core.sock'), webRoot: path.join(repo, 'web') });
+    coreSocket: path.join(tmp, 'no-core.sock'), webRoot: path.join(repo, 'web'),
+    auth: { usersFile: await makeUsers(tmp, [{ name: 'ana', password: 'ana-password' }]) } });
   after(() => gw.close());
   const page = await firefox(procs, tmp);
   after(() => page.close());
   await openWithInputMode(page, `http://127.0.0.1:${gw.port}/`, 'touch');   // these screens are phones
+  await login(page, 'ana', 'ana-password');                                  // the cookie stays for the reloads
   for (const [width, height] of [[800, 360], [740, 360], [640, 360]]) {
     await page.call('browsingContext.setViewport', { context: page.context, viewport: { width, height } });
     await openAsPhone(page, gw.port);
@@ -57,12 +64,14 @@ test('"Tomar control" survives the full-screen transition; a later layout change
   // control (found on the M4 bench). A resize later, with fingers on the sticks, still must.
   const tmp = mkdtempSync(path.join(tmpdir(), 'gcs-layout-'));
   const gw = await startGateway({ ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 },
-    coreSocket: path.join(tmp, 'no-core.sock'), webRoot: path.join(repo, 'web') });
+    coreSocket: path.join(tmp, 'no-core.sock'), webRoot: path.join(repo, 'web'),
+    auth: { usersFile: await makeUsers(tmp, [{ name: 'ana', password: 'ana-password' }]) } });
   after(() => gw.close());
   const page = await firefox(procs, tmp);
   after(() => page.close());
   await page.call('browsingContext.setViewport', { context: page.context, viewport: { width: 1280, height: 640 } });
   await openWithInputMode(page, `http://127.0.0.1:${gw.port}/`, 'touch');   // only the sticks care about layout
+  await login(page, 'ana', 'ana-password');
   await new Promise((resolve) => setTimeout(resolve, 1000));
   await page.evaluate('document.hasFocus = () => true');
   const deadman = () => page.evaluate("document.getElementById('deadman').textContent");
@@ -81,12 +90,14 @@ test('the pilot page fits phone screens held either way', { timeout: 120000 }, a
   // Landscape: sticks left and right. Either way: nothing off screen, nothing overlapping.
   const tmp = mkdtempSync(path.join(tmpdir(), 'gcs-layout-'));
   const gw = await startGateway({ ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 },
-    coreSocket: path.join(tmp, 'no-core.sock'), webRoot: path.join(repo, 'web') });
+    coreSocket: path.join(tmp, 'no-core.sock'), webRoot: path.join(repo, 'web'),
+    auth: { usersFile: await makeUsers(tmp, [{ name: 'ana', password: 'ana-password' }]) } });
   after(() => gw.close());
   const page = await firefox(procs, tmp);
   after(() => page.close());
   const overlap = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
   await openWithInputMode(page, `http://127.0.0.1:${gw.port}/`, 'touch');   // phones fly with the sticks
+  await login(page, 'ana', 'ana-password');
   for (const [width, height] of [[390, 844], [360, 780], [412, 915], [844, 390], [780, 360], [740, 360], [640, 360]]) {
     const at = `${width}x${height}`;
     await page.call('browsingContext.setViewport', { context: page.context, viewport: { width, height } });

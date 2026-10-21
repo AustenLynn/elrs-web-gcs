@@ -2,6 +2,7 @@
 // WebDriver BiDi (the W3C standard protocol) through a WebSocket.
 import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
+import { UserStore } from '../src/users.js';
 import path from 'node:path';
 import WebSocket from 'ws';
 
@@ -74,7 +75,7 @@ export async function firefox(procs, dir) {
     return r.result.value;
   };
   const open = (url) => call('browsingContext.navigate', { context, url, wait: 'complete' });
-  return { call, evaluate, open, context, errors, close: () => ws.close() };
+  return { call, evaluate, open, context, errors, process: ff, close: () => ws.close() };
 }
 
 /** Opens the pilot page with an input mode chosen (remembered by the page per origin), so the
@@ -83,4 +84,26 @@ export async function openWithInputMode(page, url, mode) {
   await page.open(url);
   await page.evaluate(`localStorage.setItem('gcs-input-mode', '${mode}')`);
   await page.open(url);
+}
+
+/** Writes a users file in `dir` through the gateway's own UserStore and returns its path.
+ *  `users`: [{ name, password, admin }]. */
+export async function makeUsers(dir, users) {
+  const file = path.join(dir, 'users.json');
+  const store = new UserStore(file);
+  await store.load();
+  for (const u of users) await store.add(u.name, u.password, !!u.admin);
+  return file;
+}
+
+/** Signs in through the page's own form, then waits for the reconnected page to be either
+ *  the pilot or queued behind one (it starts as a spectator, which is neither). */
+export async function login(page, name, password) {
+  await page.evaluate("document.getElementById('btn-login').click()");
+  await page.evaluate(`document.getElementById('login-name').value = ${JSON.stringify(name)};
+    document.getElementById('login-password').value = ${JSON.stringify(password)};
+    document.getElementById('login').requestSubmit()`);
+  await waitFor(() => page.evaluate(`document.getElementById('auth-name').textContent === ${JSON.stringify(name)}
+    && (!document.body.classList.contains('observer') || document.body.classList.contains('queued'))`),
+  10000, `${name} signed in as pilot or queued`);
 }

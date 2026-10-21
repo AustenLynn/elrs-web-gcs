@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { after, test } from 'node:test';
 import { DEFAULTS } from '../src/config.js';
 import { startGateway } from '../src/server.js';
-import { firefox, start, waitFor } from './helpers.js';
+import { firefox, makeUsers, start, waitFor } from './helpers.js';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const mediamtx = process.env.MEDIAMTX ?? '/opt/mediamtx/mediamtx';
@@ -42,6 +42,7 @@ test('watch.html plays the test pattern through the gateway', { timeout: 120000,
   const gw = await startGateway({
     ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 }, coreSocket: path.join(tmp, 'no-core.sock'),
     webRoot: path.join(repo, 'web'), video: { whep: 'http://127.0.0.1:18889/fpv/whep' },
+    auth: { usersFile: await makeUsers(tmp, [{ name: 'ana', password: 'ana-password' }]) },
   });
   after(() => gw.close());
   const page = await firefox(procs, tmp);
