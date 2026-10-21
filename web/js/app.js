@@ -88,7 +88,7 @@ function connect() {
     queued = null;
     readySent = false;
     status = null;
-    deadman.disengage('disconnected');
+    disengage('disconnected');
     if (next.retryMs !== null) setTimeout(connect, next.retryMs);
   };
 }
@@ -107,6 +107,7 @@ function handle(msg) {
       if (lostPending) {               // this status names the pilot who took over
         lostPending = false;
         toast(queueText({ role: 'queued', lost: true }, status));
+        queued = { ...queued, lost: false };   // told once: from now on the usual queue text
       }
       break;
     }
@@ -145,7 +146,7 @@ function onWelcome(msg) {
     if (msg.lost) {                  // the standby took over: back of the queue, not ready
       readySent = false;
       lostPending = true;            // toast once the status names the new pilot
-      deadman.disengage('lost');
+      disengage('lost');
       releaseKeys();
       armHold.release();
       $('btn-arm').style.setProperty('--progress', 0);
@@ -169,6 +170,14 @@ function takeOver(last) {
   clearTimeout(takeOver.timer);
   takeOver.timer = setTimeout(() => { $('takeover').hidden = true; }, 3000);
   navigator.vibrate?.(300);
+}
+
+/** Every way of losing control goes through here: a queued page tells the gateway at once
+ *  that it is no longer ready (a hidden tab's timers slow to 1 Hz or stop, so the control
+ *  loop is only a backstop). */
+function disengage(reason) {
+  deadman.disengage(reason);
+  setReady(false);
 }
 
 /** Queued: the gateway registers this page as the standby only while it is ready (dead-man
@@ -208,7 +217,7 @@ function startAgainAfterFailsafe() {
   armKey.release();
   armHold.release();
   $('btn-arm').style.setProperty('--progress', 0);
-  deadman.disengage('failsafe');
+  disengage('failsafe');
 }
 
 // 50 Hz control loop. Nothing is queued while disconnected or disengaged. In FAILSAFE every
@@ -239,7 +248,7 @@ function setInputMode(next, { save = true } = {}) {
   inputMode = next;
   resetInputs();
   switches.turtleOff();
-  deadman.disengage('input');
+  disengage('input');
   document.body.dataset.input = next;
   if (save) saveInputMode(storage(), next);
 }
@@ -499,7 +508,7 @@ const armKey = new HoldGesture(1000, () => send({ t: 'arm' }));
 const typing = (ev) => ev.target instanceof Element && ev.target.matches('input, textarea, select');
 document.addEventListener('keydown', (ev) => {
   if (role === 'queued' && ev.code === 'Escape' && !typing(ev)) {   // a ready standby lets go
-    deadman.disengage('released');
+    disengage('released');
     return;
   }
   if (role !== 'pilot' || typing(ev) || ev.ctrlKey || ev.metaKey || ev.altKey) return;
@@ -520,7 +529,7 @@ document.addEventListener('keydown', (ev) => {
   if (flightMode !== undefined) setFlightMode(flightMode);
   else if (action === 'disarm') send({ t: 'disarm' });
   else if (action === 'failsafe') send({ t: 'failsafe' });
-  else if (action === 'release') deadman.disengage('released');
+  else if (action === 'release') disengage('released');
   else if (action === 'arm') armKey.press(performance.now());
 });
 document.addEventListener('keyup', (ev) => {
@@ -535,18 +544,18 @@ const releaseKeys = () => {
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') {
-    deadman.disengage('hidden');
+    disengage('hidden');
     releaseKeys();
   }
 });
 window.addEventListener('blur', () => {
-  deadman.disengage('blur');
+  disengage('blur');
   releaseKeys();
 });
 // Esc in full screen is taken by the browser (it leaves full screen and the page never sees
 // the key): outside the touch mode, leaving full screen therefore also releases control.
 document.addEventListener('fullscreenchange', () => {
-  if (!document.fullscreenElement && inputMode !== 'touch') deadman.disengage('released');
+  if (!document.fullscreenElement && inputMode !== 'touch') disengage('released');
 });
 for (const type of ['resize', 'orientationchange', 'fullscreenchange']) {
   window.addEventListener(type, () => {
@@ -556,7 +565,7 @@ for (const type of ['resize', 'orientationchange', 'fullscreenchange']) {
     const action = layoutAction({ engaged: deadman.engaged, msSinceEngage: performance.now() - engagedAt,
       moved: padsMoved(padsAtEngage, boxes) });
     if (action === 'resnapshot') padsAtEngage = boxes;
-    else if (action === 'disengage') deadman.disengage('layout');
+    else if (action === 'disengage') disengage('layout');
   });
 }
 
