@@ -1,28 +1,15 @@
-# Status: paused 2026-10-20 at the user's request (Tasks 1–7 done, 8–9 not done)
+# Status: all tasks done and reviewed, 2026-10-20 (not merged, not deployed)
 
-Branch `feat/pilot-auth-handover`. Not merged, not deployed (the Pi still runs `main` from /opt/gcs).
+Branch `feat/pilot-auth-handover`. Tasks 1–9 done; whole-branch review done (fresh reviewer),
+its Critical and Important findings fixed. The Pi still runs `main` from /opt/gcs.
 
-**Done and reviewed (Tasks 1–7):** core handover (STANDBY, handover event, no chained handover,
-disarm/failsafe only from the active session), gateway IPC twin, accounts + sign-in cookie + login
-rate limit + users CLI, pilot queue and standby in the hub, admin API and `/admin` page, pilot page
-sign-in / «Listo» / takeover. Unit, integration and gateway+web suites passed at each task
-(last: core 36 integration tests, gateway+web 209 tests).
-
-**Not done:**
-- **Task 8 (browser e2e):** work in progress, committed as `WIP` and NOT run to green. Existing e2e
-  tests were being updated to sign in; `gateway/e2e/handover.e2e.js` is a draft. Expect the e2e suite
-  to fail until this task is finished.
-- **Task 9 (docs):** ARCHITECTURE.md, HANDOFF.md, the M4 checklist handover steps, relayClient.js
-  header comment, and "restart gcs-gateway after using users-cli" are not written yet.
-- **Final whole-branch review** has not run. The deferred minor findings below are for it.
-
-**To resume:** `git checkout feat/pilot-auth-handover`; finish Task 8 from
-`docs/superpowers/plans/2026-10-20-pilot-auth-handover.md` (check `vcgencmd measure_temp` first),
-then Task 9, then a whole-branch review.
-
-**Before any deployment:** the first admin must be created on the Pi
-(`sudo -u gcs node /opt/gcs/gateway/src/users-cli.js /var/lib/gcs/users.json add <name> --admin`);
-without `auth.usersFile` in `/etc/gcs/gateway.json` the new gateway refuses to start.
+**Still owed before deployment:**
+- Run all suites on the Pi (this session ran them on an x86 WSL box: C unit 125, integration 36,
+  relay 11, gateway+web 212, analysis 26, e2e 8 + video skipped).
+- Create the first admin on the Pi
+  (`sudo -u gcs node /opt/gcs/gateway/src/users-cli.js /var/lib/gcs/users.json add <name> --admin`);
+  without `auth.usersFile` in `/etc/gcs/gateway.json` the new gateway refuses to start.
+- Bench: `docs/procedures/m4-pilot-checklist.md` steps 15–17, propellers off.
 
 ---
 
@@ -118,3 +105,29 @@ Task 7: minor (deferred): lostPending survives a socket close (stale lost toast 
 Task 7: complete (commits 8a820fa..5c8ba1e, review clean)
 BASE Task 8: 5c8ba1e
 Task 8: stopped by the user mid-task; uncommitted work committed as WIP (untested).
+Task 8: resumed 2026-10-20 inline (superpowers:executing-plans) on the WSL dev box, not the Pi: build-essential, firefox-esr 140 (linked as ~/.local/bin/firefox) and Node 24.19 installed for it. Core 36 integration / gateway+web 209 / relay 11 green there before any change.
+Ruling: Task 8 counts 8 e2e tests (7 pass + video skipped), not the plan's 7 — the plan's Step 2.3 "a second run" (Esc) is its own test next to the closed-page one, so a failure names which path broke — cost if wrong: none.
+Ruling: the WIP commit 472bda6 already holds all of Task 8's code and is on origin, so it is not reworded (no force push) and no empty Task 8 commit is made; the ledger records the task — cost if wrong: the branch history shows a "WIP" subject for green code.
+Ruling: the e2e suite ran on an x86 WSL box (no vcgencmd, no MediaMTX: video e2e skipped) — the Pi run of all suites is still owed before deployment — cost if wrong: a Pi-only timing failure (300 ms window under load) is found later, on the bench.
+Task 8: mutation check — with luis's «Listo» removed, `closing the pilot page…` fails on "timed out waiting for luis shows TIENES EL CONTROL" (the test can fail for the right reason); file restored.
+Task 8: complete (commits 5c8ba1e..472bda6, tests: npm --prefix gateway run e2e → ℹ duration_ms 52740.048812)
+BASE Task 9: 472bda6
+Ruling: Task 9 also updates M4 checklist step 10 (a second device not signed in is a spectator, no "Ya hay un piloto" toast) and adds a sign-in note before step 3 — the old text no longer matches the page — cost if wrong: none.
+Ruling: HANDOFF §5 records the counts from the WSL run (C unit 125, integration 36, relay 11, gateway+web 209, analysis 26, e2e 8 with video skipped) and how that box was set up — the Pi was not used this session — cost if wrong: Pi counts differ only by the video test.
+Task 9: complete (commits 472bda6..3c9d3e6, tests: npm --prefix gateway test → ℹ duration_ms 5582.341043)
+Final review: fresh reviewer subagent (opus), package review-0222e56..3c9d3e6.diff. Verdict: ready with fixes; flight-safety part sound, all five Review Focus items OK.
+Final: fixed (Critical) admin screen 403 on every GET in a real browser (no Origin on same-origin GET) — auth.test "a browser reads the admin list without an Origin header" RED→GREEN, plus admin.e2e.js (new) RED "timed out waiting for the pilot list" → GREEN; suite 212/212, e2e 8 pass + video skipped
+Ruling: admin GET/HEAD with no Origin header is accepted on the admin cookie alone; a present Origin must still equal Host, and POST/DELETE always need it — browsers omit Origin on same-origin GETs, and a cross-site GET carries no SameSite=Strict cookie and cannot read the reply (no CORS) — cost if wrong: an old browser without SameSite support could be made to send a GET whose reply it cannot read (no state change).
+Final: fixed (Important) queued page at position 1 claimed to be the standby while not ready — hub.test "only the standby page is told it is the standby…" and view.test queue text RED→GREEN; suite 212/212
+Ruling: the hub marks the standby's queued welcome with standby:true (omitted otherwise) and re-sends a queued welcome when that flag changes; a not-ready position 1 shows "En la cola: puesto 1" — the page cannot know the hub's standby choice — cost if wrong: one extra welcome per ready change.
+Final: fixed (Important, raised from Task 6 minor) password change kept the pilot's existing cookies — auth.test "changing a password ends that pilot's sign-ins" RED→GREEN; suite 212/212
+Ruling: a password change ends all of that pilot's cookies, the admin's own included when changing their own password (they sign in again) — a leaked password must stop working at once — cost if wrong: an admin changing their own password is sent back to sign in.
+Final: minor (deferred): handover evidence-log entry always shows command age 0 (rtloop.c report_handover reads age after try_handover reset it).
+Final: minor (deferred): 5 wrong passwords a minute from anywhere lock a named pilot out of signing in (per-username limit, as the spec asked).
+Final: minor (deferred): removing a user in the ms window between the core's handover and the hub's event (awaitingCore) can remove the new pilot → failsafe.
+Final: minor (deferred): login limiter keys for one-off usernames are never swept (slow, bounded growth).
+Final: Ruling: (declined to judge) lastControl vs what is on the air in the cmd_timeout window — stays a deferred minor: only commands forwarded in a few ms, all < 200 ms old — cost if wrong: a small jump on takeover; seeding from lastStatus.channels would be exact.
+Final: Ruling: (declined to judge) an overflow of the core's 256-entry event queue dropping EV_HANDOVER would leave the seat empty until restart — liveness only, the core still fails safe; not reproduced — cost if wrong: after such an overflow nobody can take the seat until a gateway restart.
+Final: Ruling: (declined to judge) padsAtEngage taken while queued and compared after promotion on a resize could disengage the new pilot — unverified, depends on cockpit CSS; goes to the Pi bench (M4 steps 15) — cost if wrong: a promoted phone pilot rotating the phone loses control (fails safe).
+Final: Ruling: (declined to judge) relay pilots with the room token only, the 300+300 ms budget, keyboard takeover centring, scrypt load on the Pi — spec open items or earlier rulings, unchanged — cost if wrong: as recorded in the spec and earlier rulings.
+Final: Ruling: (declined to judge) Pi-only timing — every suite ran on the WSL box; the Pi run of all suites is owed before deployment — cost if wrong: a Pi-only failure found on the bench.
