@@ -1,14 +1,12 @@
 // The pilot page at phone sizes (landscape): no control button may sit over the cockpit,
 // where a thumb working a stick could hit "Desarmar" or "FAILSAFE" by accident.
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, test } from 'node:test';
 import { DEFAULTS } from '../src/config.js';
 import { startGateway } from '../src/server.js';
-import { firefox, login, makeUsers, openWithInputMode, waitFor } from './helpers.js';
+import { firefox, login, makeUsers, openWithInputMode, tempDir, waitFor } from './helpers.js';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const procs = [];
@@ -29,7 +27,7 @@ async function openAsPhone(page, port) {
 }
 
 test('control buttons stay out of the cockpit on landscape phone screens', { timeout: 90000 }, async () => {
-  const tmp = mkdtempSync(path.join(tmpdir(), 'gcs-layout-'));
+  const tmp = tempDir('gcs-layout-');
   const gw = await startGateway({ ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 },
     coreSocket: path.join(tmp, 'no-core.sock'), webRoot: path.join(repo, 'web'),
     auth: { usersFile: await makeUsers(tmp, [{ name: 'ana', password: 'ana-password' }]) } });
@@ -62,7 +60,7 @@ test('control buttons stay out of the cockpit on landscape phone screens', { tim
 test('"Tomar control" survives the full-screen transition; a later layout change ends control', { timeout: 90000 }, async () => {
   // Chrome on a Mac resizes the page for ~1 s after requestFullscreen(): that must not drop
   // control (found on the M4 bench). A resize later, with fingers on the sticks, still must.
-  const tmp = mkdtempSync(path.join(tmpdir(), 'gcs-layout-'));
+  const tmp = tempDir('gcs-layout-');
   const gw = await startGateway({ ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 },
     coreSocket: path.join(tmp, 'no-core.sock'), webRoot: path.join(repo, 'web'),
     auth: { usersFile: await makeUsers(tmp, [{ name: 'ana', password: 'ana-password' }]) } });
@@ -88,7 +86,7 @@ test('"Tomar control" survives the full-screen transition; a later layout change
 test('the pilot page fits phone screens held either way', { timeout: 120000 }, async () => {
   // Portrait: video and telemetry on top, both sticks side by side within thumb reach.
   // Landscape: sticks left and right. Either way: nothing off screen, nothing overlapping.
-  const tmp = mkdtempSync(path.join(tmpdir(), 'gcs-layout-'));
+  const tmp = tempDir('gcs-layout-');
   const gw = await startGateway({ ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 },
     coreSocket: path.join(tmp, 'no-core.sock'), webRoot: path.join(repo, 'web'),
     auth: { usersFile: await makeUsers(tmp, [{ name: 'ana', password: 'ana-password' }]) } });

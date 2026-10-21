@@ -3,14 +3,13 @@
 // (set MEDIAMTX=/path/to/mediamtx, default /opt/mediamtx/mediamtx).
 // Firefox fetches its H.264 plugin on first use, hence the generous timeout.
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, test } from 'node:test';
 import { DEFAULTS } from '../src/config.js';
 import { startGateway } from '../src/server.js';
-import { firefox, makeUsers, start, waitFor } from './helpers.js';
+import { firefox, makeUsers, start, tempDir, waitFor } from './helpers.js';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const mediamtx = process.env.MEDIAMTX ?? '/opt/mediamtx/mediamtx';
@@ -18,7 +17,7 @@ const procs = [];
 after(() => { for (const p of procs) p.kill('SIGKILL'); });
 
 test('watch.html plays the test pattern through the gateway', { timeout: 120000, skip: !existsSync(mediamtx) && `no MediaMTX at ${mediamtx}` }, async () => {
-  const tmp = mkdtempSync(path.join(tmpdir(), 'gcs-video-'));
+  const tmp = tempDir('gcs-video-');
   // the shipped config, moved to spare ports so a running gcs-video service is not disturbed
   const cfg = readFileSync(path.join(repo, 'deploy/video/mediamtx.yml'), 'utf8')
     // the test waits for the stream through the API, which the shipped config keeps off
