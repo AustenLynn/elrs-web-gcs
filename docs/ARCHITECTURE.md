@@ -314,11 +314,12 @@ Refusals come back from the core as `event` messages and are shown in Spanish
 - **Sign-in.** Every page starts as a spectator. «Iniciar sesión como piloto» posts to `/login`;
   the page then reconnects with the cookie and joins the pilot queue (`/me` tells it who it is).
   A spectator that asks for the pilot role sees `Inicia sesión para pilotar`.
-- **Queue and «Listo».** A queued page shows its place. The second one shows
-  `Estás en espera. Si {pilot} pierde la conexión, el control pasa a ti al instante.` and becomes the
-  standby only after «Listo para tomar el control» (full screen and dead-man engaged, like «Tomar
-  control»). A ready page sends `ready {on: true}` and no commands. Anything that would disengage
-  the dead-man sends `ready {on: false}` at once.
+- **Queue and «Listo».** A queued page shows its place (`En la cola: puesto n`). It becomes ready
+  with «Listo para tomar el control» (full screen and dead-man engaged, like «Tomar control»),
+  then sends `ready {on: true}` and no commands; anything that would disengage the dead-man sends
+  `ready {on: false}` at once. The first ready page is the standby: the gateway marks its
+  `welcome` with `standby: true`, and only that page shows
+  `Estás en espera. Si {pilot} pierde la conexión, el control pasa a ti al instante.`
 - **Takeover.** When the gateway promotes a ready page, its `welcome` carries the last command on
   the air. Every input mode starts from it (the throttle limit is raised when needed), so the first
   command does not drop the throttle. The page shows `TIENES EL CONTROL`. The old pilot's page,
@@ -528,7 +529,7 @@ stateDiagram-v2
 
 | Gateway → browser | Meaning |
 |-------------------|---------|
-| `welcome {role, session?, reason?, position?, takeover?, lost?}` | `observer` (`reason: "login_required"` or `"pilot_present"`), `queued` (`position`; `lost: true` after losing the control in a handover), or `pilot` (`takeover`: the last command on the air, after a handover) |
+| `welcome {role, session?, reason?, position?, takeover?, lost?}` | `observer` (`reason: "login_required"` or `"pilot_present"`), `queued` (`position`; `standby: true` on the standby's page; `lost: true` after losing the control in a handover), or `pilot` (`takeover`: the last command on the air, after a handover) |
 | `status {...}` | 10 Hz: core state, reason, `cmdAgeMs`, counters, channels, `core`, `pilot`, `pilotName`, `standbyName`, `rttMs`, `staleDropped` |
 | `telem {link \| battery \| flightMode \| device}` | decoded telemetry |
 | `event {what, refused?, reason?}` | arm or ack refused, with the reason; `what: "handover"` with the core's reason |
@@ -539,7 +540,9 @@ HTTP next to `/ws`: `POST /login {name, password}` (sets the `gcs_session` cooki
 bytes, `HttpOnly; Secure; SameSite=Strict`, 12 h; 5 failures per name and per address in 60 s →
 `429`), `POST /logout`, `GET /me` (the signed-in user, or `401 {noUsers}`). Admin: `GET /admin`
 (the page), `GET`/`POST /admin/users`, `POST /admin/users/<name>/password`,
-`DELETE /admin/users/<name>`; they need an admin cookie and an `Origin` equal to the `Host`.
+`DELETE /admin/users/<name>`; they need an admin cookie, and a POST or DELETE also an `Origin`
+equal to the `Host` (browsers send no `Origin` on a same-origin GET). A password change ends
+that pilot's sign-ins.
 
 ### 8.2 Gateway ↔ crsf-core (Unix stream socket)
 
@@ -722,7 +725,7 @@ The radio segment (module → drone → motors) can only be measured externally.
 | MediaMTX exposure | localhost only, except WebRTC media; API off; own user |
 | Relay authentication | yes, per-room tokens, constant-time comparison |
 | Authentication on the local pilot page | yes, pilot accounts (scrypt), `HttpOnly; Secure; SameSite=Strict` session cookie, login rate limit; without a cookie a page is a spectator |
-| Admin actions | admin cookie **and** `Origin` equal to `Host`; the flying pilot and the admin's own account cannot be removed |
+| Admin actions | admin cookie; changes also need `Origin` equal to `Host`; a password change ends the pilot's sign-ins; the flying pilot and the admin's own account cannot be removed |
 
 Spectators (no account) still see video, telemetry and status. Behind the Cloudflare tunnel the
 login rate limit keys the address on `CF-Connecting-IP` (trusted only from loopback). Relay

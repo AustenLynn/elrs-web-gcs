@@ -40,7 +40,7 @@ export class ControlHub {
   /** client: { send(obj), close() }; auth: { user: {name, admin} | null, relay } (stored for the queue) */
   attach(client, auth = { user: null, relay: false }) {
     this.clients.set(client, {
-      auth, role: null, session: 0, lastSeq: 0, ready: false, position: 0, clock: new ClockSync(),
+      auth, role: null, session: 0, lastSeq: 0, ready: false, position: 0, standby: false, clock: new ClockSync(),
       windowStart: this.now(), windowCount: 0,
     });
   }
@@ -177,7 +177,7 @@ export class ControlHub {
     if (old) {                     // cmd_timeout: its page is still open; it goes to the back
       const oc = this.clients.get(old);
       this.queue.push(old);
-      Object.assign(oc, { role: 'queued', ready: false, position: this.queue.length });
+      Object.assign(oc, { role: 'queued', ready: false, standby: false, position: this.queue.length });
       old.send({ t: 'welcome', role: 'queued', position: oc.position, lost: true });
     }
     this.pilot = null;
@@ -228,11 +228,14 @@ export class ControlHub {
   /** After any change to the seat or the queue: tell the core, the queued pages and everyone. */
   #changed() {
     this.#syncStandby();
+    const standby = this.#standby();
     this.queue.forEach((client, i) => {
       const c = this.clients.get(client);
-      if (c.position === i + 1) return;
+      const isStandby = client === standby;   // the first *ready* page, not necessarily position 1
+      if (c.position === i + 1 && c.standby === isStandby) return;
       c.position = i + 1;
-      client.send({ t: 'welcome', role: 'queued', position: c.position });
+      c.standby = isStandby;
+      client.send({ t: 'welcome', role: 'queued', position: c.position, ...(isStandby ? { standby: true } : {}) });
     });
     this.#broadcast(this.#statusMsg());
   }

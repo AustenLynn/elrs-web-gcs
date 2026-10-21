@@ -181,14 +181,30 @@ async function adminFixture(t, opts) {
   return { ...f, admin, plain, call, tokenOf: (who) => who.cookie.split('=')[1] };
 }
 
-test('admin routes refuse non-admins, no cookie, and a missing or foreign Origin', async (t) => {
+test('admin routes refuse non-admins, no cookie, a foreign Origin, and changes without Origin', async (t) => {
   const f = await adminFixture(t);
   assert.equal((await f.call(f.plain, 'GET', '/admin/users')).status, 403);
   assert.equal((await f.call({ origin: f.base }, 'GET', '/admin/users')).status, 403);
-  assert.equal((await f.call({ cookie: f.admin.cookie }, 'GET', '/admin/users')).status, 403);
+  assert.equal((await f.call({ cookie: f.admin.cookie }, 'DELETE', '/admin/users/luis')).status, 403);
+  assert.equal((await f.call({ cookie: f.admin.cookie }, 'POST', '/admin/users', { name: 'eva', password: 'longenough1' })).status, 403);
   assert.equal((await f.call({ cookie: f.admin.cookie, origin: 'http://evil.example' }, 'GET', '/admin/users')).status, 403);
   assert.equal((await f.call({ cookie: f.admin.cookie, origin: 'null' }, 'DELETE', '/admin/users/luis')).status, 403);
   assert.equal(f.users.list().length, 2);
+});
+
+test('a browser reads the admin list without an Origin header (same-origin GET)', async (t) => {
+  const f = await adminFixture(t);
+  const list = await f.call({ cookie: f.admin.cookie }, 'GET', '/admin/users');
+  assert.equal(list.status, 200);
+  assert.equal((await list.json()).length, 2);
+});
+
+test('changing a password ends that pilot\'s sign-ins', async (t) => {
+  const f = await adminFixture(t);
+  const token = f.tokenOf(f.plain);
+  assert.equal((await f.call(f.admin, 'POST', '/admin/users/luis/password', { password: 'another-pass' })).status, 204);
+  assert.equal(f.sessions.get(token), null);
+  assert.equal((await f.call(f.plain, 'GET', '/me')).status, 401);
 });
 
 test('admin lists, adds, changes a password and removes pilots', async (t) => {

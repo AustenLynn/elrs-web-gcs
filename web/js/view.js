@@ -85,12 +85,13 @@ export function recoverySteps({ status, engaged }) {
   return steps;
 }
 
-/** What a queued page says: standby (first in line), further back, or just lost the seat. */
-export function queueText({ role, position, lost }, status) {
+/** What a queued page says: the standby (the first ready page, as the gateway says), its place
+ *  in the queue, or that it just lost the seat. */
+export function queueText({ role, position, lost, standby }, status) {
   const pilot = status?.pilotName ?? '—';
   if (role !== 'queued') return '';
   if (lost) return `Perdiste el control: ahora vuela ${pilot}`;
-  if (position === 1) return `Estás en espera. Si ${pilot} pierde la conexión, el control pasa a ti al instante.`;
+  if (standby) return `Estás en espera. Si ${pilot} pierde la conexión, el control pasa a ti al instante.`;
   return `En la cola: puesto ${position}`;
 }
 

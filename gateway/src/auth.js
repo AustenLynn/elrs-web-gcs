@@ -165,7 +165,9 @@ export function authRoutes({ users, sessions, limiter, secure, hub }) {
 const USER_PATH = /^\/admin\/users\/([^/]+)(\/password)?$/;
 const ADMIN_STATUS = { bad_name: 400, bad_password: 400, exists: 409, unknown: 404 };
 
-/** Admin screen and its API. Every API call needs an admin cookie and an Origin equal to Host. */
+/** Admin screen and its API. Every API call needs an admin cookie; a change (POST, DELETE) also
+ *  needs an Origin equal to Host. Browsers send no Origin on a same-origin GET, and a GET from
+ *  another origin carries no SameSite=Strict cookie and cannot read the reply anyway. */
 function adminRoutes({ users, sessions, hub }) {
   const sameHost = (req) => {
     try {
@@ -174,6 +176,8 @@ function adminRoutes({ users, sessions, hub }) {
       return false;   // no Origin, or not a URL ("null")
     }
   };
+  const originOk = (req) =>
+    req.headers.origin === undefined && (req.method === 'GET' || req.method === 'HEAD') ? true : sameHost(req);
   const failed = (res, err) => {
     const status = ADMIN_STATUS[err?.code];
     if (!status) throw err;
@@ -187,7 +191,7 @@ function adminRoutes({ users, sessions, hub }) {
       req.url = '/admin.html';   // the static files serve it
       return false;
     }
-    if (!me?.admin || !sameHost(req)) return send(res, 403, { error: 'forbidden' }), true;
+    if (!me?.admin || !originOk(req)) return send(res, 403, { error: 'forbidden' }), true;
 
     if (route === '/admin/users') {
       if (req.method === 'GET') {
@@ -224,6 +228,7 @@ function adminRoutes({ users, sessions, hub }) {
       } catch (err) {
         return failed(res, err), true;
       }
+      sessions.endUser(name);   // whoever holds the old password's cookie signs in again
       send(res, 204);
       return true;
     }

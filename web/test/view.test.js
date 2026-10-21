@@ -131,7 +131,8 @@ test('age of the last command the core received', () => {
 });
 
 test('the queued page says who flies and what happens if they drop', () => {
-  assert.equal(queueText({ role: 'queued', position: 1 }, { pilotName: 'ana' }),
+  assert.equal(queueText({ role: 'queued', position: 1 }, { pilotName: 'ana' }), 'En la cola: puesto 1');   // not ready yet
+  assert.equal(queueText({ role: 'queued', position: 2, standby: true }, { pilotName: 'ana' }),
     'Estás en espera. Si ana pierde la conexión, el control pasa a ti al instante.');
   assert.equal(queueText({ role: 'queued', position: 1, lost: true }, { pilotName: 'luis' }), 'Perdiste el control: ahora vuela luis');
   assert.equal(queueText({ role: 'queued', position: 1, lost: true }, { pilotName: null }), 'Perdiste el control: ahora vuela —');

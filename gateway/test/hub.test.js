@@ -225,6 +225,19 @@ test('signed-in pilots queue in join order; the second is queued at position 1',
   assert.deepEqual(q2.last('welcome'), { t: 'welcome', role: 'queued', position: 1 });
 });
 
+test('only the standby page is told it is the standby, wherever it stands in the queue', () => {
+  const { hub } = setup();
+  join(hub);
+  const q1 = join(hub, 'pilot', user('luis'));
+  const q2 = join(hub, 'pilot', user('eva'));
+  hub.handle(q2, { t: 'ready', on: true });   // luis (first in line) is not ready: eva is the standby
+  assert.deepEqual(q2.last('welcome'), { t: 'welcome', role: 'queued', position: 2, standby: true });
+  assert.deepEqual(q1.last('welcome'), { t: 'welcome', role: 'queued', position: 1 });
+  hub.handle(q1, { t: 'ready', on: true });   // now luis is
+  assert.deepEqual(q1.last('welcome'), { t: 'welcome', role: 'queued', position: 1, standby: true });
+  assert.deepEqual(q2.last('welcome'), { t: 'welcome', role: 'queued', position: 2 });
+});
+
 test('a ready queued pilot becomes the standby and the core is told (STANDBY), not ready → STANDBY 0', () => {
   const { hub, core } = setup();
   const p = join(hub);

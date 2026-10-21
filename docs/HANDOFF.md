@@ -121,9 +121,9 @@ make -C core test                     # 125 C unit tests (UBSan)
 make -C core integration              # 36 tests: real binaries vs a Python fake TX module on a pty
 npm --prefix relay install && npm --prefix gateway install   # first time only
 npm --prefix relay test               # 11
-npm --prefix gateway test             # 209 (gateway + web)
+npm --prefix gateway test             # 212 (gateway + web)
 python3 -W error -m unittest discover -s tools/analysis -t tools/analysis   # 26
-make -C core && npm --prefix gateway run e2e   # 8 headless-Firefox tests (handover, keyboard, layout, pilot, video), one at a time
+make -C core && npm --prefix gateway run e2e   # 9 headless-Firefox tests (admin, handover, keyboard, layout, pilot, video), one at a time
 ```
 
 Counts from 2026-10-20 (`feat/pilot-auth-handover`), run on an x86 WSL (Kali) machine, where
