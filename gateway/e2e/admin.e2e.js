@@ -2,21 +2,19 @@
 // so this is the test that shows the list loads at all (the unit tests set headers by hand).
 // Needs: firefox.   Run: npm run e2e
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, test } from 'node:test';
 import { DEFAULTS } from '../src/config.js';
 import { startGateway } from '../src/server.js';
-import { firefox, login, makeUsers, waitFor } from './helpers.js';
+import { firefox, login, makeUsers, tempDir, waitFor } from './helpers.js';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const procs = [];
 after(() => procs.forEach((p) => p.kill('SIGKILL')));
 
 test('an admin opens /admin, sees the pilots and adds one', { timeout: 90000 }, async () => {
-  const tmp = mkdtempSync(path.join(tmpdir(), 'gcs-e2e-admin-'));
+  const tmp = tempDir('gcs-e2e-admin-');
   const gw = await startGateway({ ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 },
     coreSocket: path.join(tmp, 'no-core.sock'), webRoot: path.join(repo, 'web'),
     auth: { usersFile: await makeUsers(tmp, [{ name: 'ana', password: 'ana-password', admin: true }, { name: 'luis', password: 'luis-password' }]) } });

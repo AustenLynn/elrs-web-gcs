@@ -3,15 +3,14 @@
 // lets go with Esc, luis gets the control and the aircraft neither disarms nor loses throttle.
 // Needs: core built (make -C core), python3, firefox.   Run: npm run e2e
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { after, test } from 'node:test';
 import { DEFAULTS } from '../src/config.js';
 import { startGateway } from '../src/server.js';
-import { firefox, login, makeUsers, openWithInputMode, sleep, start, waitFor } from './helpers.js';
+import { firefox, login, makeUsers, openWithInputMode, sleep, start, tempDir, waitFor } from './helpers.js';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const THROTTLE = 2;
@@ -31,7 +30,7 @@ async function handover(name, dropAna) {
 }
 
 async function fly(procs, name, dropAna) {
-  const tmp = mkdtempSync(path.join(tmpdir(), `gcs-e2e-${name}-`));
+  const tmp = tempDir(`gcs-e2e-${name}-`);
   const fake = start(procs, 'python3', ['-u', 'fake_tx_cli.py'], { cwd: path.join(repo, 'core/tests/integration') });
   const frames = [];                       // every RC frame the fake module received
   const lines = readline.createInterface({ input: fake.stdout });

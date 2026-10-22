@@ -1,7 +1,8 @@
 // Shared helpers for the browser end-to-end tests: headless Firefox driven over
 // WebDriver BiDi (the W3C standard protocol) through a WebSocket.
 import { spawn } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { UserStore } from '../src/users.js';
 import path from 'node:path';
 import WebSocket from 'ws';
@@ -15,6 +16,20 @@ export async function waitFor(pred, ms, what) {
     if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
     await sleep(50);
   }
+}
+
+/** A fresh folder under the system temp dir, deleted when this test process exits (passed,
+ *  failed or timed out). On the Pi /tmp is a tmpfs in RAM, and a Firefox profile is ~50 MB. */
+export function tempDir(prefix) {
+  const dir = mkdtempSync(path.join(tmpdir(), prefix));
+  process.once('exit', () => {
+    try {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    } catch {
+      // a Firefox still writing into its profile: leave the folder rather than fail the run
+    }
+  });
+  return dir;
 }
 
 /** Starts a process and remembers it so the test can kill it afterwards. */

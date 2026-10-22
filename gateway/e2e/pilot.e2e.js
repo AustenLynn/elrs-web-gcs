@@ -1,18 +1,17 @@
 // End-to-end: the real pilot page in headless Firefox -> gateway -> crsf-core -> fake TX
 // module. Needs: core built (make -C core), python3, firefox.   Run: npm run e2e
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { after, test } from 'node:test';
 import { DEFAULTS } from '../src/config.js';
 import { startGateway } from '../src/server.js';
-import { firefox, login, makeUsers, start, waitFor } from './helpers.js';
+import { firefox, login, makeUsers, start, tempDir, waitFor } from './helpers.js';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const tmp = mkdtempSync(path.join(tmpdir(), 'gcs-e2e-'));
+const tmp = tempDir('gcs-e2e-');
 const procs = [];
 const ARM = 4;
 const SENSITIVITY = 6;   // fc_profile aquila20 (the default): CH7 is the drone's sensitivity, kept at S
