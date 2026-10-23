@@ -317,12 +317,15 @@ Refusals come back from the core as `event` messages and are shown in Spanish
   A spectator that asks for the pilot role sees `Inicia sesión para pilotar`.
 - **Queue and standby.** A queued page shows its place (`En la cola: puesto n`). The queue head is
   the standby: the gateway marks its `welcome` with `standby: true`, and only that page shows
-  `Estás en espera. Si {pilot} pierde la conexión, podrás tomar el control o aterrizar.` There is no
-  «Listo» and no `ready` message.
+  `Estás en espera. Si {pilot} pierde la conexión, podrás tomar el control o aterrizar.` With the hold
+  off (STATUS `holdMs` = 0) there is no rescue to promise, so it reads `Estás en espera. Si {pilot}
+  pierde la conexión, el dron se detiene.` and the banner has no buttons. There is no «Listo» and no
+  `ready` message.
 - **Hold banner.** While the core is in HOLD, a banner sits over the video (it never covers it):
   `{pilot} perdió la conexión · aterriza en N s`. The queue head's banner has **«Tomar el control»**
-  (sends `take`, and engages full screen, orientation lock and the dead-man like «Tomar control») and
-  **«Aterrizar»** (sends `land`). In LANDING the text is `Aterrizando…` with «Tomar el control» only.
+  (engages full screen, orientation lock and the dead-man like «Tomar control», then sends `take`
+  without waiting for the wake lock) and **«Aterrizar»** (sends `land`). A refused `take` or `land`
+  shows `Ya no es posible: el dron ya no está en espera` and lets go of the dead-man. In LANDING the text is `Aterrizando…` with «Tomar el control» only.
   Everyone else sees the same text with no buttons. The state pill reads `ESPERA · SIN PILOTO` or
   `ATERRIZANDO`. The countdown comes from the core's STATUS (`stage_left_ms`); the page decides
   nothing. If the pilot's commands return, their page shows the toast `Conexión recuperada`.
@@ -343,7 +346,7 @@ Files: `gateway/src/`. Entry point `main.js` loads `/etc/gcs/gateway.json` (`con
 
 | Module | Role |
 |--------|------|
-| `server.js` | HTTPS server, upgrade to `/ws` (with Origin check), WebSocket heartbeat (1 s ping; dead sockets terminated), 2 s clock-sync tick |
+| `server.js` | HTTPS server, upgrade to `/ws` (with Origin check), WebSocket heartbeat (1 s ping; a socket that missed a pong is terminated, except the seated pilot's with the hold on: kept until silent for `hold_ms` + 1 s, so a stalled phone can still resume), 2 s clock-sync tick |
 | `hub.js` | `ControlHub`: pilot queue and standby (the queue head), `take`/`land`, following the core's `taken` event, the connection log, validation, stale filter, rate limit, broadcasting |
 | `auth.js` | `/login`, `/logout`, `/me`, the admin API; in-memory session cookies; login rate limit |
 | `users.js` | `UserStore`: pilot accounts in `users.json` (scrypt hashes, atomic writes) |
@@ -475,8 +478,10 @@ stateDiagram-v2
     LANDING --> ARMED: first command of a session that did TAKE
     LANDING --> FAILSAFE: land_ms over
     ARMED --> FAILSAFE: gateway lost / new session / manual<br/>rf_lost (aquila20, 1 s)<br/>(+ timeout or pilot lost when hold_ms = 0)
-    HOLD --> FAILSAFE: disarm / gateway lost / new session<br/>manual / rf_lost
-    LANDING --> FAILSAFE: disarm / gateway lost / new session<br/>manual / rf_lost
+    HOLD --> DISARMED: disarm
+    LANDING --> DISARMED: disarm
+    HOLD --> FAILSAFE: gateway lost / new session<br/>manual / rf_lost
+    LANDING --> FAILSAFE: gateway lost / new session<br/>manual / rf_lost
     DISARMED --> FAILSAFE: manual
     FAILSAFE --> DISARMED: ack<br/>(session ok, fresh link, throttle low)
 ```
@@ -501,13 +506,19 @@ stateDiagram-v2
   is cleared and the core reports `taken` at once (the hub needs it to seat the pilot). The state
   stays HOLD or LANDING until the new session's first fresh command, then ARMED, and the countdown
   keeps running meanwhile. `LAND` is accepted from the standby in HOLD only and goes to LANDING. Anyone
-  else is refused (`not_standby`, `not_in_hold`). The old session is rejected after a TAKE.
+  else is refused (`not_standby`, `not_in_hold`). The old session is rejected after a TAKE. While a
+  TAKE waits for its first command, a second TAKE or a LAND (from the next queue head, now the
+  standby) is refused with `not_in_hold`. A TAKE that straddles the end of HOLD (or follows a LAND)
+  is first applied from LANDING: the air carries throttle 0 until the taker's first command, which
+  then applies the taker's stick (seeded from `hold_throttle`), so the throttle steps from 0 back to
+  about hover; this is accepted (it returns to hover, never towards a fall).
 - **LANDING.** ARM high, sticks centred, throttle minimum, Normal mode. After `land_ms` the core
   enters FAILSAFE, with the reason that started the hold. If that reason was `pilot_lost`, the seat is
   cleared so the queue head can sit; after `cmd_timeout` the pilot's page keeps it. A seat lost to
   `pilot_lost` is also cleared on any other exit from HOLD or LANDING.
 - **Instant paths.** Desarmar, manual FAILSAFE, `gateway_lost`, `rf_lost` and an unexpected `SESSION`
-  go straight to FAILSAFE or DISARMED from ARMED, HOLD and LANDING alike. `rf_lost` wins over
+  go straight to FAILSAFE or DISARMED from ARMED, HOLD and LANDING alike. Desarmar from HOLD or
+  LANDING also centres roll, pitch and yaw and sets the throttle to 0 (not `hold_throttle` with ARM low). `rf_lost` wins over
   `cmd_timeout` in the same tick.
 - **Letting go no longer stops the motors.** Esc, a hidden tab or a lost focus stops the page's
   commands, which starts a HOLD and then a landing. **Desarmar is the only way to stop the motors in
@@ -603,7 +614,7 @@ golden bytes in both test suites.
 | `0x03`–`0x07` ARM, DISARM, ACK, PILOT_LOST, FAILSAFE | gw → core | u32 session |
 | `0x08` STANDBY | gw → core | u32 session of the standby (the queue head); 0 = none |
 | `0x09` TAKE, `0x0A` LAND | gw → core | u32 session of the standby |
-| `0x81` STATUS | core → gw | 96 bytes, 10 Hz (state, reason, session, last seq, command age, counters, period, ELRS offset, worst wake-up, 16 channels, then `u32 stage_left_ms` and the outputs on the air: roll, pitch, yaw, throttle, mode, speed, turtle) |
+| `0x81` STATUS | core → gw | 96 bytes, 10 Hz (state, reason, session, last seq, command age, counters, period, ELRS offset, worst wake-up, 16 channels, then `u32 stage_left_ms`, the outputs on the air: roll, pitch, yaw, throttle, mode, speed, turtle, and byte 95 `hold_ds` = `hold_ms` / 100, 0 = hold off) |
 | `0x82`–`0x85` LINK, BATTERY, FLIGHT_MODE, DEVICE | core → gw | decoded telemetry |
 | `0x86` EVENT | core → gw | refusal kind and reason; kinds 4 `hold`, 5 `resumed`, 6 `taken`, 7 `landing` (detail = the reason that started the hold), 8 `take_refused`, 9 `land_refused`. Kind 3 is retired (it was the handover) |
 
