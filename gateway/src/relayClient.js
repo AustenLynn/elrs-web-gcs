@@ -74,7 +74,7 @@ export class RelayClient {
         close: () => send({ t: 'relay', ev: 'kick', id: m.id }),
       };
       this.#clients.set(m.id, client);
-      this.hub.attach(client, { user: null, relay: true });
+      this.hub.attach(client, { user: null, relay: true, via: 'relay' });
     } else if (m.ev === 'msg' && this.#clients.has(m.id)) {
       this.hub.handle(this.#clients.get(m.id), m.msg);
     } else if (m.ev === 'close' && this.#clients.has(m.id)) {

@@ -52,7 +52,15 @@
   <main class="cockpit">
     <div class="stick" id="stick-left"><div class="knob"></div><span class="label">Acelerador · Guiñada</span></div>
     <section class="center">
-      <div class="video"><video id="video" autoplay muted playsinline></video></div>
+      <div class="video">
+        <video id="video" autoplay muted playsinline></video>
+        <!-- HOLD / LANDING: a strip along the top of the video; the picture stays visible below it -->
+        <div id="hold-banner" class="hold-banner" role="alert" hidden>
+          <span id="hold-text"></span>
+          <button id="btn-hold-take" type="button">Tomar el control</button>
+          <button id="btn-hold-land" type="button">Aterrizar</button>
+        </div>
+      </div>
       <dl class="telemetry">
         <dt>Batería</dt><dd id="t-battery">—</dd>
         <dt>Enlace</dt><dd id="t-link">—</dd>
@@ -62,10 +70,9 @@
       </dl>
       <p class="onair" title="Lo que se está enviando al dron"><span id="ro-left"></span><span id="ro-right"></span></p>
       <p id="deadman" class="deadman"></p>
-      <!-- Queued pilot: who flies, and the button that makes this page the standby -->
+      <!-- Queued pilot: who flies, and (for the queue head) what happens if they drop -->
       <div id="standby" class="standby" hidden>
         <p id="queue-text"></p>
-        <button id="btn-ready" type="button">Listo para tomar el control</button>
       </div>
       <div id="toast" class="toast" hidden></div>
     </section>

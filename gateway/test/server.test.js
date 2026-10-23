@@ -11,7 +11,7 @@ import WebSocket from 'ws';
 import { DEFAULTS } from '../src/config.js';
 import { UserStore } from '../src/users.js';
 import { FrameReader, MSG } from '../src/ipc.js';
-import { startGateway } from '../src/server.js';
+import { heartbeatSweep, startGateway } from '../src/server.js';
 
 // A stand-in for crsf-core: records what the gateway sends, can push status.
 async function fakeCore(dir) {
@@ -138,8 +138,8 @@ test('pilot session end to end: sign in, hello, control, status, disconnect', as
   assert.deepEqual([c.readUInt32LE(0), c.readUInt32LE(4), c.readInt16LE(8), c.readInt16LE(10), c.readInt16LE(12), c.readUInt16LE(14), c[16]],
     [session, 1, 10, -20, 30, 400, 1]);
 
-  const status = Buffer.alloc(83);
-  status.writeUInt16LE(81, 0);
+  const status = Buffer.alloc(99);
+  status.writeUInt16LE(97, 0);
   status[2] = MSG.STATUS;
   status[3] = 1; // ARMED
   core.conn.write(status);
@@ -156,7 +156,7 @@ test('pilot session end to end: sign in, hello, control, status, disconnect', as
   observer.ws.close();
 });
 
-test('a ready queued pilot is registered as STANDBY and the core\'s handover event gives it the seat', async (t) => {
+test('the queue head can take during a hold and the core\'s taken event gives it the seat', async (t) => {
   const { core, wsUrl, login } = await setup(t);
   const cookie = await login();
   const a = await connect(wsUrl, { headers: { cookie } });
@@ -165,24 +165,25 @@ test('a ready queued pilot is registered as STANDBY and the core\'s handover eve
   const b = await connect(wsUrl, { headers: { cookie } });
   b.send({ t: 'hello', role: 'pilot' });
   await waitFor(() => b.msgs.some((m) => m.t === 'welcome'));
-  assert.deepEqual(b.msgs.find((m) => m.t === 'welcome'), { t: 'welcome', role: 'queued', position: 1 });
-  b.send({ t: 'ready', on: true });
+  assert.deepEqual(b.msgs.find((m) => m.t === 'welcome'), { t: 'welcome', role: 'queued', position: 1, standby: true });
   await waitFor(() => core.received.some((m) => m.type === MSG.STANDBY));
   const standby = core.received.find((m) => m.type === MSG.STANDBY).payload.readUInt32LE(0);
 
-  a.ws.close();
-  await waitFor(() => core.received.some((m) => m.type === MSG.PILOT_LOST));
-  const ev = Buffer.alloc(9);                        // EVENT handover, reason pilot_lost, to the standby
+  b.send({ t: 'take' });
+  await waitFor(() => core.received.some((m) => m.type === MSG.TAKE));
+  assert.equal(core.received.find((m) => m.type === MSG.TAKE).payload.readUInt32LE(0), standby);
+
+  const ev = Buffer.alloc(9);                        // EVENT taken (kind 6), reason pilot_lost, to the standby
   ev.writeUInt16LE(7, 0);
   ev[2] = MSG.EVENT;
-  ev[3] = 3;
+  ev[3] = 6;
   ev[4] = 2;
   ev.writeUInt32LE(standby, 5);
   core.conn.write(ev);
   await waitFor(() => b.msgs.some((m) => m.t === 'welcome' && m.role === 'pilot'));
   assert.equal(b.msgs.findLast((m) => m.t === 'welcome').session, standby);
-  assert.deepEqual(b.msgs.find((m) => m.t === 'event'), { t: 'event', what: 'handover', reason: 'pilot_lost' });
-  assert.equal(core.received.filter((m) => m.type === MSG.SESSION).length, 1);   // no SESSION for the promoted standby
+  assert.deepEqual(b.msgs.find((m) => m.t === 'event'), { t: 'event', what: 'taken', reason: 'pilot_lost', session: standby });
+  assert.equal(core.received.filter((m) => m.type === MSG.SESSION).length, 1);   // no SESSION for the taker
   b.ws.close();
 });
 
@@ -262,10 +263,12 @@ test('the WebSocket auth comes from the sign-in cookie; no or forged cookie is a
   (await connect(wsUrl, { headers: { cookie } })).ws.close();
   (await connect(wsUrl)).ws.close();
   (await connect(wsUrl, { headers: { cookie: `gcs_session=${'0'.repeat(64)}` } })).ws.close();
+  (await connect(wsUrl, { headers: { cookie, 'cf-connecting-ip': '203.0.113.9' } })).ws.close();
   assert.deepEqual(seen, [
-    { user: { name: 'ana', admin: true }, relay: false },
-    { user: null, relay: false },
-    { user: null, relay: false },
+    { user: { name: 'ana', admin: true }, relay: false, via: 'local' },
+    { user: null, relay: false, via: 'local' },
+    { user: null, relay: false, via: 'local' },
+    { user: { name: 'ana', admin: true }, relay: false, via: 'tunnel' },   // Cloudflare adds the header
   ]);
 });
 
@@ -325,4 +328,48 @@ test('with video configured, the gateway serves WHEP at /video/whep and static f
   assert.equal(res.status, 201);
   assert.equal(res.headers.get('location'), '/video/whep/s1');
   assert.equal(await (await fetch(`${base}/`)).text(), '<h1>pilot</h1>');
+});
+
+// Heartbeat: sockets that connected at t = 0 and never answer a ping, swept every second like
+// the gateway's 1 s interval. Returns the time each one was terminated (null = still open).
+function sweepUntil(endMs, sockets, { pilot = null, holdMs = 0 } = {}) {
+  const socks = sockets.map((client) => ({ client, isAlive: true, lastPongAt: 0, terminatedAt: null, pings: 0 }));
+  for (const s of socks) {
+    s.terminate = () => { s.terminatedAt = now; };
+    s.ping = () => { s.pings++; };
+  }
+  let now = 0;
+  for (now = 1000; now <= endMs; now += 1000) {
+    heartbeatSweep(socks.filter((s) => s.terminatedAt === null), { now, pilot, holdMs });
+  }
+  return socks.map((s) => s.terminatedAt);
+}
+
+test('heartbeat: with the hold on, the seated pilot keeps its socket for hold_ms + 1 s', () => {
+  const pilot = {}, queued = {}, observer = {};
+  const [p, q, o] = sweepUntil(6000, [pilot, queued, observer], { pilot, holdMs: 5000 });
+  assert.equal(p, null);                     // a stalled phone can still resume the hold
+  assert.equal(q, 2000);                     // everyone else: one missed pong
+  assert.equal(o, 2000);
+  assert.deepEqual(sweepUntil(8000, [pilot], { pilot, holdMs: 5000 }), [7000]);   // > 6000 ms without a pong
+});
+
+test('heartbeat: with the hold off, the pilot is dropped after one missed pong', () => {
+  const pilot = {};
+  assert.deepEqual(sweepUntil(4000, [pilot], { pilot, holdMs: 0 }), [2000]);
+});
+
+test('heartbeat: a pong keeps the socket and restarts the pilot\'s grace', () => {
+  const pilot = {};
+  const s = { client: pilot, isAlive: true, lastPongAt: 0, terminate() { this.gone = true; }, ping() {} };
+  heartbeatSweep([s], { now: 1000, pilot, holdMs: 1000 });
+  assert.equal(s.isAlive, false);
+  heartbeatSweep([s], { now: 2000, pilot, holdMs: 1000 });
+  assert.ok(!s.gone);
+  Object.assign(s, { isAlive: true, lastPongAt: 2500 });   // what the pong handler does
+  heartbeatSweep([s], { now: 3000, pilot, holdMs: 1000 });
+  heartbeatSweep([s], { now: 4000, pilot, holdMs: 1000 });
+  assert.ok(!s.gone);
+  heartbeatSweep([s], { now: 5000, pilot, holdMs: 1000 });
+  assert.ok(s.gone);                                      // 2500 ms after the last pong
 });

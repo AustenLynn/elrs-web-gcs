@@ -4,7 +4,7 @@ import net from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { CoreClient, FrameReader, MSG, REASONS, decodeBattery, decodeDevice, decodeEvent, decodeFlightMode, decodeLink, decodeStatus, encodeControl, encodeSessionMsg } from '../src/ipc.js';
+import { CoreClient, FrameReader, MSG, REASONS, STATES, decodeBattery, decodeDevice, decodeEvent, decodeFlightMode, decodeLink, decodeStatus, encodeControl, encodeSessionMsg } from '../src/ipc.js';
 
 // Same bytes as CONTROL_GOLDEN in core/tests/test_ipc_proto.c
 const CONTROL_GOLDEN = Buffer.from([
@@ -12,15 +12,9 @@ const CONTROL_GOLDEN = Buffer.from([
   0x18, 0xfc, 0xfa, 0x00, 0x00, 0x00, 0xe8, 0x03, 0x02, 0x02, 0x01,
 ]);
 // Produced by the C encoder (ipc_encode_status) for the sample in core/tests/test_ipc_proto.c
-const STATUS_GOLDEN = Buffer.from([
-  0x51, 0x00, 0x81, 0x02, 0x01, 0x02, 0x01, 0x04, 0x03, 0x02, 0x01, 0x63,
-  0x00, 0x00, 0x00, 0x2d, 0x01, 0x00, 0x00, 0xe8, 0x03, 0x00, 0x00, 0x02,
-  0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xa0,
-  0x0f, 0x00, 0x00, 0x2e, 0xfb, 0xff, 0xff, 0x07, 0x00, 0x00, 0x00, 0x55,
-  0x00, 0x00, 0x00, 0xac, 0x00, 0xad, 0x00, 0xae, 0x00, 0xaf, 0x00, 0xb0,
-  0x00, 0xb1, 0x00, 0xb2, 0x00, 0xb3, 0x00, 0xb4, 0x00, 0xb5, 0x00, 0xb6,
-  0x00, 0xb7, 0x00, 0xb8, 0x00, 0xb9, 0x00, 0xba, 0x00, 0xbb, 0x00,
-]);
+const STATUS_GOLDEN = Buffer.from(
+  '6100810201020104030201630000002d010000e8030000020000003200000001000000a00f00002efbffff0700000055000000ac00ad00ae00af00b000b100b200b300b400b500b600b700b800b900ba00bb00e110000006ff88ff4b00c20100020132',
+  'hex');
 
 test('control message matches the C encoder byte for byte', () => {
   const buf = encodeControl({ session: 0x01020304, seq: 5, roll: -1000, pitch: 250, yaw: 0, throttle: 1000, mode: 2,
@@ -54,6 +48,15 @@ test('decodes the STATUS produced by the C encoder', () => {
   assert.equal(s.offsetUs, -123.4);
   assert.equal(s.wakeLateMaxUs, 85);
   assert.deepEqual(s.channels, Array.from({ length: 16 }, (_, i) => 172 + i));
+  assert.equal(s.stageLeftMs, 4321);
+  assert.deepEqual(s.out, { roll: -250, pitch: -120, yaw: 75, throttle: 450, mode: 0, speed: 2, turtle: 1 });
+  assert.equal(s.holdMs, 5000);                    // byte 95: hold_ds = 50
+});
+
+test('STATES knows HOLD and LANDING', () => {
+  assert.deepEqual(STATES, ['DISARMED', 'ARMED', 'FAILSAFE', 'HOLD', 'LANDING']);
+  assert.equal(MSG.TAKE, 0x09);
+  assert.equal(MSG.LAND, 0x0A);
 });
 
 test('no-command age decodes as null', () => {
@@ -75,7 +78,12 @@ test('telemetry decoders', () => {
   });
   assert.deepEqual(decodeEvent(Buffer.from([1, 5, 9, 0, 0, 0])), { what: 'arm', refused: 'throttle_high', session: 9 });
   assert.deepEqual(decodeEvent(Buffer.from([1, 7, 9, 0, 0, 0])), { what: 'arm', refused: 'rf_down', session: 9 });
-  assert.deepEqual(decodeEvent(Buffer.from([3, 2, 9, 0, 0, 0])), { what: 'handover', reason: 'pilot_lost', session: 9 });
+  assert.deepEqual(decodeEvent(Buffer.from([6, 1, 9, 0, 0, 0])), { what: 'taken', reason: 'cmd_timeout', session: 9 });
+  assert.deepEqual(decodeEvent(Buffer.from([4, 2, 9, 0, 0, 0])), { what: 'hold', reason: 'pilot_lost', session: 9 });
+  assert.deepEqual(decodeEvent(Buffer.from([5, 0, 9, 0, 0, 0])), { what: 'resumed', reason: 'none', session: 9 });
+  assert.deepEqual(decodeEvent(Buffer.from([7, 6, 9, 0, 0, 0])), { what: 'landing', reason: 'rf_lost', session: 9 });
+  assert.deepEqual(decodeEvent(Buffer.from([8, 8, 9, 0, 0, 0])), { what: 'take', refused: 'not_standby', session: 9 });
+  assert.deepEqual(decodeEvent(Buffer.from([9, 9, 9, 0, 0, 0])), { what: 'land', refused: 'not_in_hold', session: 9 });
   assert.throws(() => decodeLink(Buffer.alloc(3)), RangeError);
   assert.throws(() => decodeFlightMode(Buffer.from([9, 65])), RangeError);
 });
@@ -122,6 +130,12 @@ test('core client connects, decodes, sends and reconnects', async (t) => {
   client.standby(0);
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.deepEqual(received[1], { type: MSG.STANDBY, payload: Buffer.alloc(4) });
+
+  client.take(7);
+  client.land(8);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.deepEqual(received[2], { type: MSG.TAKE, payload: Buffer.from([7, 0, 0, 0]) });
+  assert.deepEqual(received[3], { type: MSG.LAND, payload: Buffer.from([8, 0, 0, 0]) });
 
   const down = new Promise((resolve) => client.once('down', resolve));
   const upAgain = new Promise((resolve) => client.once('up', resolve));

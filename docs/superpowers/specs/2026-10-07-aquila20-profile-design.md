@@ -76,8 +76,15 @@ and `deploy/crsf-core.conf` sets it explicitly.
 
 ### 3.3 Why disarm-over-the-link is safe here
 
-- **The drone cannot land itself.** Stopping the motors is the only failsafe either way, the same as
-  the Betaflight "DROP" procedure the original setup chose.
+> **Amended 2026-10-22** ([hold-then-land spec](`2026-10-21-hold-then-land-failsafe-design.md`)): the first point below is no longer the design.
+> With `hold_ms` > 0 the drone lands itself in Normal mode at throttle minimum, and ARM goes low only
+> when the landing time is over. The other points still hold. Nothing flies this way before the team
+> approves it (spec §8).
+
+- ~~**The drone cannot land itself.**~~ *Superseded 2026-10-22:* in Normal mode at throttle minimum the
+  drone comes down and lands itself (flight report 2026-10-09 §1 item 3), so the core's failsafe holds,
+  then lands, and only then drops ARM. Before that, stopping the motors was the only failsafe, the same
+  as the Betaflight "DROP" procedure the original setup chose.
 - **Keeping the link up keeps the evidence.** Battery, link quality and mode keep reaching the
   page and the logs during a failsafe.
 - **If the Pi or crsf-core dies,** the module stops transmitting and the drone's own link-loss

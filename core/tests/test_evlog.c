@@ -13,12 +13,17 @@ static void test_state_event(void)
                    "\"to\":\"FAILSAFE\",\"reason\":\"cmd_timeout\",\"session\":7,\"cmd_age_ms\":301}");
 }
 
-static void test_handover_line(void)
+static void test_hold_lines(void)
 {
-    core_event_t ev = { .kind = EV_HANDOVER, .t_ns = 5, .a = FS_PILOT_LOST, .session = 9, .cmd_age_ms = 120 };
+    core_event_t ev = { .kind = EV_HOLD, .t_ns = 5, .a = HOLD_EV_TAKEN, .b = FS_PILOT_LOST, .session = 9,
+                        .cmd_age_ms = 120 };
     char out[512];
     CHECK(evlog_format(out, sizeof out, &ev, W) > 0);
-    CHECK(strstr(out, "\"ev\":\"handover\",\"to\":9,\"reason\":\"pilot_lost\",\"cmd_age_ms\":120}") != NULL);
+    CHECK(strstr(out, "\"ev\":\"taken\",\"reason\":\"pilot_lost\",\"session\":9,\"cmd_age_ms\":120}") != NULL);
+    ev.a = HOLD_EV_HOLD;
+    ev.b = FS_CMD_TIMEOUT;
+    CHECK(evlog_format(out, sizeof out, &ev, W) > 0);
+    CHECK(strstr(out, "\"ev\":\"hold\",\"reason\":\"cmd_timeout\",\"session\":9,") != NULL);
 }
 
 static void test_refused_and_timing_events(void)
@@ -27,6 +32,14 @@ static void test_refused_and_timing_events(void)
     core_event_t r = { .kind = EV_REFUSED, .t_ns = 1, .a = CMD_ACK, .b = REFUSE_FC_STILL_ARMED, .session = 3 };
     CHECK(evlog_format(out, sizeof out, &r, W) > 0);
     CHECK(strstr(out, "\"ev\":\"refused\",\"what\":\"ack\",\"reason\":\"fc_still_armed\"") != NULL);
+    r.a = CMD_TAKE;
+    r.b = REFUSE_NOT_STANDBY;
+    CHECK(evlog_format(out, sizeof out, &r, W) > 0);
+    CHECK(strstr(out, "\"ev\":\"refused\",\"what\":\"take\",\"reason\":\"not_standby\"") != NULL);
+    r.a = CMD_LAND;
+    r.b = REFUSE_NOT_IN_HOLD;
+    CHECK(evlog_format(out, sizeof out, &r, W) > 0);
+    CHECK(strstr(out, "\"ev\":\"refused\",\"what\":\"land\",\"reason\":\"not_in_hold\"") != NULL);
 
     core_event_t t = { .kind = EV_TIMING, .t_ns = 1, .a = 40000, .b = -1234 };
     CHECK(evlog_format(out, sizeof out, &t, W) > 0);
@@ -68,7 +81,7 @@ static void test_small_buffer_returns_zero(void)
 int main(void)
 {
     RUN(test_state_event);
-    RUN(test_handover_line);
+    RUN(test_hold_lines);
     RUN(test_refused_and_timing_events);
     RUN(test_sticks_event);
     RUN(test_text_from_aircraft_is_sanitised);

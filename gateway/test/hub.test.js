@@ -9,6 +9,7 @@ function fakeCore() {
     calls,
     sessionStart: rec('sessionStart'), control: rec('control'), arm: rec('arm'), disarm: rec('disarm'),
     ack: rec('ack'), pilotLost: rec('pilotLost'), failsafe: rec('failsafe'), standby: rec('standby'),
+    take: rec('take'), land: rec('land'),
   };
 }
 
@@ -23,8 +24,9 @@ function setup({ maxCommandAgeMs = 200 } = {}) {
   let now = 1000;
   let nextSession = 41;
   const core = fakeCore();
-  const hub = new ControlHub({ core, maxCommandAgeMs, now: () => now, newSession: () => ++nextSession });
-  return { hub, core, clock: { get: () => now, set: (v) => { now = v; } } };
+  const logs = [];
+  const hub = new ControlHub({ core, maxCommandAgeMs, now: () => now, newSession: () => ++nextSession, log: (o) => logs.push(o) });
+  return { hub, core, logs, clock: { get: () => now, set: (v) => { now = v; } } };
 }
 
 const ANA = { user: { name: 'ana', admin: true }, relay: false };
@@ -52,7 +54,7 @@ test('a second pilot is queued and cannot send commands', () => {
   const { hub, core } = setup();
   join(hub);
   const o = join(hub);
-  assert.deepEqual(o.sent[0], { t: 'welcome', role: 'queued', position: 1 });
+  assert.deepEqual(o.sent[0], { t: 'welcome', role: 'queued', position: 1, standby: true });
   hub.handle(o, { t: 'arm' });
   assert.equal(o.last('error').msg, 'observers cannot send commands');
   assert.equal(core.calls.filter((c) => c[0] === 'arm').length, 0);
@@ -207,7 +209,7 @@ test('a spectator who asks for the pilot role is told to sign in', () => {
   const { hub, core } = setup();
   const s = join(hub, 'pilot', SPECTATOR);
   assert.deepEqual(s.sent[0], { t: 'welcome', role: 'observer', reason: 'login_required' });
-  hub.handle(s, { t: 'ready', on: true });
+  hub.handle(s, { t: 'ready', on: true });   // `ready` is gone: an unknown type, like any other
   assert.equal(s.last('error').msg, 'observers cannot send commands');
   assert.deepEqual(core.calls, []);
 });
@@ -218,75 +220,11 @@ test('signed-in pilots queue in join order; the second is queued at position 1',
   const q1 = join(hub, 'pilot', user('luis'));
   const q2 = join(hub, 'pilot', user('eva'));
   assert.equal(p.last('welcome').role, 'pilot');
-  assert.deepEqual(q1.last('welcome'), { t: 'welcome', role: 'queued', position: 1 });
-  assert.deepEqual(q2.last('welcome'), { t: 'welcome', role: 'queued', position: 2 });
-  assert.deepEqual(core.calls, [['sessionStart', 42]]);   // only the head's session reaches the core
-  hub.detach(q1);
-  assert.deepEqual(q2.last('welcome'), { t: 'welcome', role: 'queued', position: 1 });
-});
-
-test('only the standby page is told it is the standby, wherever it stands in the queue', () => {
-  const { hub } = setup();
-  join(hub);
-  const q1 = join(hub, 'pilot', user('luis'));
-  const q2 = join(hub, 'pilot', user('eva'));
-  hub.handle(q2, { t: 'ready', on: true });   // luis (first in line) is not ready: eva is the standby
-  assert.deepEqual(q2.last('welcome'), { t: 'welcome', role: 'queued', position: 2, standby: true });
-  assert.deepEqual(q1.last('welcome'), { t: 'welcome', role: 'queued', position: 1 });
-  hub.handle(q1, { t: 'ready', on: true });   // now luis is
   assert.deepEqual(q1.last('welcome'), { t: 'welcome', role: 'queued', position: 1, standby: true });
   assert.deepEqual(q2.last('welcome'), { t: 'welcome', role: 'queued', position: 2 });
-});
-
-test('a ready queued pilot becomes the standby and the core is told (STANDBY), not ready → STANDBY 0', () => {
-  const { hub, core } = setup();
-  const p = join(hub);
-  const q1 = join(hub, 'pilot', user('luis'));
-  const q2 = join(hub, 'pilot', user('eva'));
-  hub.handle(q2, { t: 'ready', on: true });              // q1 isn't ready: the standby is q2
-  assert.deepEqual(standbyCalls(core), [['standby', 44]]);
-  hub.handle(q1, { t: 'ready', on: true });              // q1 joined first: it becomes the standby
-  assert.deepEqual(standbyCalls(core), [['standby', 44], ['standby', 43]]);
-  hub.handle(q2, { t: 'ready', on: false });             // not the standby: nothing changes
-  hub.handle(q1, { t: 'ready', on: false });
-  assert.deepEqual(standbyCalls(core), [['standby', 44], ['standby', 43], ['standby', 0]]);
-  hub.handle(p, { t: 'ready', on: true });               // the active pilot isn't queued
-  assert.equal(p.last('error').msg, 'observers cannot send commands');
-});
-
-test('not-ready standby is withdrawn with STANDBY 0', () => {
-  const { hub, core } = setup();
-  join(hub);
-  const q = join(hub, 'pilot', user('luis'));
-  hub.handle(q, { t: 'ready', on: true });
-  hub.handle(q, { t: 'ready', on: true });               // no change: no repeat
-  hub.handle(q, { t: 'ready', on: false });
-  assert.deepEqual(standbyCalls(core), [['standby', 43], ['standby', 0]]);
-  assert.equal(q.last('status').standbyName, null);
-});
-
-test('pilot socket closes with a standby: pilotLost, then the core\'s handover event promotes the standby with takeover of the last command', () => {
-  const { hub, core } = setup();
-  const p = join(hub);
-  const q = join(hub, 'pilot', user('luis'));
-  hub.handle(q, { t: 'ready', on: true });
-  hub.handle(p, ctl(1, { r: 10, p: -20, y: 30, th: 550, m: 1, sp: 2, tu: 0 }));
-  hub.detach(p);
-  assert.deepEqual(core.calls.at(-1), ['pilotLost', 42]);
-  hub.onCoreStatus({ state: 'ARMED', session: 42 });     // sent before the core saw PILOT_LOST
-  assert.equal(q.last('welcome').role, 'queued');        // the hub never promotes on its own
-  hub.onCoreEvent({ what: 'handover', reason: 'pilot_lost', session: 43 });
-  assert.deepEqual(q.last('event'), { t: 'event', what: 'handover', reason: 'pilot_lost' });
-  assert.deepEqual(q.last('welcome'),
-    { t: 'welcome', role: 'pilot', session: 43, takeover: { r: 10, p: -20, y: 30, th: 550, m: 1, sp: 2, tu: 0 } });
-  assert.equal(q.sent.at(-1).t, 'status');
-  assert.ok(q.sent.some((m) => m.t === 'tsync'));
-  assert.equal(core.calls.filter((c) => c[0] === 'sessionStart').length, 1);   // never SESSION for a promoted standby
-  hub.handle(q, ctl(1, { th: 550 }));
-  assert.equal(core.calls.at(-1)[0], 'control');
-  assert.equal(core.calls.at(-1)[1], 43);
-  hub.onCoreStatus({ state: 'ARMED', session: 43 });
-  assert.equal(q.last('status').pilotName, 'luis');
+  assert.deepEqual(core.calls, [['sessionStart', 42], ['standby', 43]]);   // the head's session, then the standby
+  hub.detach(q1);
+  assert.deepEqual(q2.last('welcome'), { t: 'welcome', role: 'queued', position: 1, standby: true });
 });
 
 test('pilot socket closes with no standby: pilotLost, and the next queued pilot gets the seat once status shows session 0', () => {
@@ -302,34 +240,11 @@ test('pilot socket closes with no standby: pilotLost, and the next queued pilot 
   assert.deepEqual(core.calls.at(-1), ['sessionStart', 43]);
 });
 
-test('after a handover the old pilot is queued, not ready, and its commands are refused', () => {
-  const { hub, core } = setup();
-  const p = join(hub);
-  const q = join(hub, 'pilot', user('luis'));
-  const r = join(hub, 'pilot', user('eva'));
-  hub.handle(q, { t: 'ready', on: true });
-  hub.handle(p, ctl(1, { th: 400 }));
-  hub.onCoreEvent({ what: 'handover', reason: 'cmd_timeout', session: 43 });   // p's socket is still open
-  assert.deepEqual(p.last('welcome'), { t: 'welcome', role: 'queued', position: 2, lost: true });
-  assert.deepEqual(r.last('welcome'), { t: 'welcome', role: 'queued', position: 1 });
-  assert.equal(q.last('welcome').role, 'pilot');
-  assert.equal(p.last('event').what, 'handover');
-  const before = core.calls.length;
-  hub.handle(p, ctl(2, { th: 400 }));
-  hub.handle(p, { t: 'disarm' });
-  assert.equal(p.last('error').msg, 'observers cannot send commands');
-  assert.equal(core.calls.length, before);
-  hub.handle(r, { t: 'ready', on: true });               // the new standby is registered at once
-  assert.deepEqual(core.calls.at(-1), ['standby', 44]);
-  assert.equal(core.calls.filter((c) => c[0] === 'sessionStart').length, 1);
-});
-
 test('a relay client may queue without a user; it is named "remoto"', () => {
   const { hub } = setup();
   join(hub);
   const remote = join(hub, 'pilot', { user: null, relay: true });
-  assert.deepEqual(remote.last('welcome'), { t: 'welcome', role: 'queued', position: 1 });
-  hub.handle(remote, { t: 'ready', on: true });
+  assert.deepEqual(remote.last('welcome'), { t: 'welcome', role: 'queued', position: 1, standby: true });
   assert.equal(remote.last('status').standbyName, 'remoto');
 });
 
@@ -339,10 +254,8 @@ test('status carries pilotName and standbyName', () => {
   assert.equal(o.last('status').pilotName, null);
   assert.equal(o.last('status').standbyName, null);
   join(hub);
-  const q = join(hub, 'pilot', user('luis'));
+  join(hub, 'pilot', user('luis'));
   assert.equal(o.last('status').pilotName, 'ana');
-  assert.equal(o.last('status').standbyName, null);      // queued but not ready
-  hub.handle(q, { t: 'ready', on: true });
   assert.equal(o.last('status').standbyName, 'luis');
   assert.equal(hub.activePilotName(), 'ana');
 });
@@ -352,7 +265,6 @@ test('dropUser closes a queued user\'s sockets and updates STANDBY', () => {
   const p = join(hub);
   const q = join(hub, 'pilot', user('luis'));
   const q2 = join(hub, 'observer', user('luis'));
-  hub.handle(q, { t: 'ready', on: true });
   hub.dropUser('luis');
   assert.ok(q.closed && q2.closed);
   assert.deepEqual(standbyCalls(core), [['standby', 43], ['standby', 0]]);
@@ -361,28 +273,204 @@ test('dropUser closes a queued user\'s sockets and updates STANDBY', () => {
   assert.equal(p.closed, false);
 });
 
-test('after the core comes back, the standby is registered again after the new SESSION', () => {
-  const { hub, core } = setup();
-  join(hub);
-  const q = join(hub, 'pilot', user('luis'));
-  hub.handle(q, { t: 'ready', on: true });
-  hub.onCoreDown();
-  hub.onCoreUp();
-  assert.deepEqual(core.calls.slice(-2), [['sessionStart', 44], ['standby', 43]]);
-});
-
-test('a handover to a standby whose page just left frees the core\'s seat, then the queue head is seated', () => {
+test('taken for a taker whose page just left frees the core\'s seat, then the queue head is seated', () => {
   const { hub, core } = setup();
   const p = join(hub);
   const q = join(hub, 'pilot', user('luis'));
   const r = join(hub, 'pilot', user('eva'));
-  hub.handle(q, { t: 'ready', on: true });
   hub.detach(q);                                         // gone while the core was already switching to it
-  hub.onCoreEvent({ what: 'handover', reason: 'cmd_timeout', session: 43 });
-  assert.deepEqual(core.calls.at(-1), ['pilotLost', 43]);
+  hub.onCoreEvent({ what: 'taken', reason: 'cmd_timeout', session: 43 });
+  assert.ok(core.calls.some((c) => c[0] === 'pilotLost' && c[1] === 43));
   assert.deepEqual(p.last('welcome'), { t: 'welcome', role: 'queued', position: 2, lost: true });
   assert.equal(r.last('welcome').role, 'queued');
   hub.onCoreStatus({ state: 'FAILSAFE', session: 0 });
   assert.deepEqual(r.last('welcome'), { t: 'welcome', role: 'pilot', session: 44 });
-  assert.deepEqual(core.calls.at(-1), ['sessionStart', 44]);
+  assert.ok(core.calls.some((c) => c[0] === 'sessionStart' && c[1] === 44));
+  assert.deepEqual(core.calls.at(-1), ['standby', 42]);   // ana, now the queue head, is the standby
+});
+
+test('the queue head is the standby without pressing anything', () => {
+  const { hub, core } = setup();
+  join(hub);
+  const q = join(hub, 'pilot', user('luis'));
+  assert.deepEqual(core.calls.at(-1), ['standby', 43]);
+  assert.equal(q.last('welcome').standby, true);
+});
+
+test('STANDBY follows the queue head when it leaves', () => {
+  const { hub, core } = setup();
+  join(hub);
+  const q1 = join(hub, 'pilot', user('luis'));
+  const q2 = join(hub, 'pilot', user('eva'));
+  assert.deepEqual(standbyCalls(core), [['standby', 43]]);
+  hub.detach(q1);
+  assert.deepEqual(standbyCalls(core), [['standby', 43], ['standby', 44]]);
+  assert.equal(q2.last('welcome').standby, true);
+  hub.detach(q2);
+  assert.deepEqual(standbyCalls(core), [['standby', 43], ['standby', 44], ['standby', 0]]);
+});
+
+test('take and land are refused from anyone but the queue head', () => {
+  const { hub, core } = setup();
+  const p = join(hub);
+  const head = join(hub, 'pilot', user('luis'));
+  const second = join(hub, 'pilot', user('eva'));
+  const spec = join(hub, 'observer', SPECTATOR);
+  for (const t of ['take', 'land']) {
+    for (const who of [second, spec, p]) {
+      hub.handle(who, { t });
+      assert.equal(who.last('error').msg, 'only the next pilot can take control or land');
+      who.sent.length = 0;
+    }
+    assert.equal(core.calls.filter((c) => c[0] === t).length, 0);
+    hub.handle(head, { t });
+    assert.deepEqual(core.calls.at(-1), [t, 43]);
+  }
+});
+
+test('taken seats the new pilot with the drone\'s current outputs as takeover', () => {
+  const { hub, core } = setup();
+  const p = join(hub);
+  const q = join(hub, 'pilot', user('luis'));
+  hub.onCoreStatus({ state: 'HOLD', session: 42, out: { roll: 0, pitch: 0, yaw: 0, throttle: 450, mode: 0, speed: 1, turtle: 0 } });
+  hub.onCoreEvent({ what: 'taken', reason: 'cmd_timeout', session: 43 });
+  assert.deepEqual(q.last('welcome'), { t: 'welcome', role: 'pilot', session: 43,
+    takeover: { r: 0, p: 0, y: 0, th: 450, m: 0, sp: 1, tu: 0 } });
+  // alone in the queue, the old pilot is the head: it is the new standby
+  assert.deepEqual(p.last('welcome'), { t: 'welcome', role: 'queued', position: 1, lost: true, standby: true });
+  assert.deepEqual(core.calls.at(-1), ['standby', 42]);
+  assert.equal(core.calls.filter((c) => c[0] === 'sessionStart').length, 1);
+  hub.handle(q, ctl(1, { th: 450 }));
+  assert.deepEqual(core.calls.at(-1).slice(0, 2), ['control', 43]);
+});
+
+test('taken after the old pilot\'s page closed seats the taker', () => {
+  const { hub, core } = setup();
+  const p = join(hub);
+  const q = join(hub, 'pilot', user('luis'));
+  hub.detach(p);
+  assert.deepEqual(core.calls.filter((c) => c[0] === 'pilotLost'), [['pilotLost', 42]]);
+  hub.onCoreEvent({ what: 'taken', reason: 'pilot_lost', session: 43 });
+  assert.equal(q.last('welcome').role, 'pilot');
+  assert.equal(hub.awaitingCore, false);
+  const before = core.calls.length;
+  hub.onCoreStatus({ state: 'ARMED', session: 43 });     // must not reseat anyone
+  assert.equal(core.calls.length, before);
+  assert.equal(q.last('status').pilotName, 'luis');
+});
+
+test('hold events reach every browser', () => {
+  const { hub } = setup();
+  const p = join(hub);
+  const q = join(hub, 'pilot', user('luis'));
+  const o = join(hub, 'observer', SPECTATOR);
+  for (const what of ['hold', 'resumed', 'landing']) {
+    hub.onCoreEvent({ what, reason: 'pilot_lost', session: 42 });
+    for (const c of [p, q, o]) assert.deepEqual(c.last('event'), { t: 'event', what, reason: 'pilot_lost', session: 42 });
+  }
+});
+
+test('take and land refusals go only to the queue head', () => {
+  const { hub } = setup();
+  const p = join(hub);
+  const q = join(hub, 'pilot', user('luis'));
+  hub.onCoreEvent({ what: 'take', refused: 'not_in_hold', session: 43 });
+  assert.deepEqual(q.last('event'), { t: 'event', what: 'take', refused: 'not_in_hold' });
+  assert.equal(p.last('event'), undefined);
+  hub.onCoreEvent({ what: 'land', refused: 'not_in_hold', session: 43 });
+  assert.deepEqual(q.last('event'), { t: 'event', what: 'land', refused: 'not_in_hold' });
+});
+
+test('core coming back during a hold clears the hold banner state', () => {
+  const { hub } = setup();
+  const p = join(hub);
+  hub.onCoreStatus({ state: 'HOLD', session: 42, stageLeftMs: 3000, out: { roll: 0, pitch: 0, yaw: 0, throttle: 450, mode: 0, speed: 1, turtle: 0 } });
+  hub.onCoreDown();
+  assert.equal(p.last('status').core, false);
+  assert.equal(p.last('status').stageLeftMs, undefined);
+  hub.onCoreUp();
+  assert.deepEqual(p.last('welcome'), { t: 'welcome', role: 'pilot', session: 43 });
+});
+
+test('late bursts over the tunnel are dropped as stale and logged', () => {
+  const { hub, core, logs, clock } = setup({ maxCommandAgeMs: 200 });
+  const p = join(hub, 'pilot', { ...ANA, via: 'tunnel' });
+  const s0 = p.last('tsync').s0;
+  clock.set(1010);
+  hub.handle(p, { t: 'tsync_r', s0, c1: 50005 });   // browser clock ~49000 ahead
+  clock.set(2000);
+  const send = (seq, age) => hub.handle(p, ctl(seq, { ts: clock.get() + 49000 - age }));
+  [144, 248, 139, 103, 204].forEach((age, i) => { send(i + 1, age); clock.set(clock.get() + 20); });
+  clock.set(clock.get() + 380);                      // 400 ms since the last arrival
+  send(6, 50);
+  const controls = core.calls.filter((c) => c[0] === 'control');
+  assert.deepEqual(controls.map((c) => c[2]), [1, 3, 4, 6]);
+  const stale = logs.filter((l) => l.ev === 'stale');
+  assert.equal(stale.length, 2);
+  assert.deepEqual(stale.map((l) => Math.round(l.ageMs)), [248, 204]);
+  assert.ok(stale.every((l) => l.name === 'ana' && l.via === 'tunnel'));
+  const gaps = logs.filter((l) => l.ev === 'gap');
+  assert.equal(gaps.length, 1);
+  assert.equal(gaps[0].name, 'ana');
+  assert.equal(gaps[0].ms, 400);
+});
+
+test('the connection log names who, how and when', () => {
+  const { hub, logs, clock } = setup();
+  const a = join(hub, 'pilot', { ...ANA, via: 'tunnel' });
+  join(hub, 'pilot', { ...user('bea'), via: 'local' });
+  hub.handle(a, ctl(1));
+  clock.set(clock.get() + 300);
+  hub.handle(a, ctl(2));
+  clock.set(clock.get() + 5000);
+  hub.detach(a);
+  assert.deepEqual(logs.map((l) => l.ev), ['join', 'seat', 'join', 'gap', 'leave']);
+  assert.deepEqual(logs.map((l) => l.via), ['tunnel', 'tunnel', 'local', 'tunnel', 'tunnel']);
+  assert.equal(logs[1].how, 'free');
+  assert.equal(logs[4].connectedS, 5.3);
+  assert.ok(logs.every((l) => !Object.keys(l).some((k) => /ip|pass/i.test(k))));
+});
+
+test('hold events are logged with the lost pilot and the path', () => {
+  const { hub, logs } = setup();
+  const a = join(hub, 'pilot', { ...ANA, via: 'relay' });
+  hub.detach(a);
+  hub.onCoreEvent({ what: 'hold', reason: 'pilot_lost', session: 42 });
+  assert.deepEqual(logs.at(-1), { ev: 'hold', name: 'ana', via: 'relay', reason: 'pilot_lost' });
+});
+
+test('the lost pilot\'s name stays in status during the hold and the landing', () => {
+  const { hub } = setup();
+  const p = join(hub);
+  const q = join(hub, 'pilot', user('luis'));
+  hub.detach(p);
+  assert.equal(q.last('status').pilotName, null);          // no HOLD from the core yet
+  for (const state of ['HOLD', 'LANDING']) {
+    hub.onCoreStatus({ state, session: 42 });
+    assert.equal(q.last('status').pilotName, 'ana');
+  }
+  hub.onCoreStatus({ state: 'FAILSAFE', session: 0 });     // the landing ended: luis gets the seat
+  assert.equal(q.last('welcome').role, 'pilot');
+  assert.equal(q.last('status').pilotName, 'luis');
+});
+
+test('the name of a pilot who dropped out is dropped once the state leaves HOLD and LANDING', () => {
+  const { hub } = setup();
+  const p = join(hub);
+  const o = join(hub, 'observer', SPECTATOR);
+  hub.detach(p);
+  hub.onCoreStatus({ state: 'HOLD', session: 42 });
+  assert.equal(o.last('status').pilotName, 'ana');
+  hub.onCoreStatus({ state: 'FAILSAFE', session: 0 });
+  assert.equal(o.last('status').pilotName, null);
+});
+
+test('after taken the status names the taker', () => {
+  const { hub } = setup();
+  const p = join(hub);
+  const q = join(hub, 'pilot', user('luis'));
+  hub.detach(p);
+  hub.onCoreStatus({ state: 'HOLD', session: 42 });
+  hub.onCoreEvent({ what: 'taken', reason: 'pilot_lost', session: 43 });
+  assert.equal(q.last('status').pilotName, 'luis');
 });

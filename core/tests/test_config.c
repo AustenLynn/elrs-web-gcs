@@ -177,6 +177,43 @@ static void test_validation_rules(void)
     CHECK_EQ_INT(config_validate(&c, err, sizeof err), -1);
 }
 
+static void test_hold_is_off_by_default(void)
+{
+    config_t c;
+    config_defaults(&c);
+    CHECK_EQ_INT(c.hold_ms, 0);
+    CHECK_EQ_INT(config_validate(&c, err, sizeof err), 0);   /* off: nothing else required */
+}
+
+static void test_hold_needs_throttle_and_land_time(void)
+{
+    config_t c;
+    config_defaults(&c);
+    CHECK_EQ_INT(config_set(&c, "hold_ms", "5000", err, sizeof err), 0);
+    CHECK_EQ_INT(config_validate(&c, err, sizeof err), -1);
+    CHECK(strstr(err, "hold_throttle") != NULL);
+    CHECK_EQ_INT(config_set(&c, "hold_throttle", "450", err, sizeof err), 0);
+    CHECK_EQ_INT(config_validate(&c, err, sizeof err), -1);
+    CHECK(strstr(err, "land_ms") != NULL);
+    CHECK_EQ_INT(config_set(&c, "land_ms", "6000", err, sizeof err), 0);
+    CHECK_EQ_INT(config_validate(&c, err, sizeof err), 0);
+}
+
+static void test_hold_ranges(void)
+{
+    config_t c;
+    config_defaults(&c);
+    c.hold_throttle = 450;
+    c.land_ms = 6000;
+    c.hold_ms = 999;   CHECK_EQ_INT(config_validate(&c, err, sizeof err), -1);
+    c.hold_ms = 10001; CHECK_EQ_INT(config_validate(&c, err, sizeof err), -1);
+    c.hold_ms = 1000;  CHECK_EQ_INT(config_validate(&c, err, sizeof err), 0);
+    c.land_ms = 999;   CHECK_EQ_INT(config_validate(&c, err, sizeof err), -1);
+    c.land_ms = 30001; CHECK_EQ_INT(config_validate(&c, err, sizeof err), -1);
+    c.land_ms = 6000;
+    c.hold_throttle = 1001; CHECK_EQ_INT(config_validate(&c, err, sizeof err), -1);
+}
+
 static void test_missing_file(void)
 {
     config_t c;
@@ -210,6 +247,9 @@ int main(void)
     RUN(test_unknown_key_reports_line);
     RUN(test_bad_values_are_rejected);
     RUN(test_validation_rules);
+    RUN(test_hold_is_off_by_default);
+    RUN(test_hold_needs_throttle_and_land_time);
+    RUN(test_hold_ranges);
     RUN(test_missing_file);
     RUN(test_production_config_is_valid);
     return CHECK_EXIT();

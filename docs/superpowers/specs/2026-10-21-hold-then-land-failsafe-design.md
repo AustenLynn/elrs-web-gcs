@@ -172,6 +172,10 @@ The state machine (main spec §5.3) gains **HOLD** and **LANDING** between ARMED
   pressed or `hold_ms` over), then the existing FAILSAFE status when `land_ms` ends.
 - Every one of them goes to the evidence log (`events.jsonl`) with a timestamp, plus the stick log
   as today while armed.
+- **Amendment 2026-10-23 (ruling R1, taken while building):** `taken` is reported when the core
+  accepts the TAKE, not when the new session's first command arrives: the hub needs it to seat the
+  taker, whose page sends no command before it is seated. The new session's first command is the
+  state change HOLD (or LANDING) → ARMED, visible in STATUS and in the evidence log.
 
 ### 4.5 Pilot page
 
@@ -183,7 +187,9 @@ The state machine (main spec §5.3) gains **HOLD** and **LANDING** between ARMED
     sending. The banner then shows "TIENES EL CONTROL", as today.
   - **Aterrizar** sends `land`; the banner shows "Aterrizando…".
 - **Second pilot, outside a hold:** "Estás en espera. Si ana pierde la conexión, podrás tomar el
-  control o aterrizar." No «Listo» button, no arm/disarm/FAILSAFE (A10 stays).
+  control o aterrizar." No «Listo» button, no arm/disarm/FAILSAFE (A10 stays). *Amendment
+  2026-10-23 (final review):* with `hold_ms` = 0 there is no rescue, so the text is "Estás en espera.
+  Si ana pierde la conexión, el dron se detiene." (the core reports its hold length in STATUS).
 - **Main pilot:** if their link comes back during the hold, they keep flying; their page shows a short
   toast ("Conexión recuperada"). If the second pilot took over, they see "Perdiste el control: ahora
   vuela luis", as today.

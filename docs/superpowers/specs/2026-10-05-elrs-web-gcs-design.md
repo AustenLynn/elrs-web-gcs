@@ -95,9 +95,14 @@ legal BVLOS operation.
 
 ### 3.2 Failure handling per segment (Deliverable 3, criterion C3)
 
+> **Amended 2026-10-22** ([hold-then-land spec](`2026-10-21-hold-then-land-failsafe-design.md`)): when the pilot's commands stop in flight, the
+> core no longer fails safe at once. It reacts within 300 ms (sticks neutral), **holds** for `hold_ms`,
+> **lands** for `land_ms`, and only then enters FAILSAFE. With `hold_ms = 0` (the default) the rows
+> below are unchanged. `gateway_lost`, `rf_lost`, Desarmar and manual FAILSAFE stay instant.
+
 | Segment (charter) | Failure | Detected by | Response | Time budget |
 |-------------------|---------|-------------|----------|-------------|
-| Operator ↔ Pi (local) | Wi-Fi loss, tab hidden, browser crash | core: no fresh command for 300 ms; gateway: WebSocket close → `PILOT_LOST`; page: dead-man stops sending | FAILSAFE in the next frame (≤ 4 ms): `aquila20` ARM low (the drone disarms); `betaflight` FAILSAFE switch high | ≤ 300 ms + 4 ms |
+| Operator ↔ Pi (local) | Wi-Fi loss, tab hidden, browser crash | core: no fresh command for 300 ms; gateway: WebSocket close → `PILOT_LOST`; page: dead-man stops sending | HOLD in the next frame (≤ 4 ms): ARM high, sticks centred, `hold_throttle`; then LANDING, then FAILSAFE (`aquila20` ARM low; `betaflight` FAILSAFE switch high). With `hold_ms = 0`: FAILSAFE at once | reaction ≤ 300 ms + 4 ms; motors stop after `hold_ms` + `land_ms` |
 | Operator ↔ Relay ↔ Pi (M7) | internet loss, relay down | same timer; relay close → `pilot_lost` | same | same |
 | Inside the Pi | gateway crash | core: socket closed → `GATEWAY_LOST` | same | immediate |
 | Inside the Pi | crsf-core crash | module stops getting frames | the drone's RX-loss failsafe: Aquila20 stops its motors at once (measured); Betaflight runs its procedure | Aquila20 immediate; Betaflight guard time (set ≤ 0.5 s) |
@@ -187,6 +192,13 @@ slots are skipped on the same phase grid (no frame bursts). **To verify on hardw
 (M3 bench step 2).
 
 ### 5.3 Safety state machine (pure logic, `core/src/safety.c`)
+
+> **Amended 2026-10-22** ([hold-then-land spec](`2026-10-21-hold-then-land-failsafe-design.md`) §4.1): two states, **HOLD** and **LANDING**, sit
+> between ARMED and FAILSAFE. `cmd_timeout` and `pilot_lost` enter HOLD (ARM high, sticks centred,
+> throttle `hold_throttle`, Normal mode) for `hold_ms`, then LANDING (throttle minimum) for `land_ms`,
+> then FAILSAFE. The same session's fresh command resumes; the queue head's TAKE or LAND picks the
+> outcome. Desarmar, manual FAILSAFE, `gateway_lost`, `rf_lost` and a new SESSION still go straight to
+> FAILSAFE. The diagram below shows `hold_ms = 0`.
 
 ```
             arm (session ok, link fresh, throttle ≤ 5 %)

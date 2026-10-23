@@ -43,3 +43,9 @@ test('auth.usersFile is required and must be a string', () => {
   assert.throws(() => validateConfig({ ...DEFAULTS, auth: {} }), /auth\.usersFile/);
   assert.throws(() => validateConfig({ ...DEFAULTS, auth: { usersFile: 5 } }), /auth\.usersFile/);
 });
+
+test('eventLog is null or a path', () => {
+  assert.equal(validateConfig({ ...DEFAULTS, eventLog: null }).eventLog, null);
+  assert.equal(validateConfig({ ...DEFAULTS, eventLog: '/tmp/e.jsonl' }).eventLog, '/tmp/e.jsonl');
+  assert.throws(() => validateConfig({ ...DEFAULTS, eventLog: 5 }), /eventLog/);
+});

@@ -32,6 +32,9 @@ typedef struct {
     int default_period_us;             /* frame period until the module sends timing frames */
     int sync_margin_us;                /* aim frames this much earlier than the module asks */
     int cmd_timeout_ms;                /* armed + no fresh command this long -> failsafe */
+    int hold_ms;                       /* two-stage failsafe: hold this long before landing; 0 = off */
+    int hold_throttle;                 /* 0..1000; throttle during hold and landing; -1 = unset */
+    int land_ms;                       /* how long the landing stage lasts; -1 = unset */
     int throttle_arm_max;              /* 0..1000; throttle must be <= this to arm or clear failsafe */
     int fc_armed_fresh_ms;             /* how long an "FC is armed" telemetry report stays valid */
     int model_id;                      /* ELRS model slot selected at start-up */

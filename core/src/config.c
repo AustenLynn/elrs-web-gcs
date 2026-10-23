@@ -15,6 +15,9 @@ void config_defaults(config_t *c)
     c->default_period_us = 4000;
     c->sync_margin_us = 1000;
     c->cmd_timeout_ms = 300;
+    c->hold_ms = 0;
+    c->hold_throttle = -1;
+    c->land_ms = -1;
     c->stick_log_ms = 100;
     c->throttle_arm_max = 50;
     c->fc_armed_fresh_ms = 3000;
@@ -82,6 +85,9 @@ int config_set(config_t *c, const char *key, const char *value, char *err, size_
         { "default_period_us", offsetof(config_t, default_period_us) },
         { "sync_margin_us", offsetof(config_t, sync_margin_us) },
         { "cmd_timeout_ms", offsetof(config_t, cmd_timeout_ms) },
+        { "hold_ms", offsetof(config_t, hold_ms) },
+        { "hold_throttle", offsetof(config_t, hold_throttle) },
+        { "land_ms", offsetof(config_t, land_ms) },
         { "stick_log_ms", offsetof(config_t, stick_log_ms) },
         { "throttle_arm_max", offsetof(config_t, throttle_arm_max) },
         { "fc_armed_fresh_ms", offsetof(config_t, fc_armed_fresh_ms) },
@@ -172,6 +178,14 @@ int config_validate(const config_t *c, char *err, size_t errlen)
         return fail(err, errlen, "sync_margin_us must be 0..5000");
     if (c->cmd_timeout_ms < 100 || c->cmd_timeout_ms > 900)
         return fail(err, errlen, "cmd_timeout_ms must be 100..900 (failsafe must react in < 1 s)");
+    if (c->hold_ms != 0 && (c->hold_ms < 1000 || c->hold_ms > 10000))
+        return fail(err, errlen, "hold_ms must be 0 (off) or 1000..10000");
+    if (c->hold_ms > 0) {
+        if (c->hold_throttle < 0 || c->hold_throttle > 1000)
+            return fail(err, errlen, "hold_throttle is required when hold_ms > 0 (measure the hover throttle first)");
+        if (c->land_ms < 1000 || c->land_ms > 30000)
+            return fail(err, errlen, "land_ms must be 1000..30000 when hold_ms > 0");
+    }
     if (c->stick_log_ms != 0 && (c->stick_log_ms < 20 || c->stick_log_ms > 1000))
         return fail(err, errlen, "stick_log_ms must be 0 (off) or 20..1000");
     if (c->throttle_arm_max < 0 || c->throttle_arm_max > 300)

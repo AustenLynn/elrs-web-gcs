@@ -135,7 +135,13 @@ body.queued .stick { visibility: visible; }
 .standby { display: flex; flex-direction: column; gap: 6px; align-items: center; text-align: center; }
 .standby[hidden] { display: none; }
 .standby p { margin: 0; }
-#btn-ready { border-color: var(--accent); }
+/* Strip along the top of the video (mockup B): it takes its own height, the picture stays visible below. */
+.video { position: relative; }
+.hold-banner { position: absolute; z-index: 2; left: 0; right: 0; top: 0; display: flex; flex-wrap: wrap; align-items: center;
+  justify-content: center; gap: 6px 10px; padding: 6px 10px; background: rgba(10, 14, 20, .82); border-bottom: 1px solid var(--warn);
+  color: var(--text); font-weight: 600; text-align: center; }
+.hold-banner[hidden], .hold-banner [hidden] { display: none; }
+.hold-banner button { padding: 4px 12px; border-color: var(--accent); }
 /* Over everything, but never in the way of the sticks under the new pilot's fingers. */
 .takeover { position: fixed; z-index: 4; left: 50%; top: 40%; transform: translate(-50%, -50%); pointer-events: none;
   padding: 18px 32px; border-radius: 16px; background: rgba(63, 214, 160, .92); color: #06150f;

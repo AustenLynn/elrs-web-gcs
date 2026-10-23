@@ -144,6 +144,15 @@ size_t ipc_encode_status(uint8_t *out, size_t cap, const ipc_status_t *s)
     put_u32(&w, s->wake_late_max_us);
     for (int i = 0; i < CRSF_NUM_CHANNELS; i++)
         put_u16(&w, s->channels[i]);
+    put_u32(&w, s->stage_left_ms);
+    put_u16(&w, (uint16_t)s->out_roll);
+    put_u16(&w, (uint16_t)s->out_pitch);
+    put_u16(&w, (uint16_t)s->out_yaw);
+    put_u16(&w, s->out_throttle);
+    put_u8(&w, s->out_mode);
+    put_u8(&w, s->out_speed);
+    put_u8(&w, s->out_turtle);
+    put_u8(&w, s->hold_ds);
     return finish(&w);
 }
 
@@ -249,5 +258,14 @@ int ipc_decode_status(const uint8_t *p, size_t n, ipc_status_t *s)
     s->wake_late_max_us = get_u32(&r);
     for (int i = 0; i < CRSF_NUM_CHANNELS; i++)
         s->channels[i] = get_u16(&r);
+    s->stage_left_ms = get_u32(&r);
+    s->out_roll = (int16_t)get_u16(&r);
+    s->out_pitch = (int16_t)get_u16(&r);
+    s->out_yaw = (int16_t)get_u16(&r);
+    s->out_throttle = get_u16(&r);
+    s->out_mode = get_u8(&r);
+    s->out_speed = get_u8(&r);
+    s->out_turtle = get_u8(&r);
+    s->hold_ds = get_u8(&r);
     return 0;
 }

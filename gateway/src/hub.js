@@ -2,10 +2,11 @@
 //  - Signed-in pages (and relay clients) asking for the pilot role join a queue in join order;
 //    everyone else is an observer. One active pilot; only its commands reach the core.
 //  - Every queued page gets a fresh random session id; only the active pilot's is sent with
-//    SESSION. The first ready queued page is the standby, and the core is told (STANDBY).
-//  - The hub never hands the seat over on its own while the core may still act: the core
-//    switches to the standby (cmd_timeout or pilot lost) and reports `handover`, and the hub
-//    follows it. A free seat goes to the queue head only once the core shows no session.
+//    SESSION. The queue head is the standby, and the core is told (STANDBY).
+//  - The hub never moves the seat on its own while the core may still act: when the pilot is
+//    lost the core holds, and the queue head may `take` (or `land`). The core switches to it
+//    and reports `taken`, and the hub follows. A free seat goes to the queue head only once
+//    the core shows no session.
 //  - The core treats a session change while armed as a failsafe, and a closed pilot
 //    connection as "pilot lost".
 //  - Control messages are validated, de-duplicated and dropped when older than
@@ -19,40 +20,43 @@ const defaultNow = () => performance.now();
 const randomSession = () => randomInt(1, 0xffffffff);
 const isInt = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
 const round1 = (v) => Math.round(v * 10) / 10;
+const GAP_LOG_MS = 250;   // a longer silence between the pilot's commands is worth a log line
 
 export class ControlHub {
-  constructor({ core, maxCommandAgeMs = 200, now = defaultNow, newSession = randomSession }) {
+  constructor({ core, maxCommandAgeMs = 200, now = defaultNow, newSession = randomSession, log = () => {} }) {
     this.core = core;
     this.maxCommandAgeMs = maxCommandAgeMs;
     this.now = now;
     this.newSession = newSession;
+    this.log = log;              // called with plain objects (the connection log)
     this.clients = new Map();
     this.pilot = null;           // the active pilot's client
     this.queue = [];             // queued clients waiting for the seat, in join order
     this.awaitingCore = false;   // the active pilot left: the seat waits for the core's verdict
     this.sentStandby = 0;        // the standby session the core last heard from us
-    this.lastControl = null;     // last forwarded command, for a promoted standby's takeover
     this.telemetry = {};
     this.lastStatus = null;
     this.staleDropped = 0;
+    this.lastPilot = { name: null, via: 'local' };   // who last held the seat (for hold events)
   }
 
-  /** client: { send(obj), close() }; auth: { user: {name, admin} | null, relay } (stored for the queue) */
+  /** client: { send(obj), close() }; auth: { user: {name, admin} | null, relay, via } (stored for the queue) */
   attach(client, auth = { user: null, relay: false }) {
     this.clients.set(client, {
-      auth, role: null, session: 0, lastSeq: 0, ready: false, position: 0, standby: false, clock: new ClockSync(),
-      windowStart: this.now(), windowCount: 0,
+      auth, role: null, session: 0, lastSeq: 0, position: 0, standby: false, clock: new ClockSync(),
+      windowStart: this.now(), windowCount: 0, joinedAt: this.now(), lastCmdAt: null,
     });
   }
 
   detach(client) {
     const c = this.clients.get(client);
     if (!c) return;
+    this.#log('leave', c, { role: c.role, connectedS: round1((this.now() - c.joinedAt) / 1000) });
     this.clients.delete(client);
     if (this.pilot === client) {
       this.pilot = null;
       this.core.pilotLost(c.session);
-      this.awaitingCore = true;   // a handover event, or a status with no session, decides
+      this.awaitingCore = true;   // a taken event, or a status with no session, decides
     } else if (c.role === 'queued') {
       this.queue.splice(this.queue.indexOf(client), 1);
     } else {
@@ -91,12 +95,14 @@ export class ControlHub {
       if (typeof msg.s0 === 'number' && typeof msg.c1 === 'number') c.clock.add(msg.s0, msg.c1, this.now());
       return;
     }
-    if (msg.t === 'ready' && c.role === 'queued') {
-      c.ready = msg.on === true;
-      this.#changed();
+    if (msg.t === 'take' || msg.t === 'land') {
+      // The core checks the session is its standby and the state allows it; this only keeps
+      // other pages from asking.
+      if (client === this.queue[0]) this.core[msg.t](c.session);
+      else client.send({ t: 'error', msg: 'only the next pilot can take control or land' });
       return;
     }
-    if (client !== this.pilot || msg.t === 'ready') {   // only queued pages can be ready
+    if (client !== this.pilot) {
       client.send({ t: 'error', msg: 'observers cannot send commands' });
       return;
     }
@@ -120,7 +126,7 @@ export class ControlHub {
 
   onCoreStatus(status) {
     this.lastStatus = status;
-    if (this.awaitingCore && status.session === 0) {   // no handover: the seat is free
+    if (this.awaitingCore && status.session === 0) {   // nobody was taken: the seat is free
       this.awaitingCore = false;
       this.#seatHead();
       this.#changed();
@@ -158,39 +164,54 @@ export class ControlHub {
   }
 
   onCoreEvent(ev) {
-    if (ev.what !== 'handover') {
-      this.#broadcast({ t: 'event', what: ev.what, refused: ev.refused });
-      return;
+    if (ev.what !== 'taken') this.#logEvent(ev);   // 'taken' is logged once the seat has moved
+    switch (ev.what) {
+      case 'hold': case 'resumed': case 'landing':
+        this.#broadcast({ t: 'event', what: ev.what, reason: ev.reason, session: ev.session });
+        break;
+      case 'taken':
+        this.#broadcast({ t: 'event', what: 'taken', reason: ev.reason, session: ev.session });
+        this.#follow(ev.session);
+        this.#logEvent(ev);
+        break;
+      case 'take': case 'land':   // refused: only the one who asked cares
+        this.queue[0]?.send({ t: 'event', what: ev.what, refused: ev.refused });
+        break;
+      default:
+        this.#broadcast({ t: 'event', what: ev.what, refused: ev.refused });
     }
-    this.#broadcast({ t: 'event', what: 'handover', reason: ev.reason });
-    this.#handover(ev.session);
   }
 
   /** The core made `session` the active one (and cleared its standby). Follow it: never
    *  send SESSION here, the core already switched (a SESSION while armed would fail safe). */
-  #handover(session) {
+  #follow(session) {
     const old = this.pilot;
     if (old && this.clients.get(old).session === session) return;
     this.sentStandby = 0;
     const next = this.queue.find((q) => this.clients.get(q).session === session) ?? null;
     if (next) this.queue.splice(this.queue.indexOf(next), 1);
-    if (old) {                     // cmd_timeout: its page is still open; it goes to the back
+    if (old) {                     // its page is still open; it goes to the back
       const oc = this.clients.get(old);
       this.queue.push(old);
-      Object.assign(oc, { role: 'queued', ready: false, standby: false, position: this.queue.length });
-      old.send({ t: 'welcome', role: 'queued', position: oc.position, lost: true });
+      // Alone in the queue it is the head, hence the new standby: say so in the same message.
+      Object.assign(oc, { role: 'queued', standby: this.queue[0] === old, position: this.queue.length });
+      old.send({ t: 'welcome', role: 'queued', position: oc.position, lost: true, ...(oc.standby ? { standby: true } : {}) });
     }
     this.pilot = null;
     if (next) {
       this.awaitingCore = false;
       const nc = this.clients.get(next);
-      Object.assign(nc, { role: 'pilot', ready: false, lastSeq: 0 });
+      Object.assign(nc, { role: 'pilot', lastSeq: 0, lastCmdAt: null });
       this.pilot = next;
-      next.send({ t: 'welcome', role: 'pilot', session, ...(this.lastControl ? { takeover: this.lastControl } : {}) });
+      this.lastPilot = { name: this.#name(nc), via: nc.auth.via ?? 'local' };
+      this.#log('seat', nc, { how: 'taken' });
+      const o = this.lastStatus?.out;   // the sticks on the air: the taker's page starts from them
+      const takeover = o ? { r: o.roll, p: o.pitch, y: o.yaw, th: o.throttle, m: o.mode, sp: o.speed, tu: o.turtle } : null;
+      next.send({ t: 'welcome', role: 'pilot', session, ...(takeover ? { takeover } : {}) });
       next.send({ t: 'tsync', s0: this.now() });
     } else {
       // Nobody here owns that session (its page just left): free the core's seat, so the
-      // core ends the pending handover and shows no session.
+      // core ends the pending hold and shows no session.
       this.core.pilotLost(session);
       this.awaitingCore = true;
     }
@@ -199,6 +220,7 @@ export class ControlHub {
 
   #hello(client, c, msg) {
     const mayFly = c.auth.user !== null || c.auth.relay;
+    this.#log('join', c, { role: msg.role === 'pilot' ? 'pilot' : 'observer' });
     if (msg.role === 'pilot' && mayFly) {
       c.role = 'queued';
       c.session = this.newSession();
@@ -217,8 +239,10 @@ export class ControlHub {
     if (this.pilot !== null || this.awaitingCore || this.queue.length === 0) return;
     const client = this.queue.shift();
     const c = this.clients.get(client);
-    Object.assign(c, { role: 'pilot', ready: false, lastSeq: 0 });
+    Object.assign(c, { role: 'pilot', lastSeq: 0, lastCmdAt: null });
     this.pilot = client;
+    this.lastPilot = { name: this.#name(c), via: c.auth.via ?? 'local' };
+    this.#log('seat', c, { how: 'free' });
     this.core.sessionStart(c.session);
     this.sentStandby = 0;          // SESSION clears the core's standby
     client.send({ t: 'welcome', role: 'pilot', session: c.session });
@@ -231,7 +255,7 @@ export class ControlHub {
     const standby = this.#standby();
     this.queue.forEach((client, i) => {
       const c = this.clients.get(client);
-      const isStandby = client === standby;   // the first *ready* page, not necessarily position 1
+      const isStandby = client === standby;
       if (c.position === i + 1 && c.standby === isStandby) return;
       c.position = i + 1;
       c.standby = isStandby;
@@ -241,7 +265,7 @@ export class ControlHub {
   }
 
   #standby() {
-    return this.queue.find((q) => this.clients.get(q).ready) ?? null;
+    return this.queue[0] ?? null;
   }
 
   #syncStandby() {
@@ -250,6 +274,16 @@ export class ControlHub {
     if (session === this.sentStandby) return;
     this.sentStandby = session;
     this.core.standby(session);
+  }
+
+  #log(ev, c, extra = {}) {
+    this.log({ ev, name: this.#name(c), via: c.auth.via ?? 'local', ...extra });
+  }
+
+  /** A core event (hold, resumed, taken, landing) with the pilot it concerns. */
+  #logEvent(ev) {
+    if (!['hold', 'resumed', 'taken', 'landing'].includes(ev.what)) return;
+    this.log({ ev: ev.what, name: this.lastPilot.name, via: this.lastPilot.via, reason: ev.reason });
   }
 
   #name(c) {
@@ -263,20 +297,31 @@ export class ControlHub {
       isInt(m.th, 0, 1000) && isInt(m.m, 0, 2) && optional(m.sp, 2) && optional(m.tu, 1);
     if (!valid) return; // garbage never refreshes the core's failsafe timer
     c.lastSeq = m.seq;
-    if (c.clock.ready && c.clock.age(m.ts, this.now()) > this.maxCommandAgeMs) {
-      this.staleDropped++;
-      return;
+    // The gap counts the arrival of any valid-format command, stale or not: a stale one
+    // still proves the link delivered something, and a gap of silence is what we look for.
+    // Logging comes after the forwarding decision: it never sits in front of core.control.
+    const now = this.now();
+    const gapMs = c.lastCmdAt === null ? 0 : now - c.lastCmdAt;
+    c.lastCmdAt = now;
+    const ageMs = c.clock.ready ? c.clock.age(m.ts, now) : 0;
+    const stale = ageMs > this.maxCommandAgeMs;
+    if (stale) this.staleDropped++;
+    else {
+      this.core.control(c.session, m.seq,
+        { roll: m.r, pitch: m.p, yaw: m.y, throttle: m.th, mode: m.m, speed: m.sp ?? 0, turtle: m.tu ?? 0 });
     }
-    this.lastControl = { r: m.r, p: m.p, y: m.y, th: m.th, m: m.m, sp: m.sp ?? 0, tu: m.tu ?? 0 };
-    this.core.control(c.session, m.seq,
-      { roll: m.r, pitch: m.p, yaw: m.y, throttle: m.th, mode: m.m, speed: m.sp ?? 0, turtle: m.tu ?? 0 });
+    if (gapMs > GAP_LOG_MS) this.#log('gap', c, { ms: round1(gapMs) });
+    if (stale) this.#log('stale', c, { ageMs: round1(ageMs) });
   }
 
   #statusMsg() {
     const pc = this.pilot ? this.clients.get(this.pilot) : null;
     const standby = this.#standby();
+    // While the core holds or lands after the pilot's page closed, nobody is seated but the
+    // banner still names who dropped out (lastPilot is the last one seated, i.e. that pilot).
+    const holding = this.lastStatus?.state === 'HOLD' || this.lastStatus?.state === 'LANDING';
     const base = { t: 'status', core: this.lastStatus !== null, pilot: this.pilot !== null,
-      pilotName: pc ? this.#name(pc) : null, standbyName: standby ? this.#name(this.clients.get(standby)) : null };
+      pilotName: pc ? this.#name(pc) : (holding ? this.lastPilot.name : null), standbyName: standby ? this.#name(this.clients.get(standby)) : null };
     return {
       ...base,
       ...(this.lastStatus ?? {}),

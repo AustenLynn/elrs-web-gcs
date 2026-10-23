@@ -23,9 +23,12 @@
 #define IPC_PILOT_LOST  0x06  /* u32 session */
 #define IPC_FAILSAFE    0x07  /* u32 session: pilot pressed FAILSAFE */
 #define IPC_STANDBY     0x08  /* u32 session; 0 = no standby */
+#define IPC_TAKE        0x09  /* u32 session: the standby pilot takes over a HOLD */
+#define IPC_LAND        0x0A  /* u32 session: the standby pilot lands from a HOLD */
 
 /* core -> gateway */
-#define IPC_STATUS      0x81  /* ipc_status_t, 10 times per second */
+#define IPC_STATUS      0x81  /* ipc_status_t, 10 times per second (96 bytes: link and timing counters,
+                                 channels, hold/landing time left, outputs on the air, hold length) */
 #define IPC_LINK        0x82  /* link statistics */
 #define IPC_BATTERY     0x83
 #define IPC_FLIGHT_MODE 0x84  /* u8 n, n chars */
@@ -34,9 +37,15 @@
 
 #define IPC_EVENT_ARM_REFUSED 1   /* detail = refuse_t */
 #define IPC_EVENT_ACK_REFUSED 2   /* detail = refuse_t */
-#define IPC_EVENT_HANDOVER    3   /* detail = fs_reason_t; session = the new active session */
+/* 3: retired (handover) */
+#define IPC_EVENT_HOLD         4  /* detail = fs_reason_t that started the hold; session = the pilot who was lost */
+#define IPC_EVENT_RESUMED      5  /* the pilot came back during the hold */
+#define IPC_EVENT_TAKEN        6  /* TAKE accepted; session = the new active session */
+#define IPC_EVENT_LANDING      7  /* detail = the reason that started the hold */
+#define IPC_EVENT_TAKE_REFUSED 8  /* detail = refuse_t */
+#define IPC_EVENT_LAND_REFUSED 9  /* detail = refuse_t */
 
-#define IPC_STATUS_LEN 80         /* payload bytes */
+#define IPC_STATUS_LEN 96         /* payload bytes */
 #define IPC_NO_CMD_AGE 0xFFFFFFFFu
 
 typedef struct {
@@ -62,6 +71,12 @@ typedef struct {
     uint32_t timing_frames;
     uint32_t wake_late_max_us;/* worst frame-loop wake-up delay since the last status */
     uint16_t channels[CRSF_NUM_CHANNELS];
+    uint32_t stage_left_ms;   /* time left in HOLD or LANDING, 0 outside them */
+    int16_t out_roll, out_pitch, out_yaw;   /* the outputs on the air, so a taker can seed their sticks */
+    uint16_t out_throttle;
+    uint8_t out_mode, out_speed, out_turtle;
+    uint8_t hold_ds;          /* payload byte 95: configured hold_ms / 100 (0 = hold off), so the gateway
+                                 keeps a dropped pilot's socket for the resume window */
 } ipc_status_t;
 
 typedef void (*ipc_msg_cb)(uint8_t type, const uint8_t *payload, size_t plen, void *user);
