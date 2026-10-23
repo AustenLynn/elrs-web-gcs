@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { REFUSAL_TEXT, closeAction, connectionTarget, controlMessage, helloMessage, shouldReclaimPilotSeat, tsyncReply } from '../js/protocol.js';
+import { REFUSAL_TEXT, closeAction, connectionTarget, controlMessage, eventReaction, helloMessage, shouldReclaimPilotSeat, tsyncReply } from '../js/protocol.js';
 
 test('messages match what the gateway hub expects', () => {
   assert.deepEqual(helloMessage('pilot'), { t: 'hello', role: 'pilot' });
@@ -52,4 +52,17 @@ test('relay close codes: what the page does next', () => {
   assert.match(closeAction(4004, 'pi1').text, /llena/);
   assert.equal(closeAction(1006, null).retryMs, 1000);              // local gateway: reconnect quickly
   assert.equal(closeAction(1006, null).text, null);
+});
+
+test('core events: what the page says, and a refused take or land lets go of the sticks', () => {
+  assert.deepEqual(eventReaction({ t: 'event', what: 'resumed', session: 5 }, 5), { text: 'Conexión recuperada', disengage: false });
+  assert.equal(eventReaction({ t: 'event', what: 'resumed', session: 6 }, 5), null);
+  for (const what of ['take', 'land']) {
+    assert.deepEqual(eventReaction({ t: 'event', what, refused: 'not_in_hold' }, 5),
+      { text: 'Ya no es posible: el dron ya no está en espera', disengage: true });
+  }
+  assert.deepEqual(eventReaction({ t: 'event', what: 'arm', refused: 'throttle_high' }, 5),
+    { text: 'Baja el acelerador por completo', disengage: false });
+  assert.deepEqual(eventReaction({ t: 'event', what: 'arm', refused: 'odd' }, 5), { text: 'arm: odd', disengage: false });
+  assert.equal(eventReaction({ t: 'event', what: 'hold', session: 5 }, 5), null);
 });

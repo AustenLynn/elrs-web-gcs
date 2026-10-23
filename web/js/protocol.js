@@ -56,6 +56,18 @@ export const REASON_TEXT = {
 
 };
 
+/** What the page does on a core event: a toast text and whether to let go of the sticks, or
+ *  null. A refused take or land means the hold is over: the queued page drops the dead-man it
+ *  engaged for the take. */
+export function eventReaction(msg, session) {
+  if (msg.what === 'resumed' && msg.session === session) return { text: 'Conexión recuperada', disengage: false };
+  if ((msg.what === 'take' || msg.what === 'land') && msg.refused) {
+    return { text: 'Ya no es posible: el dron ya no está en espera', disengage: true };
+  }
+  if (msg.refused) return { text: REFUSAL_TEXT[msg.refused] ?? `${msg.what}: ${msg.refused}`, disengage: false };
+  return null;
+}
+
 export const REFUSAL_TEXT = {
   throttle_high: 'Baja el acelerador por completo',
   link_stale: 'Toma el control primero (no llegan comandos)',

@@ -9,3 +9,13 @@ export function fullscreenTip({ canFullscreen, standalone }) {
   if (canFullscreen || standalone) return null;
   return 'Pantalla completa en iPhone: Compartir → «Añadir a pantalla de inicio» y abre la página desde ese icono';
 }
+
+/** «Tomar control» in order: full screen first (it needs the click's user gesture, so it is
+ *  asked before any other await), then the dead-man, then afterEngage (the standby's `take`),
+ *  then the wake lock. The take never waits for the wake lock. */
+export async function takeControlSteps({ goFullscreen, engage, afterEngage, keepAwake }) {
+  await goFullscreen();
+  engage();
+  afterEngage();
+  await keepAwake();
+}

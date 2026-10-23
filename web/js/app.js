@@ -7,10 +7,10 @@ import { Deadman, DEADMAN_TEXT } from './deadman.js';
 import { HoldGesture, bindHold } from './hold.js';
 import { canSwitchInput, channelsCommand, enteringFailsafe, inputsLocked, loadInputMode, lockedCommand, padPositions, readouts, saveInputMode, seedInputs } from './inputmode.js';
 import { KEY_ACTIONS, KeyboardModel, MODE_KEYS } from './keyboard.js';
-import { REFUSAL_TEXT, RATE_HZ, closeAction, connectionTarget, controlMessage, shouldReclaimPilotSeat, tsyncReply } from './protocol.js';
+import { RATE_HZ, closeAction, connectionTarget, controlMessage, eventReaction, shouldReclaimPilotSeat, tsyncReply } from './protocol.js';
 import { StepModel, capChangeAllowed } from './stepper.js';
 import { Switches } from './switches.js';
-import { fullscreenTip } from './fullscreen.js';
+import { fullscreenTip, takeControlSteps } from './fullscreen.js';
 import { StickModel, bindStick, layoutAction, orientationLock, padsMoved, sticksToCommand } from './sticks.js';
 import { LinkTracker, failsafeAlert, formatBattery, formatCmdAge, formatFlightMode, formatLink, formatMs, holdBanner, pilotLine, queueText, recoverySteps, reportsTurtle, segments, stateLabel } from './view.js';
 import { keepPlaying } from './whep.js';
@@ -132,9 +132,10 @@ function handle(msg) {
 /** Events: the hold, the take and the landing show in the banner and the state pill; only the
  *  recovery and the refusals need words. */
 function onEvent(msg) {
-  if (msg.what === 'resumed' && msg.session === welcome?.session) toast('Conexión recuperada');
-  else if ((msg.what === 'take' || msg.what === 'land') && msg.refused) toast('Ya no es posible: el dron ya no está en espera');
-  else if (msg.refused) toast(REFUSAL_TEXT[msg.refused] ?? `${msg.what}: ${msg.refused}`);
+  const r = eventReaction(msg, welcome?.session);
+  if (!r) return;
+  if (r.disengage) disengage('not_engaged');
+  toast(r.text);
 }
 
 function onWelcome(msg) {
@@ -257,26 +258,36 @@ let padsAtEngage = null;
 let engagedAt = 0;
 let fullscreenTipShown = false;   // once per visit
 
-async function takeControl() {
+/** afterEngage runs as soon as the dead-man is engaged (the standby's `take`). */
+async function takeControl(afterEngage = () => {}) {
   if (role !== 'pilot' && role !== 'queued') return;
-  try {
-    await document.documentElement.requestFullscreen?.();
-    await screen.orientation?.lock?.(orientationLock(screen.orientation.type));
-  } catch { /* not supported (desktop browsers): fine */ }
-  const tip = fullscreenTip({
-    canFullscreen: typeof document.documentElement.requestFullscreen === 'function',
-    standalone: navigator.standalone === true || matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches,
+  await takeControlSteps({
+    goFullscreen: async () => {
+      try {
+        await document.documentElement.requestFullscreen?.();
+        await screen.orientation?.lock?.(orientationLock(screen.orientation.type));
+      } catch { /* not supported (desktop browsers): fine */ }
+      const tip = fullscreenTip({
+        canFullscreen: typeof document.documentElement.requestFullscreen === 'function',
+        standalone: navigator.standalone === true || matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches,
+      });
+      if (tip && !fullscreenTipShown) {
+        fullscreenTipShown = true;
+        toast(tip, false, 10000);                // two steps to read
+      }
+    },
+    engage: () => {
+      deadman.engage();
+      engagedAt = performance.now();
+      padsAtEngage = padBoxes();
+    },
+    afterEngage,
+    keepAwake: async () => {
+      try {
+        wakeLock = await navigator.wakeLock?.request('screen');
+      } catch { /* needs HTTPS; the screen may sleep, which disengages the dead-man */ }
+    },
   });
-  if (tip && !fullscreenTipShown) {
-    fullscreenTipShown = true;
-    toast(tip, false, 10000);                // two steps to read
-  }
-  deadman.engage();
-  engagedAt = performance.now();
-  padsAtEngage = padBoxes();
-  try {
-    wakeLock = await navigator.wakeLock?.request('screen');
-  } catch { /* needs HTTPS; the screen may sleep, which disengages the dead-man */ }
 }
 
 const markOn = (selector, isOn) => {
@@ -454,11 +465,10 @@ bindStick($('stick-left'), left);
 bindStick($('stick-right'), right);
 const armHold = bindHold($('btn-arm'), 1000, () => send({ t: 'arm' }));
 bindHold($('btn-ack'), 2000, () => send({ t: 'ack' }));
-$('btn-take').addEventListener('click', takeControl);
-$('btn-hold-take').addEventListener('click', async () => {
-  await takeControl();                  // full screen, orientation, dead-man: the new pilot's first command follows the take
-  send({ t: 'take' });
-});
+$('btn-take').addEventListener('click', () => takeControl());
+// The take goes out once the dead-man is engaged, without waiting for the wake lock: the new
+// pilot's first command follows it.
+$('btn-hold-take').addEventListener('click', () => takeControl(() => send({ t: 'take' })));
 $('btn-hold-land').addEventListener('click', () => send({ t: 'land' }));
 $('btn-disarm').addEventListener('click', () => send({ t: 'disarm' }));
 $('btn-failsafe').addEventListener('click', () => send({ t: 'failsafe' }));

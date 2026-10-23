@@ -85,24 +85,29 @@ export function recoverySteps({ status, engaged }) {
   return steps;
 }
 
+/** Whether the core holds before failing safe (status.holdMs from the core's config). */
+const holdOn = (status) => (status?.holdMs ?? 0) > 0;
+
 /** What a queued page says: the standby (the queue head, as the gateway says), its place
- *  in the queue, or that it just lost the seat. */
+ *  in the queue, or that it just lost the seat. The standby is promised a rescue only when
+ *  the hold is on; with it off a lost pilot means FAILSAFE at once. */
 export function queueText({ role, position, lost, standby }, status) {
   const pilot = status?.pilotName ?? '—';
   if (role !== 'queued') return '';
   if (lost) return `Perdiste el control: ahora vuela ${pilot}`;
-  if (standby) return `Estás en espera. Si ${pilot} pierde la conexión, podrás tomar el control o aterrizar.`;
+  if (standby && holdOn(status)) return `Estás en espera. Si ${pilot} pierde la conexión, podrás tomar el control o aterrizar.`;
+  if (standby) return `Estás en espera. Si ${pilot} pierde la conexión, el dron se detiene.`;
   return `En la cola: puesto ${position}`;
 }
 
 /** The banner over the video while the drone waits without a pilot (HOLD) or lands (LANDING).
- *  The queue head also gets the choice: take the control (both stages) or land now (HOLD only).
+ *  The queue head also gets the choice (hold on): take the control (both stages) or land now (HOLD only).
  *  The main pilot's page gets none: it keeps flying and only shows the state pill. The core
  *  decides; the page only shows. */
 export function holdBanner(status, { role, standby }) {
   const state = status?.state;
   if ((state !== 'HOLD' && state !== 'LANDING') || role === 'pilot') return null;
-  const head = role === 'queued' && standby === true;
+  const head = role === 'queued' && standby === true && holdOn(status);
   if (state === 'LANDING') return { text: 'Aterrizando…', take: head, land: false };
   const secs = Math.ceil((status.stageLeftMs ?? 0) / 1000);
   return { text: `${status.pilotName ?? '—'} perdió la conexión · aterriza en ${secs} s`, take: head, land: head };
