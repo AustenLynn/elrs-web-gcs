@@ -85,14 +85,27 @@ export function recoverySteps({ status, engaged }) {
   return steps;
 }
 
-/** What a queued page says: the standby (the first ready page, as the gateway says), its place
+/** What a queued page says: the standby (the queue head, as the gateway says), its place
  *  in the queue, or that it just lost the seat. */
 export function queueText({ role, position, lost, standby }, status) {
   const pilot = status?.pilotName ?? '—';
   if (role !== 'queued') return '';
   if (lost) return `Perdiste el control: ahora vuela ${pilot}`;
-  if (standby) return `Estás en espera. Si ${pilot} pierde la conexión, el control pasa a ti al instante.`;
+  if (standby) return `Estás en espera. Si ${pilot} pierde la conexión, podrás tomar el control o aterrizar.`;
   return `En la cola: puesto ${position}`;
+}
+
+/** The banner over the video while the drone waits without a pilot (HOLD) or lands (LANDING).
+ *  The queue head also gets the choice: take the control (both stages) or land now (HOLD only).
+ *  The main pilot's page gets none: it keeps flying and only shows the state pill. The core
+ *  decides; the page only shows. */
+export function holdBanner(status, { role, standby }) {
+  const state = status?.state;
+  if ((state !== 'HOLD' && state !== 'LANDING') || role === 'pilot') return null;
+  const head = role === 'queued' && standby === true;
+  if (state === 'LANDING') return { text: 'Aterrizando…', take: head, land: false };
+  const secs = Math.ceil((status.stageLeftMs ?? 0) / 1000);
+  return { text: `${status.pilotName ?? '—'} perdió la conexión · aterriza en ${secs} s`, take: head, land: head };
 }
 
 /** Who is flying and who is standby, for everyone. */

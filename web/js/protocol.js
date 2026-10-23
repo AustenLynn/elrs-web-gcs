@@ -41,6 +41,8 @@ export const STATE_TEXT = {
   DISARMED: 'DESARMADO',
   ARMED: 'ARMADO',
   FAILSAFE: 'FAILSAFE',
+  HOLD: 'ESPERA · SIN PILOTO',
+  LANDING: 'ATERRIZANDO',
 };
 
 export const REASON_TEXT = {

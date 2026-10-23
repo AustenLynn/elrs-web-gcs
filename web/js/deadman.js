@@ -35,6 +35,6 @@ export const DEADMAN_TEXT = {
   layout: 'Control perdido: la pantalla cambió de tamaño o de orientación',
   input: 'Cambiaste el modo de control: pulsa «Tomar control» de nuevo',
   released: 'Soltaste el control (Esc)',
-  lost: 'Perdiste el control: pulsa «Listo para tomar el control» para volver a estar en espera',
+  lost: 'Perdiste el control: otro piloto lo tomó. Quedas en la cola',
   failsafe: 'Failsafe: los mandos volvieron a cero. Pulsa «Tomar control» para empezar de nuevo',
 };

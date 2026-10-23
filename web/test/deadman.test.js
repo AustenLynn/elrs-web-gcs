@@ -49,9 +49,9 @@ test('deadman stays engaged while the socket is open but the page is not the pil
   assert.equal(d.engaged, true);
 });
 
-test('losing the seat to another pilot says how to be the standby again', () => {
+test('losing the seat to another pilot says so', () => {
   const d = new Deadman();
   d.engage();
   d.disengage('lost');
-  assert.match(DEADMAN_TEXT.lost, /Listo para tomar el control/);
+  assert.match(DEADMAN_TEXT.lost, /otro piloto lo tomó/);
 });
