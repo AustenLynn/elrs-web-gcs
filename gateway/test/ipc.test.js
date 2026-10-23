@@ -13,7 +13,7 @@ const CONTROL_GOLDEN = Buffer.from([
 ]);
 // Produced by the C encoder (ipc_encode_status) for the sample in core/tests/test_ipc_proto.c
 const STATUS_GOLDEN = Buffer.from(
-  '6100810201020104030201630000002d010000e8030000020000003200000001000000a00f00002efbffff0700000055000000ac00ad00ae00af00b000b100b200b300b400b500b600b700b800b900ba00bb00e110000006ff00000000c20100020000',
+  '6100810201020104030201630000002d010000e8030000020000003200000001000000a00f00002efbffff0700000055000000ac00ad00ae00af00b000b100b200b300b400b500b600b700b800b900ba00bb00e110000006ff88ff4b00c20100020132',
   'hex');
 
 test('control message matches the C encoder byte for byte', () => {
@@ -49,7 +49,8 @@ test('decodes the STATUS produced by the C encoder', () => {
   assert.equal(s.wakeLateMaxUs, 85);
   assert.deepEqual(s.channels, Array.from({ length: 16 }, (_, i) => 172 + i));
   assert.equal(s.stageLeftMs, 4321);
-  assert.deepEqual(s.out, { roll: -250, pitch: 0, yaw: 0, throttle: 450, mode: 0, speed: 2, turtle: 0 });
+  assert.deepEqual(s.out, { roll: -250, pitch: -120, yaw: 75, throttle: 450, mode: 0, speed: 2, turtle: 1 });
+  assert.equal(s.holdMs, 5000);                    // byte 95: hold_ds = 50
 });
 
 test('STATES knows HOLD and LANDING', () => {

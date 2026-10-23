@@ -34,6 +34,24 @@ function sameOrigin(req) {
   }
 }
 
+/** One heartbeat pass (every second): drop sockets that did not answer the last ping
+ *  (half-open TCP after Wi-Fi loss). With the hold on, the seated pilot's socket is kept until
+ *  it has been silent for hold_ms + 1 s: dropping it would report "pilot lost" to the core and
+ *  end the hold's resume window early. */
+export function heartbeatSweep(sockets, { now, pilot, holdMs }) {
+  for (const ws of sockets) {
+    if (!ws.isAlive) {
+      const graceMs = holdMs > 0 && ws.client === pilot ? holdMs + 1000 : 0;
+      if (now - ws.lastPongAt > graceMs) {
+        ws.terminate();
+        continue;
+      }
+    }
+    ws.isAlive = false;
+    ws.ping();
+  }
+}
+
 export async function startGateway(cfg, { core = new CoreClient(cfg.coreSocket) } = {}) {
   const connlog = openConnLog(cfg.eventLog ?? null);
   const hub = new ControlHub({ core, maxCommandAgeMs: cfg.maxCommandAgeMs, log: connlog.write });
@@ -92,8 +110,13 @@ export async function startGateway(cfg, { core = new CoreClient(cfg.coreSocket) 
       close: () => ws.close(),
     };
     ws.isAlive = true;
+    ws.lastPongAt = Date.now();
+    ws.client = client;
     hub.attach(client, { user, relay: false, via });
-    ws.on('pong', () => { ws.isAlive = true; });
+    ws.on('pong', () => {
+      ws.isAlive = true;
+      ws.lastPongAt = Date.now();
+    });
     ws.on('message', (data, isBinary) => {
       if (isBinary) return;
       let msg;
@@ -116,17 +139,8 @@ export async function startGateway(cfg, { core = new CoreClient(cfg.coreSocket) 
     ws.on('error', () => {});
   });
 
-  // Drop browsers that stopped answering pings (half-open TCP after Wi-Fi loss).
-  const heartbeat = setInterval(() => {
-    for (const ws of wss.clients) {
-      if (!ws.isAlive) {
-        ws.terminate();
-        continue;
-      }
-      ws.isAlive = false;
-      ws.ping();
-    }
-  }, 1000);
+  const heartbeat = setInterval(() => heartbeatSweep(wss.clients,
+    { now: Date.now(), pilot: hub.pilot, holdMs: hub.lastStatus?.holdMs ?? 0 }), 1000);
   const tsync = setInterval(() => hub.tick(), 2000);
   const relay = cfg.relay ? new RelayClient({ ...cfg.relay, hub }) : null;
   relay?.start();

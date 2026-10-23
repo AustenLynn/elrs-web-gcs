@@ -80,6 +80,7 @@ export function decodeStatus(p) {
       roll: p.readInt16LE(84), pitch: p.readInt16LE(86), yaw: p.readInt16LE(88),
       throttle: p.readUInt16LE(90), mode: p[92], speed: p[93], turtle: p[94],
     },
+    holdMs: p[95] * 100,   // configured hold length; 0 = hold off
   };
 }
 

@@ -11,7 +11,7 @@ import WebSocket from 'ws';
 import { DEFAULTS } from '../src/config.js';
 import { UserStore } from '../src/users.js';
 import { FrameReader, MSG } from '../src/ipc.js';
-import { startGateway } from '../src/server.js';
+import { heartbeatSweep, startGateway } from '../src/server.js';
 
 // A stand-in for crsf-core: records what the gateway sends, can push status.
 async function fakeCore(dir) {
@@ -328,4 +328,48 @@ test('with video configured, the gateway serves WHEP at /video/whep and static f
   assert.equal(res.status, 201);
   assert.equal(res.headers.get('location'), '/video/whep/s1');
   assert.equal(await (await fetch(`${base}/`)).text(), '<h1>pilot</h1>');
+});
+
+// Heartbeat: sockets that connected at t = 0 and never answer a ping, swept every second like
+// the gateway's 1 s interval. Returns the time each one was terminated (null = still open).
+function sweepUntil(endMs, sockets, { pilot = null, holdMs = 0 } = {}) {
+  const socks = sockets.map((client) => ({ client, isAlive: true, lastPongAt: 0, terminatedAt: null, pings: 0 }));
+  for (const s of socks) {
+    s.terminate = () => { s.terminatedAt = now; };
+    s.ping = () => { s.pings++; };
+  }
+  let now = 0;
+  for (now = 1000; now <= endMs; now += 1000) {
+    heartbeatSweep(socks.filter((s) => s.terminatedAt === null), { now, pilot, holdMs });
+  }
+  return socks.map((s) => s.terminatedAt);
+}
+
+test('heartbeat: with the hold on, the seated pilot keeps its socket for hold_ms + 1 s', () => {
+  const pilot = {}, queued = {}, observer = {};
+  const [p, q, o] = sweepUntil(6000, [pilot, queued, observer], { pilot, holdMs: 5000 });
+  assert.equal(p, null);                     // a stalled phone can still resume the hold
+  assert.equal(q, 2000);                     // everyone else: one missed pong
+  assert.equal(o, 2000);
+  assert.deepEqual(sweepUntil(8000, [pilot], { pilot, holdMs: 5000 }), [7000]);   // > 6000 ms without a pong
+});
+
+test('heartbeat: with the hold off, the pilot is dropped after one missed pong', () => {
+  const pilot = {};
+  assert.deepEqual(sweepUntil(4000, [pilot], { pilot, holdMs: 0 }), [2000]);
+});
+
+test('heartbeat: a pong keeps the socket and restarts the pilot\'s grace', () => {
+  const pilot = {};
+  const s = { client: pilot, isAlive: true, lastPongAt: 0, terminate() { this.gone = true; }, ping() {} };
+  heartbeatSweep([s], { now: 1000, pilot, holdMs: 1000 });
+  assert.equal(s.isAlive, false);
+  heartbeatSweep([s], { now: 2000, pilot, holdMs: 1000 });
+  assert.ok(!s.gone);
+  Object.assign(s, { isAlive: true, lastPongAt: 2500 });   // what the pong handler does
+  heartbeatSweep([s], { now: 3000, pilot, holdMs: 1000 });
+  heartbeatSweep([s], { now: 4000, pilot, holdMs: 1000 });
+  assert.ok(!s.gone);
+  heartbeatSweep([s], { now: 5000, pilot, holdMs: 1000 });
+  assert.ok(s.gone);                                      // 2500 ms after the last pong
 });
