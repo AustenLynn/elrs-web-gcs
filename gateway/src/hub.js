@@ -299,19 +299,19 @@ export class ControlHub {
     c.lastSeq = m.seq;
     // The gap counts the arrival of any valid-format command, stale or not: a stale one
     // still proves the link delivered something, and a gap of silence is what we look for.
+    // Logging comes after the forwarding decision: it never sits in front of core.control.
     const now = this.now();
-    if (c.lastCmdAt !== null && now - c.lastCmdAt > GAP_LOG_MS) this.#log('gap', c, { ms: round1(now - c.lastCmdAt) });
+    const gapMs = c.lastCmdAt === null ? 0 : now - c.lastCmdAt;
     c.lastCmdAt = now;
-    if (c.clock.ready) {
-      const ageMs = c.clock.age(m.ts, now);
-      if (ageMs > this.maxCommandAgeMs) {
-        this.staleDropped++;
-        this.#log('stale', c, { ageMs: round1(ageMs) });
-        return;
-      }
+    const ageMs = c.clock.ready ? c.clock.age(m.ts, now) : 0;
+    const stale = ageMs > this.maxCommandAgeMs;
+    if (stale) this.staleDropped++;
+    else {
+      this.core.control(c.session, m.seq,
+        { roll: m.r, pitch: m.p, yaw: m.y, throttle: m.th, mode: m.m, speed: m.sp ?? 0, turtle: m.tu ?? 0 });
     }
-    this.core.control(c.session, m.seq,
-      { roll: m.r, pitch: m.p, yaw: m.y, throttle: m.th, mode: m.m, speed: m.sp ?? 0, turtle: m.tu ?? 0 });
+    if (gapMs > GAP_LOG_MS) this.#log('gap', c, { ms: round1(gapMs) });
+    if (stale) this.#log('stale', c, { ageMs: round1(ageMs) });
   }
 
   #statusMsg() {
