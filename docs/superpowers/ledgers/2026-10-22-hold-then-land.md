@@ -1,13 +1,13 @@
-# Status: Tasks 1–8 done and reviewed; docs done; stopped before the final review, 2026-10-22 (not merged, not deployed)
+# Status: all tasks, the final whole-branch review and its fixes done, 2026-10-23 (not merged, not deployed)
 
 Branch `feat/hold-then-land`. The user asked to stop, document and push during Task 9 (docs).
-Task 9's partial docs were kept and HANDOFF was finished by the controller. **The final whole-branch
-review (most capable model) did not run**: do it before merging. The Pi still runs `main` from /opt/gcs.
+Task 9's partial docs were kept and HANDOFF was finished by the controller. The final whole-branch review
+(most capable model) ran on 2026-10-23 after the user said continue; its findings were fixed and re-reviewed. The Pi still runs `main` from /opt/gcs.
 
-Suites on the Pi 4, 2026-10-22: C unit 138, integration 39, relay 11, gateway+web 230, analysis 26,
+Suites on the Pi 4, 2026-10-23: C unit 141, integration 40, relay 11, gateway+web 236, analysis 26,
 browser e2e 10/10 (hold e2e 3 runs × 3, ≤ 48 °C, throttled 0x0).
 
-**Still owed before deployment:** the final review; team approval and spec §8 (C3 reading, measured
+**Still owed before deployment:** team approval and spec §8 (C3 reading, measured
 `hold_throttle` and `land_ms`); the bench test `docs/procedures/hold-bench-test.md`. Installing with
 `hold_ms = 0` removes the automatic handover (`docs/HANDOFF.md` §6).
 
@@ -90,3 +90,15 @@ Task 8: minor (deferred): invisible U+E00C Esc literal (use ''); hold-throttl
 Task 8: complete (commits d84b040..4b0b848 incl. f1226cf, review clean; e2e 10/10, hold 3×3 at ≤48 °C, throttled 0x0)
 Task 9: dispatched (BASE 4b0b848, implementer sonnet)
 Task 9: stopped by the user's request mid-task ("stop, document and push"); its partial docs (specs, ARCHITECTURE, M4 checklist, hold-bench-test.md) kept; the controller finished HANDOFF and this ledger. The final whole-branch review was NOT run.
+Final review: dispatched (opus) over a9ded5b..b4f6419 after the user said continue (2026-10-23)
+Final review (opus): ready "with fixes": 0 Critical, 2 Important (1 s heartbeat cuts resume window to ~1–2 s; page promises rescue when hold_ms = 0), 6 Minor; deferred-minor triage: fix T2 disarm-throttle, T7 take-before-wakelock + refused-take dead-man, T2 pending-take-across-expiry test, T3 non-zero pitch/yaw sample; rest can stay deferred.
+Ruling: STATUS byte 95 (reserved in R2) now carries hold_ds = hold_ms/100 (0 = off) — the gateway needs hold_ms for the heartbeat grace and the page needs "hold on/off" for honest copy; one byte avoids a new message — cost if wrong: a wire change in 3 places.
+Ruling: with hold on, the seated pilot's socket survives missed pongs for hold_ms + 1 s; others keep the 1 s heartbeat — an early pilot_lost during a hold only destroys the resume (spec goal 3) — cost if wrong: a dead pilot socket lingers up to 11 s before its seat frees.
+Ruling: Minor 2 (0 → hold_throttle step when a pending take completes in LANDING) is documented, not capped — it returns toward hover, never to a fall, and capping would make the first frame disagree with the taker's stick — cost if wrong: one throttle step on a rare race.
+Ruling: the reviewer's trailer point is accepted from now on: new commits carry both Co-Authored-By and the Claude-Session line (the session URL is now known); earlier commits are not rewritten — cost if wrong: none.
+Final fixes: dispatched (one fixer, opus, FIX_BASE b4f6419)
+Final fixes: done (commits b4f6419..ed782e2): C unit 141, integration 40 ×2, relay 11, gateway+web 236 ×3 (no hang), analysis 26, hold e2e 3/3 at 41–47 °C.
+Ruling: hold_ds rounds down (hold_ms not a multiple of 100 reports up to 99 ms short) — the 1 s heartbeat grace covers it — cost if wrong: none.
+Ruling: the hold banner's buttons are also hidden when holdMs is 0 or unknown — no buttons for a rescue the core would refuse — cost if wrong: none.
+Final fixes: scoped re-review dispatched (opus)
+Final fixes: re-review all addressed, no new breakage. Final review complete.

@@ -117,16 +117,16 @@ Run the hardware tasks in this order: M1 T9, M3 T8, M4 T10, M5 T3–4, M6 T6, M7
 ## 5. Tests
 
 ```bash
-make -C core test                     # 138 C unit tests (UBSan)
-make -C core integration              # 39 tests: real binaries vs a Python fake TX module on a pty
+make -C core test                     # 141 C unit tests (UBSan)
+make -C core integration              # 40 tests: real binaries vs a Python fake TX module on a pty
 npm --prefix relay install && npm --prefix gateway install   # first time only
 npm --prefix relay test               # 11
-npm --prefix gateway test             # 230 (gateway + web)
+npm --prefix gateway test             # 236 (gateway + web)
 python3 -W error -m unittest discover -s tools/analysis -t tools/analysis   # 26
 make -C core && npm --prefix gateway run e2e   # 10 headless-Firefox tests (admin, hold, keyboard, layout, pilot, video), one at a time
 ```
 
-Counts from 2026-10-22 (`feat/hold-then-land`), run on the Pi 4 (≤ 48 °C, not throttled): all
+Counts from 2026-10-23 (`feat/hold-then-land`, after the final review), run on the Pi 4 (≤ 48 °C, not throttled): all
 pass, e2e 10/10, and the three hold e2e tests passed three runs in a row. Earlier counts
 (2026-10-20, `feat/pilot-auth-handover`) came from an x86 WSL (Kali) machine, where
 the video test was skipped (no MediaMTX). There the tools came from `build-essential`,
