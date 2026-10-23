@@ -317,8 +317,11 @@ export class ControlHub {
   #statusMsg() {
     const pc = this.pilot ? this.clients.get(this.pilot) : null;
     const standby = this.#standby();
+    // While the core holds or lands after the pilot's page closed, nobody is seated but the
+    // banner still names who dropped out (lastPilot is the last one seated, i.e. that pilot).
+    const holding = this.lastStatus?.state === 'HOLD' || this.lastStatus?.state === 'LANDING';
     const base = { t: 'status', core: this.lastStatus !== null, pilot: this.pilot !== null,
-      pilotName: pc ? this.#name(pc) : null, standbyName: standby ? this.#name(this.clients.get(standby)) : null };
+      pilotName: pc ? this.#name(pc) : (holding ? this.lastPilot.name : null), standbyName: standby ? this.#name(this.clients.get(standby)) : null };
     return {
       ...base,
       ...(this.lastStatus ?? {}),

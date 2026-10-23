@@ -438,3 +438,39 @@ test('hold events are logged with the lost pilot and the path', () => {
   hub.onCoreEvent({ what: 'hold', reason: 'pilot_lost', session: 42 });
   assert.deepEqual(logs.at(-1), { ev: 'hold', name: 'ana', via: 'relay', reason: 'pilot_lost' });
 });
+
+test('the lost pilot\'s name stays in status during the hold and the landing', () => {
+  const { hub } = setup();
+  const p = join(hub);
+  const q = join(hub, 'pilot', user('luis'));
+  hub.detach(p);
+  assert.equal(q.last('status').pilotName, null);          // no HOLD from the core yet
+  for (const state of ['HOLD', 'LANDING']) {
+    hub.onCoreStatus({ state, session: 42 });
+    assert.equal(q.last('status').pilotName, 'ana');
+  }
+  hub.onCoreStatus({ state: 'FAILSAFE', session: 0 });     // the landing ended: luis gets the seat
+  assert.equal(q.last('welcome').role, 'pilot');
+  assert.equal(q.last('status').pilotName, 'luis');
+});
+
+test('the name of a pilot who dropped out is dropped once the state leaves HOLD and LANDING', () => {
+  const { hub } = setup();
+  const p = join(hub);
+  const o = join(hub, 'observer', SPECTATOR);
+  hub.detach(p);
+  hub.onCoreStatus({ state: 'HOLD', session: 42 });
+  assert.equal(o.last('status').pilotName, 'ana');
+  hub.onCoreStatus({ state: 'FAILSAFE', session: 0 });
+  assert.equal(o.last('status').pilotName, null);
+});
+
+test('after taken the status names the taker', () => {
+  const { hub } = setup();
+  const p = join(hub);
+  const q = join(hub, 'pilot', user('luis'));
+  hub.detach(p);
+  hub.onCoreStatus({ state: 'HOLD', session: 42 });
+  hub.onCoreEvent({ what: 'taken', reason: 'pilot_lost', session: 43 });
+  assert.equal(q.last('status').pilotName, 'luis');
+});
