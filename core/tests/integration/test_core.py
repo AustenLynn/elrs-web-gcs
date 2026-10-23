@@ -282,6 +282,11 @@ class HoldTest(CoreHarness):
     def arm_low_frames(self, t0):
         return [t for t, ch in self.tx.frames_since(t0) if ch[CH_ARM] == LOW]
 
+    def test_status_reports_the_hold_length(self):
+        # The gateway keeps a dropped pilot's socket for the resume window: hold_ms / 100.
+        self.assertTrue(self.client.wait(lambda c: c.status is not None))
+        self.assertEqual(self.client.status["hold_ds"], 10)              # hold_ms = 1000
+
     def test_pilot_stops_sending_hold_then_land_then_disarm(self):
         a = self.fly()
         t_stop, t_hold = self.pause(a)
@@ -372,6 +377,7 @@ class HoldOffTest(CoreHarness):
         a.paused = True
         self.assertIsNotNone(self.tx.wait_for(lambda ch: ch[CH_ARM] == LOW, timeout=0.45))
         self.assertTrue(self.client.wait(lambda c: c.status["reason_name"] == "cmd_timeout"))
+        self.assertEqual(self.client.status["hold_ds"], 0)
 
 
 class StickLogTest(CoreHarness):

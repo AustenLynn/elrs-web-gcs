@@ -175,6 +175,10 @@ void safety_disarm(safety_t *s, uint32_t session)
     if (session == 0 || session != s->session)
         return;
     s->out.arm = false;
+    if (s->state == SAFETY_HOLD || s->state == SAFETY_LANDING) {
+        s->out.roll = s->out.pitch = s->out.yaw = 0;   /* not hold_throttle with ARM low */
+        s->out.throttle = 0;
+    }
     if (in_flight(s)) {
         s->state = SAFETY_DISARMED;
         leave_hold(s);
@@ -258,8 +262,8 @@ refuse_t safety_take(safety_t *s, uint32_t session, int64_t now)
     (void)now;                 /* the countdown runs on: no fresh timer for the taker */
     if (session == 0 || session != s->standby)
         return REFUSE_NOT_STANDBY;
-    if (s->state != SAFETY_HOLD && s->state != SAFETY_LANDING)
-        return REFUSE_NOT_IN_HOLD;
+    if ((s->state != SAFETY_HOLD && s->state != SAFETY_LANDING) || s->take_pending)
+        return REFUSE_NOT_IN_HOLD;   /* pending: the next standby must not bump the taker */
     s->session = session;
     s->standby = 0;
     s->last_seq = 0;
@@ -275,7 +279,7 @@ refuse_t safety_land(safety_t *s, uint32_t session, int64_t now)
 {
     if (session == 0 || session != s->standby)
         return REFUSE_NOT_STANDBY;
-    if (s->state != SAFETY_HOLD)
+    if (s->state != SAFETY_HOLD || s->take_pending)
         return REFUSE_NOT_IN_HOLD;
     enter_landing(s, now);
     return REFUSE_NONE;

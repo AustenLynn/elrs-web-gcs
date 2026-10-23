@@ -152,7 +152,7 @@ size_t ipc_encode_status(uint8_t *out, size_t cap, const ipc_status_t *s)
     put_u8(&w, s->out_mode);
     put_u8(&w, s->out_speed);
     put_u8(&w, s->out_turtle);
-    put_u8(&w, 0);
+    put_u8(&w, s->hold_ds);
     return finish(&w);
 }
 
@@ -266,6 +266,6 @@ int ipc_decode_status(const uint8_t *p, size_t n, ipc_status_t *s)
     s->out_mode = get_u8(&r);
     s->out_speed = get_u8(&r);
     s->out_turtle = get_u8(&r);
-    (void)get_u8(&r);   /* reserved */
+    s->hold_ds = get_u8(&r);
     return 0;
 }

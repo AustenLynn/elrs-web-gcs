@@ -28,7 +28,7 @@
 
 /* core -> gateway */
 #define IPC_STATUS      0x81  /* ipc_status_t, 10 times per second (96 bytes: link and timing counters,
-                                 channels, hold/landing time left, outputs on the air) */
+                                 channels, hold/landing time left, outputs on the air, hold length) */
 #define IPC_LINK        0x82  /* link statistics */
 #define IPC_BATTERY     0x83
 #define IPC_FLIGHT_MODE 0x84  /* u8 n, n chars */
@@ -74,7 +74,9 @@ typedef struct {
     uint32_t stage_left_ms;   /* time left in HOLD or LANDING, 0 outside them */
     int16_t out_roll, out_pitch, out_yaw;   /* the outputs on the air, so a taker can seed their sticks */
     uint16_t out_throttle;
-    uint8_t out_mode, out_speed, out_turtle;   /* payload byte 95 is reserved (0) */
+    uint8_t out_mode, out_speed, out_turtle;
+    uint8_t hold_ds;          /* payload byte 95: configured hold_ms / 100 (0 = hold off), so the gateway
+                                 keeps a dropped pilot's socket for the resume window */
 } ipc_status_t;
 
 typedef void (*ipc_msg_cb)(uint8_t type, const uint8_t *payload, size_t plen, void *user);

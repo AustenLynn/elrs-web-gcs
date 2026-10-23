@@ -756,6 +756,65 @@ static void test_instant_paths_from_hold_and_landing(void)
     }
 }
 
+static void test_take_and_land_refused_while_a_take_is_pending(void)
+{
+    /* After the TAKE the hub registers the next queue head as standby; until the taker's first
+     * command that one must not bump the taker or land the drone. */
+    safety_t s;
+    flying(&s);
+    safety_tick(&s, T0);
+    CHECK_EQ_INT(safety_take(&s, 9, T0 + 10 * MS), REFUSE_NONE);
+    safety_set_standby(&s, 11);
+    CHECK_EQ_INT(safety_take(&s, 11, T0 + 20 * MS), REFUSE_NOT_IN_HOLD);
+    CHECK_EQ_INT(safety_land(&s, 11, T0 + 20 * MS), REFUSE_NOT_IN_HOLD);
+    CHECK_EQ_INT(s.session, 9);
+    CHECK_EQ_INT(s.standby, 11);
+    CHECK_EQ_INT(s.state, SAFETY_HOLD);
+    CHECK_EQ_INT(s.out.throttle, HT);
+    stick_cmd_t c = { .throttle = 455 };
+    CHECK(safety_control(&s, 9, 1, &c, T0 + 30 * MS));
+    CHECK_EQ_INT(s.state, SAFETY_ARMED);
+
+    in_stage(&s, true);                                /* the same during LANDING */
+    CHECK_EQ_INT(safety_take(&s, 9, T0 + 10 * MS), REFUSE_NONE);
+    safety_set_standby(&s, 11);
+    CHECK_EQ_INT(safety_take(&s, 11, T0 + 20 * MS), REFUSE_NOT_IN_HOLD);
+    CHECK_EQ_INT(s.session, 9);
+    CHECK_EQ_INT(s.state, SAFETY_LANDING);
+}
+
+static void test_take_straddling_hold_expiry_arms_on_the_first_command(void)
+{
+    safety_t s;
+    flying(&s);
+    safety_tick(&s, T0);
+    CHECK_EQ_INT(safety_take(&s, 9, T0 + HOLD - 10 * MS), REFUSE_NONE);
+    safety_tick(&s, T0 + HOLD);
+    CHECK_EQ_INT(s.state, SAFETY_LANDING);          /* the take is still pending */
+    CHECK(s.take_pending);
+    CHECK_EQ_INT(s.out.throttle, 0);
+    stick_cmd_t c = { .throttle = 500 };
+    CHECK(safety_control(&s, 9, 1, &c, T0 + HOLD + 10 * MS));
+    CHECK_EQ_INT(s.state, SAFETY_ARMED);
+    CHECK_EQ_INT(s.out.throttle, 500);
+    CHECK_EQ_INT(safety_stage_left_ms(&s, T0 + HOLD + 10 * MS), 0);
+}
+
+static void test_disarm_from_hold_or_landing_centres_the_outputs(void)
+{
+    for (int landing = 0; landing <= 1; landing++) {
+        safety_t s;
+        in_stage(&s, landing);
+        safety_disarm(&s, 7);
+        CHECK_EQ_INT(s.state, SAFETY_DISARMED);
+        CHECK(!s.out.arm);
+        CHECK_EQ_INT(s.out.roll, 0);
+        CHECK_EQ_INT(s.out.pitch, 0);
+        CHECK_EQ_INT(s.out.yaw, 0);
+        CHECK_EQ_INT(s.out.throttle, 0);           /* not hold_throttle with ARM low */
+    }
+}
+
 static void test_lost_seat_stays_lost_after_disarm(void)
 {
     /* The pilot_lost session's Desarmar is obeyed, but it does not get the seat back. */
@@ -876,6 +935,9 @@ int main(void)
     RUN(test_land_only_from_standby_in_hold);
     RUN(test_instant_paths_from_hold_and_landing);
     RUN(test_lost_seat_stays_lost_after_disarm);
+    RUN(test_take_and_land_refused_while_a_take_is_pending);
+    RUN(test_take_straddling_hold_expiry_arms_on_the_first_command);
+    RUN(test_disarm_from_hold_or_landing_centres_the_outputs);
     RUN(test_stage_left_counts_down);
     RUN(test_arm_and_ack_unaffected);
     RUN(test_report_fifo_drops_the_newest_on_overflow);

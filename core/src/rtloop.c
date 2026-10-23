@@ -199,6 +199,7 @@ static void publish(rtloop_t *l, const uint16_t ch[CRSF_NUM_CHANNELS])
         .out_mode = s->out.mode,
         .out_speed = s->out.speed,
         .out_turtle = s->out.turtle,
+        .hold_ds = (uint8_t)(l->cfg->hold_ms / 100),   /* config: 0 or 1000..10000 -> 0 or 10..100 */
     };
     memcpy(st.channels, ch, sizeof st.channels);
     mailbox_put_status(l->mb, &st);

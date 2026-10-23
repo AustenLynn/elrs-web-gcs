@@ -14,8 +14,8 @@ static ipc_status_t sample_status(void)
         .session = 0x01020304, .last_seq = 99, .cmd_age_ms = 301,
         .frames_sent = 1000, .tx_errors = 2, .rx_frames = 50, .rx_crc_errors = 1,
         .period_us = 4000, .offset_0p1us = -1234, .timing_frames = 7, .wake_late_max_us = 85,
-        .stage_left_ms = 4321, .out_roll = -250, .out_throttle = 450,
-        .out_mode = 0, .out_speed = 2, .out_turtle = 0,
+        .stage_left_ms = 4321, .out_roll = -250, .out_pitch = -120, .out_yaw = 75, .out_throttle = 450,
+        .out_mode = 0, .out_speed = 2, .out_turtle = 1, .hold_ds = 50,
     };
     for (int i = 0; i < CRSF_NUM_CHANNELS; i++)
         s.channels[i] = (uint16_t)(172 + i);
@@ -85,7 +85,10 @@ static void test_status_round_trip_and_layout(void)
     CHECK_EQ_INT(buf[3 + 80], 0xE1);               /* stage_left_ms = 4321 = 0x10E1, LE */
     CHECK_EQ_INT(buf[3 + 90], 0xC2);               /* out_throttle = 450 = 0x01C2, LE */
     CHECK_EQ_INT(buf[3 + 91], 0x01);
-    CHECK_EQ_INT(buf[3 + 95], 0);                  /* reserved */
+    CHECK_EQ_INT(buf[3 + 86], 0x88);               /* out_pitch = -120 = 0xFF88, LE */
+    CHECK_EQ_INT(buf[3 + 88], 75);                 /* out_yaw */
+    CHECK_EQ_INT(buf[3 + 94], 1);                  /* out_turtle */
+    CHECK_EQ_INT(buf[3 + 95], 50);                 /* hold_ds: hold_ms / 100 */
     CHECK_EQ_INT(ipc_decode_status(buf + 3, n - 3, &d), 0);
     CHECK_MEM(&s, &d, sizeof s);
 }

@@ -21,7 +21,7 @@ STATUS_FIELDS = ("state", "fs_reason", "fc_arm", "serial_ok", "session", "last_s
                  "frames_sent", "tx_errors", "rx_frames", "rx_crc_errors", "period_us",
                  "offset_0p1us", "timing_frames", "wake_late_max_us")
 STATUS_TAIL = ("stage_left_ms", "out_roll", "out_pitch", "out_yaw", "out_throttle", "out_mode", "out_speed",
-               "out_turtle")   # the last byte is reserved
+               "out_turtle", "hold_ds")   # hold_ds = hold_ms / 100, 0 = hold off
 
 
 def msg(mtype, payload=b""):
