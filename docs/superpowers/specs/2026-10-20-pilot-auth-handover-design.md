@@ -4,6 +4,11 @@
 rules) and `docs/ARCHITECTURE.md` §5.5, §6.1, §7.4, §8.
 **Status:** agreed in conversation, part by part; this spec is for the team's review.
 
+> **Amended 2026-10-22: the automatic handover is replaced** by the two-stage failsafe in
+> [`2026-10-21-hold-then-land-failsafe-design.md`](2026-10-21-hold-then-land-failsafe-design.md). Goals 4–5, A7, A9, A10 and §4.3–4.5 below describe
+> the design as first agreed; each carries a note. Accounts, the queue and sign-in (§4.1, §4.2, §4.4's
+> queue order) are unchanged.
+
 ## 1. Why
 
 The pilot page has no login. Anyone who opens the address takes the free pilot seat and can arm the
@@ -22,7 +27,9 @@ keep flying instead.
 3. An admin adds and removes pilots from a phone, just before a flight.
 4. If the active pilot's connection drops while a second pilot is signed in, control passes to that
    pilot at once and the drone keeps flying, with no FAILSAFE.
+   *Amended 2026-10-22: the drone holds, and the second pilot chooses «Tomar el control» or «Aterrizar».*
 5. If nobody is waiting, FAILSAFE happens as today and the motors stop.
+   *Amended 2026-10-22: with or without a second pilot, the drone holds, then lands, then FAILSAFE.*
 
 **Non-goals**
 - Hosted identity services (Firebase, Cognito, Auth0). Two to a few accounts on one Pi don't justify
@@ -55,10 +62,10 @@ keep flying instead.
 | A4 | The admin screen is used **from a phone**, right before a flight, possibly through the tunnel. |
 | A5 | **An active pilot cannot be removed.** |
 | A6 | Several pilots may be signed in. They queue **in the order they signed in**: the first flies, the second is standby, the rest wait behind. |
-| A7 | **Pilot lost with a standby present → standby gets control immediately, the drone keeps flying, no FAILSAFE.** With nobody waiting → FAILSAFE as today (motors stop). |
+| A7 | **Pilot lost with a standby present → standby gets control immediately, the drone keeps flying, no FAILSAFE.** With nobody waiting → FAILSAFE as today (motors stop). *Amended 2026-10-22: replaced. Pilot lost → HOLD, then LANDING; the queue head may take control or land. Nothing switches pilots on its own.* |
 | A8 | No outside identity service. Accounts live on the Pi and are managed by the gateway. |
-| A9 | **Letting go hands over too.** With a ready standby, a pilot who lets go (Esc, hidden tab, lost focus, layout change: anything that makes the page stop sending) is treated like a lost connection: the drone keeps flying under the standby. To stop the motors on purpose, the pilot uses **Desarmar** (or the manual FAILSAFE), which still works. |
-| A10 | **The standby only watches** until they get control: no arm, disarm or FAILSAFE buttons. |
+| A9 | **Letting go hands over too.** With a ready standby, a pilot who lets go (Esc, hidden tab, lost focus, layout change: anything that makes the page stop sending) is treated like a lost connection: the drone keeps flying under the standby. To stop the motors on purpose, the pilot uses **Desarmar** (or the manual FAILSAFE), which still works. *Amended 2026-10-22: letting go starts a HOLD then a landing, with or without a second pilot; it never stops the motors. Desarmar is the only way to stop them in flight.* |
+| A10 | **The standby only watches** until they get control: no arm, disarm or FAILSAFE buttons. *Amended 2026-10-22: stands. The queue head also sees «Tomar el control» and «Aterrizar» during a hold or landing.* |
 | A11 | **Relay pilots** (`?room=` with the room's `pilotToken`) can still fly without an account. They join the same queue as signed-in pilots, in arrival order, and can be active or standby (*queue placement is my call*). |
 
 ## 4. Design
@@ -102,6 +109,10 @@ cannot remove their own account, so the system always keeps at least one admin.
 
 ### 4.3 Pilot page
 
+> **Amended 2026-10-22:** «Listo para tomar el control» is gone. The queue head is the standby, and
+> during HOLD or LANDING it gets a banner with «Tomar el control» and «Aterrizar». Takeover sticks seed
+> from the drone's outputs (hold-then-land spec §4.3, §4.5).
+
 - Everyone starts as a spectator: video, telemetry, status. No controls.
 - **Iniciar sesión como piloto** opens the sign-in form. Once signed in, the page joins the pilot queue
   automatically (A6).
@@ -125,6 +136,9 @@ cannot remove their own account, so the system always keeps at least one admin.
 
 ### 4.4 Queue (gateway, `hub.js`)
 
+> **Amended 2026-10-22:** `STANDBY` always names the queue head; there is no ready flag. The core's
+> `taken` event (not `handover`) moves the seat, and the old pilot goes to the back of the queue.
+
 - The queue holds the signed-in pilot connections, in the order they joined. The head flies, the next
   one is the **standby**. Each queued connection gets a session as today.
 - **The gateway tells the core which session is the standby** (new IPC message, §4.5). This happens
@@ -141,6 +155,10 @@ cannot remove their own account, so the system always keeps at least one admin.
   active one in sign-in order (A6).
 
 ### 4.5 Handover in crsf-core (the safety part)
+
+> **Amended 2026-10-22: replaced by HOLD, LANDING and TAKE/LAND** (hold-then-land spec §4.1). The
+> handover, its 300 ms first-command window and the "no chained handovers" rule no longer exist. The
+> DISARM and manual FAILSAFE rule (active session only) and the list of instant triggers stand.
 
 The realistic loss is Wi-Fi or tunnel trouble, not a closed tab. In that case the socket stays open
 for a while and the first sign is the core's own **300 ms command timeout**. So the handover must

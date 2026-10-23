@@ -279,8 +279,9 @@ bars, rotation, leaving full screen), because the value under the finger would j
 also release control on purpose (Esc), and changing the input mode releases it.
 
 A disengaged page **sends nothing**. It does not send a "stop" message. If the drone is armed,
-the core enters FAILSAFE 300 ms later. This means every way a page can fail (closed tab, crashed
-browser, phone locked, Wi-Fi lost) ends the same way.
+the core reacts 300 ms later: it holds, then lands (§7.4; with `hold_ms = 0`, FAILSAFE at once).
+This means every way a page can fail (closed tab, crashed browser, phone locked, Wi-Fi lost) ends
+the same way. **Letting go never stops the motors; Desarmar does.**
 
 `Tomar control` also requests full screen, locks the current orientation and requests a screen
 wake lock, where the browser supports them.
@@ -314,16 +315,21 @@ Refusals come back from the core as `event` messages and are shown in Spanish
 - **Sign-in.** Every page starts as a spectator. «Iniciar sesión como piloto» posts to `/login`;
   the page then reconnects with the cookie and joins the pilot queue (`/me` tells it who it is).
   A spectator that asks for the pilot role sees `Inicia sesión para pilotar`.
-- **Queue and «Listo».** A queued page shows its place (`En la cola: puesto n`). It becomes ready
-  with «Listo para tomar el control» (full screen and dead-man engaged, like «Tomar control»),
-  then sends `ready {on: true}` and no commands; anything that would disengage the dead-man sends
-  `ready {on: false}` at once. The first ready page is the standby: the gateway marks its
-  `welcome` with `standby: true`, and only that page shows
-  `Estás en espera. Si {pilot} pierde la conexión, el control pasa a ti al instante.`
-- **Takeover.** When the gateway promotes a ready page, its `welcome` carries the last command on
-  the air. Every input mode starts from it (the throttle limit is raised when needed), so the first
-  command does not drop the throttle. The page shows `TIENES EL CONTROL`. The old pilot's page,
-  if still open, shows `Perdiste el control: ahora vuela {pilot}` once.
+- **Queue and standby.** A queued page shows its place (`En la cola: puesto n`). The queue head is
+  the standby: the gateway marks its `welcome` with `standby: true`, and only that page shows
+  `Estás en espera. Si {pilot} pierde la conexión, podrás tomar el control o aterrizar.` There is no
+  «Listo» and no `ready` message.
+- **Hold banner.** While the core is in HOLD, a banner sits over the video (it never covers it):
+  `{pilot} perdió la conexión · aterriza en N s`. The queue head's banner has **«Tomar el control»**
+  (sends `take`, and engages full screen, orientation lock and the dead-man like «Tomar control») and
+  **«Aterrizar»** (sends `land`). In LANDING the text is `Aterrizando…` with «Tomar el control» only.
+  Everyone else sees the same text with no buttons. The state pill reads `ESPERA · SIN PILOTO` or
+  `ATERRIZANDO`. The countdown comes from the core's STATUS (`stage_left_ms`); the page decides
+  nothing. If the pilot's commands return, their page shows the toast `Conexión recuperada`.
+- **Takeover.** After the core's `taken` event the new page's `welcome` carries the outputs on the
+  air (hold throttle, centred sticks). Every input mode starts from them (the throttle limit is
+  raised when needed), so the first command does not jump the throttle. The page shows
+  `TIENES EL CONTROL`. The old pilot's page, if still open, shows `Perdiste el control: ahora vuela {pilot}` once.
 - `/admin` (admin accounts only): list, add, change password and remove pilots. The flying pilot
   and the admin's own account cannot be removed.
 - `?observe` opens a read-only view. `?room=<name>` connects through the relay and asks for the
@@ -338,11 +344,12 @@ Files: `gateway/src/`. Entry point `main.js` loads `/etc/gcs/gateway.json` (`con
 | Module | Role |
 |--------|------|
 | `server.js` | HTTPS server, upgrade to `/ws` (with Origin check), WebSocket heartbeat (1 s ping; dead sockets terminated), 2 s clock-sync tick |
-| `hub.js` | `ControlHub`: pilot queue and standby, following the core's handover, validation, stale filter, rate limit, broadcasting |
+| `hub.js` | `ControlHub`: pilot queue and standby (the queue head), `take`/`land`, following the core's `taken` event, the connection log, validation, stale filter, rate limit, broadcasting |
 | `auth.js` | `/login`, `/logout`, `/me`, the admin API; in-memory session cookies; login rate limit |
 | `users.js` | `UserStore`: pilot accounts in `users.json` (scrypt hashes, atomic writes) |
 | `users-cli.js` | Accounts from the shell (the first admin); a running gateway sees the change only after a restart |
 | `clock.js` | `ClockSync`: estimates each browser's clock offset |
+| `connlog.js` | The connection log: one JSON line per join, leave, seat, gap, stale drop and hold event (§7.6) |
 | `ipc.js` | `CoreClient`: binary protocol to crsf-core, reconnects, decodes status and telemetry |
 | `static.js` | Static files, GET/HEAD only, no path escape |
 | `whep.js` | Proxies WHEP signalling (`/video/whep`) to MediaMTX on localhost |
@@ -358,19 +365,29 @@ Files: `gateway/src/`. Entry point `main.js` loads `/etc/gcs/gateway.json` (`con
   The head is the active pilot; only its commands reach the core.
 - **One session per connection.** Every queued page gets a random 32-bit session; only the active
   pilot's is sent with `SESSION`. When the pilot's socket closes, the hub sends `PILOT_LOST`.
-- **Standby.** The first ready page after the pilot is the standby. The hub sends `STANDBY` with
+- **Standby.** The queue head after the active pilot is the standby. The hub sends `STANDBY` with
   its session on every change (`STANDBY 0` for none), and only after the active pilot's `SESSION`.
-- **The core decides the handover.** The hub never promotes on its own: on the core's `handover`
-  event it seats the standby (`welcome {role: pilot, takeover}`) and moves the old pilot, if still
-  connected, to the back of the queue, not ready (`lost: true`). A free seat goes to the queue head
-  only once the core shows no session.
+- **`take` and `land`.** Accepted only from the standby's page, and forwarded to the core as `TAKE` /
+  `LAND` with that page's session. The core checks again and decides; a refusal comes back as an event.
+- **The core decides who flies.** The hub never promotes on its own: on the core's `taken` event it
+  seats the new pilot (`welcome {role: pilot, takeover}`) and moves the old pilot, if still
+  connected, to the back of the queue (`lost: true`, plus `standby: true` if it is now the head).
+  A free seat goes to the queue head only once the core shows no session. During HOLD and LANDING,
+  `status.pilotName` keeps the name of the pilot who dropped out, so the banner can name them.
+- **Connection log.** With `eventLog` set (`/var/log/gcs-gateway/events.jsonl`), the hub writes one
+  line per `join`, `leave`, `seat`, `gap` (valid commands from the pilot more than 250 ms apart),
+  `stale` (command dropped by the stale filter) and the core's `hold`, `resumed`, `taken`, `landing`.
+  Each line has the time, the pilot's name and `via`: `tunnel` when the upgrade carried a
+  `Cf-Connecting-Ip` header (a label, not proof: a LAN client could add it), `relay` for relay
+  clients, else `local`. No IP addresses or passwords. The write goes through a stream after the
+  command is forwarded, and lines are dropped past 64 KB pending, so a slow disk never delays commands.
 - **Removing a user** (admin) ends their cookies and drops their sockets from the queue.
 - **Validation.** `ctl` must have integer `seq` greater than the last, numeric `ts`, and every
   axis in range. Invalid messages are dropped silently and never refresh the core's timer.
 - **Stale filter.** With a clock estimate available, a `ctl` older than `maxCommandAgeMs`
   (200 ms) is dropped and counted in `staleDropped`.
 - **Rate limit.** 120 messages per second per client (the page sends 50).
-- **Observers** may send only `hello`, `ping` and `tsync_r` (queued pages also `ready`); commands are refused.
+- **Observers** may send only `hello`, `ping` and `tsync_r`; commands are refused.
 - **Telemetry cache.** The latest telemetry of each kind is replayed to new clients.
 - **Core restart.** When the core reconnects, the pilot gets a new session; any latched
   failsafe remains and must be cleared and re-armed explicitly.
@@ -442,15 +459,24 @@ burst. Bench result: the offset settles at +982…+1033 µs and the worst wake-u
 
 ### 7.4 Safety state machine (`safety.c`)
 
-Pure logic: the caller passes the time in, which makes every rule unit-testable.
+Pure logic: the caller passes the time in, which makes every rule unit-testable. Design:
+[`superpowers/specs/2026-10-21-hold-then-land-failsafe-design.md`](superpowers/specs/2026-10-21-hold-then-land-failsafe-design.md). **HOLD and LANDING exist only when `hold_ms` > 0**
+(default 0 = off: `cmd_timeout` and `pilot_lost` go straight to FAILSAFE, as before 2026-10-22).
 
 ```mermaid
 stateDiagram-v2
     [*] --> DISARMED
     DISARMED --> ARMED: arm<br/>(session ok, fresh link, throttle ≤ 5 %,<br/>radio link up: aquila20)
     ARMED --> DISARMED: disarm
-    ARMED --> ARMED: handover to the standby<br/>(no fresh command 300 ms or pilot lost,<br/>standby registered, no handover pending)
-    ARMED --> FAILSAFE: no fresh command 300 ms<br/>pilot lost / gateway lost<br/>new session / manual<br/>rf_lost (aquila20, 1 s)
+    ARMED --> HOLD: no fresh command 300 ms<br/>or pilot lost (hold_ms > 0)
+    ARMED --> LANDING: same, but the last throttle was ≤ 5 %
+    HOLD --> ARMED: fresh command, same session (resume)<br/>or the new session's first command (after TAKE)
+    HOLD --> LANDING: LAND from the standby, or hold_ms over
+    LANDING --> ARMED: first command of a session that did TAKE
+    LANDING --> FAILSAFE: land_ms over
+    ARMED --> FAILSAFE: gateway lost / new session / manual<br/>rf_lost (aquila20, 1 s)<br/>(+ timeout or pilot lost when hold_ms = 0)
+    HOLD --> FAILSAFE: disarm / gateway lost / new session<br/>manual / rf_lost
+    LANDING --> FAILSAFE: disarm / gateway lost / new session<br/>manual / rf_lost
     DISARMED --> FAILSAFE: manual
     FAILSAFE --> DISARMED: ack<br/>(session ok, fresh link, throttle low)
 ```
@@ -462,19 +488,35 @@ stateDiagram-v2
 - **Disarm is always accepted from the active session.** In FAILSAFE it lowers ARM but stays
   latched. DISARM and manual FAILSAFE from any other session are ignored, so a late DISARM from an
   old pilot's page cannot stop the drone under the new pilot.
-- **Handover.** The gateway registers one standby session (`STANDBY`). On `cmd_timeout` or
-  `pilot_lost` of the active session with a standby registered, the core makes the standby the
-  active session (sequence reset), keeps sending the last applied sticks, mode, speed and turtle,
-  and reports `handover` (event and evidence log). The state does not change: ARMED stays ARMED,
-  a latched FAILSAFE stays latched. The new session then has 300 ms for its first fresh command;
-  until it arrives the handover is *pending*: arm and ack are refused, and a second timeout or
-  `pilot_lost` ends in FAILSAFE (no chained handovers). `gateway_lost`, `manual`, `rf_lost` and an
-  unexpected `SESSION` still fail safe with a standby. Worst case, the drone flies 600 ms on the
-  last sticks.
-- **With a standby, letting go hands over: Desarmar is the way to stop.** Esc, a hidden tab or a
-  lost focus stops the page's commands, which is a `cmd_timeout`, which hands over.
+- **HOLD.** Entered from ARMED on `cmd_timeout` or `pilot_lost` of the active session. The core
+  reacts within the same 300 ms as before, but the drone stays armed for `hold_ms`. Outputs: ARM high,
+  roll, pitch and yaw centred, throttle `hold_throttle`, flight mode Normal, speed unchanged, turtle
+  off. If the last throttle applied was at or below `throttle_arm_max` (5 %), the drone may be on the
+  ground, so the core skips HOLD and goes to LANDING.
+- **Resume.** A fresh command from the session that was flying ends a `cmd_timeout` hold and applies
+  at once; the page shows `Conexión recuperada`. After `pilot_lost` the session is gone, so there is
+  no resume.
+- **TAKE and LAND.** The gateway registers one standby session (`STANDBY`, always the queue head).
+  `TAKE` is accepted from that session in HOLD or LANDING: it becomes the active session, the standby
+  is cleared and the core reports `taken` at once (the hub needs it to seat the pilot). The state
+  stays HOLD or LANDING until the new session's first fresh command, then ARMED, and the countdown
+  keeps running meanwhile. `LAND` is accepted from the standby in HOLD only and goes to LANDING. Anyone
+  else is refused (`not_standby`, `not_in_hold`). The old session is rejected after a TAKE.
+- **LANDING.** ARM high, sticks centred, throttle minimum, Normal mode. After `land_ms` the core
+  enters FAILSAFE, with the reason that started the hold. If that reason was `pilot_lost`, the seat is
+  cleared so the queue head can sit; after `cmd_timeout` the pilot's page keeps it. A seat lost to
+  `pilot_lost` is also cleared on any other exit from HOLD or LANDING.
+- **Instant paths.** Desarmar, manual FAILSAFE, `gateway_lost`, `rf_lost` and an unexpected `SESSION`
+  go straight to FAILSAFE or DISARMED from ARMED, HOLD and LANDING alike. `rf_lost` wins over
+  `cmd_timeout` in the same tick.
+- **Letting go no longer stops the motors.** Esc, a hidden tab or a lost focus stops the page's
+  commands, which starts a HOLD and then a landing. **Desarmar is the only way to stop the motors in
+  flight.**
+- **Settings** (`crsf-core.conf`): `hold_ms` (0 = off, else 1000–10000), `hold_throttle` (0–1000) and
+  `land_ms` (1000–30000). The last two have no default and are required when `hold_ms` > 0: the core
+  refuses to start without them.
 - **Outputs in FAILSAFE:** sticks centred, throttle 0, and per profile:
-  - `aquila20` (default): **ARM low**, so the drone disarms (its motors stop; it does not land);
+  - `aquila20` (default): **ARM low**, so the drone disarms (its motors stop; it does not land). With the hold enabled, this comes only after HOLD and LANDING;
   - `betaflight`: FAILSAFE switch (CH7) high, ARM unchanged, Betaflight runs its own procedure.
 - **`rf_lost` (aquila20 only):** armed with no link report with uplink LQ > 0 for 1 s →
   FAILSAFE, so the core's state matches a drone that has disarmed itself.
@@ -500,7 +542,11 @@ stateDiagram-v2
 
 - `events.jsonl` (always on): state changes with `cmd_age_ms`, refusals, flight-mode changes,
   serial up/down, module identity and firmware, ELRS timing samples, gateway connects.
-  Monotonic time plus wall-clock time.
+  Monotonic time plus wall-clock time. The hold-then-land events are `hold`, `resumed`, `taken`
+  and `landing` (with `reason`, `session`, `cmd_age_ms`), next to the `state` lines.
+  `crsf-ctl status` shows `HOLD 3.2 s` or `LANDING 1.0 s`; `crsf-ctl watch` prints the events.
+- The gateway's own **connection log** is `/var/log/gcs-gateway/events.jsonl` (§6.1): who joined,
+  left or got the seat, command gaps and stale drops, each tagged `local`, `tunnel` or `relay`.
 - **Stick lines** in `events.jsonl` (`stick_log_ms`, default 100 ms, 0 = off): while armed,
   the values **on the air** (after the safety rules) every 100 ms, and one more line in the
   first frame after leaving ARMED, so a flight's last values are always logged.
@@ -521,7 +567,7 @@ stateDiagram-v2
 | Browser → gateway | Meaning |
 |-------------------|---------|
 | `hello {role: "pilot" \| "observer"}` | must be the first message; `pilot` joins the queue only with a valid cookie (or through the relay) |
-| `ready {on}` | queued page only: ready to take over (`true`) or not (`false`) |
+| `take`, `land` | the queue head's page only; forwarded to the core as `TAKE` / `LAND` |
 | `ctl {seq, ts, r, p, y, th, m, sp, tu}` | 50 Hz; `r,p,y` −1000..1000, `th` 0..1000, `m` 0..2, `sp` 0..2 and `tu` 0/1 (optional, default 0), `ts` = `performance.now()` |
 | `arm`, `disarm`, `ack`, `failsafe` | pilot only |
 | `tsync_r {s0, c1}` | reply to `tsync` |
@@ -529,10 +575,10 @@ stateDiagram-v2
 
 | Gateway → browser | Meaning |
 |-------------------|---------|
-| `welcome {role, session?, reason?, position?, takeover?, lost?}` | `observer` (`reason: "login_required"` or `"pilot_present"`), `queued` (`position`; `standby: true` on the standby's page; `lost: true` after losing the control in a handover), or `pilot` (`takeover`: the last command on the air, after a handover) |
-| `status {...}` | 10 Hz: core state, reason, `cmdAgeMs`, counters, channels, `core`, `pilot`, `pilotName`, `standbyName`, `rttMs`, `staleDropped` |
+| `welcome {role, session?, reason?, position?, takeover?, lost?}` | `observer` (`reason: "login_required"` or `"pilot_present"`), `queued` (`position`; `standby: true` on the queue head's page; `lost: true` after losing the control to a taker), or `pilot` (`takeover`: the outputs on the air, after a take) |
+| `status {...}` | 10 Hz: core state (incl. `HOLD`, `LANDING`), reason, `stageLeftMs`, the outputs on the air, `cmdAgeMs`, counters, channels, `core`, `pilot`, `pilotName`, `standbyName`, `rttMs`, `staleDropped` |
 | `telem {link \| battery \| flightMode \| device}` | decoded telemetry |
-| `event {what, refused?, reason?}` | arm or ack refused, with the reason; `what: "handover"` with the core's reason |
+| `event {what, refused?, reason?}` | arm, ack, take or land refused, with the reason; `what: "hold" \| "resumed" \| "taken" \| "landing"` with the core's reason |
 | `tsync {s0}` | every 2 s, pilot only |
 | `pong`, `error` | |
 
@@ -555,10 +601,11 @@ golden bytes in both test suites.
 | `0x01` SESSION | gw → core | u32 session |
 | `0x02` CONTROL | gw → core | u32 session, u32 seq, i16 roll, i16 pitch, i16 yaw, u16 throttle, u8 mode, u8 speed, u8 turtle (a 17-byte one is still accepted) |
 | `0x03`–`0x07` ARM, DISARM, ACK, PILOT_LOST, FAILSAFE | gw → core | u32 session |
-| `0x08` STANDBY | gw → core | u32 session of the ready standby; 0 = none |
-| `0x81` STATUS | core → gw | 80 bytes, 10 Hz (state, reason, session, last seq, command age, counters, period, ELRS offset, worst wake-up, 16 channels) |
+| `0x08` STANDBY | gw → core | u32 session of the standby (the queue head); 0 = none |
+| `0x09` TAKE, `0x0A` LAND | gw → core | u32 session of the standby |
+| `0x81` STATUS | core → gw | 96 bytes, 10 Hz (state, reason, session, last seq, command age, counters, period, ELRS offset, worst wake-up, 16 channels, then `u32 stage_left_ms` and the outputs on the air: roll, pitch, yaw, throttle, mode, speed, turtle) |
 | `0x82`–`0x85` LINK, BATTERY, FLIGHT_MODE, DEVICE | core → gw | decoded telemetry |
-| `0x86` EVENT | core → gw | refusal kind and reason; kind 3 = handover (reason `cmd_timeout` or `pilot_lost`, session = the new active one) |
+| `0x86` EVENT | core → gw | refusal kind and reason; kinds 4 `hold`, 5 `resumed`, 6 `taken`, 7 `landing` (detail = the reason that started the hold), 8 `take_refused`, 9 `land_refused`. Kind 3 is retired (it was the handover) |
 
 Two sockets: `core.sock` (one controller; a new connection replaces the old one, which counts as
 *gateway lost*) and `status.sock` (up to 4 read-only observers such as `crsf-ctl watch`; what
@@ -627,7 +674,7 @@ Status: implemented and tested locally; **not deployed** (§15).
 
 | Segment | Failure | Detected by | Response | Budget |
 |---------|---------|-------------|----------|--------|
-| Pilot ↔ Pi | Wi-Fi loss, tab hidden, browser crash | page: dead-man stops sending; gateway: socket close → `PILOT_LOST`; core: no fresh command for 300 ms | FAILSAFE in the next frame; with a ready standby, handover instead (§7.4) | ≤ 300 ms + 1 frame (handover: + 300 ms for the standby's first command) |
+| Pilot ↔ Pi | Wi-Fi loss, tab hidden, browser crash | page: dead-man stops sending; gateway: socket close → `PILOT_LOST`; core: no fresh command for 300 ms | HOLD in the next frame, then LANDING, then FAILSAFE (§7.4); the queue head may take control or land. `hold_ms` = 0: FAILSAFE at once | reaction ≤ 300 ms + 1 frame; motors stop after `hold_ms` + `land_ms` |
 | Pilot ↔ relay ↔ Pi | internet loss, relay down | same core timer; relay close → pilot lost | same | same |
 | Inside the Pi | gateway crash | core: control socket closed → `GATEWAY_LOST` | same; systemd restarts the gateway, the pilot must clear and re-arm | immediate |
 | Inside the Pi | crsf-core crash | the module stops receiving frames | the drone's own RX-loss failsafe (Aquila20: motors stop at once) | immediate |
@@ -674,8 +721,8 @@ units.
 
 | File | Contents |
 |------|----------|
-| `/etc/gcs/crsf-core.conf` | serial device (stable `/dev/serial/by-id/...` name), baud, sockets, logs, `cmd_timeout_ms` (300), `sync_margin_us` (1000), real-time settings, `fc_profile`, channel layout |
-| `/etc/gcs/gateway.json` | listen address and port, TLS files, core socket, web root, `maxCommandAgeMs` (200), video WHEP URL, relay settings, `auth.usersFile` (required: the gateway refuses to start without it) |
+| `/etc/gcs/crsf-core.conf` | serial device (stable `/dev/serial/by-id/...` name), baud, sockets, logs, `cmd_timeout_ms` (300), `hold_ms` (0 = off), `hold_throttle`, `land_ms`, `sync_margin_us` (1000), real-time settings, `fc_profile`, channel layout |
+| `/etc/gcs/gateway.json` | listen address and port, TLS files, core socket, web root, `maxCommandAgeMs` (200), video WHEP URL, relay settings, `auth.usersFile` (required: the gateway refuses to start without it), `eventLog` (the connection log; `null` prints to the journal) |
 | `/var/lib/gcs/users.json` | pilot accounts (name, scrypt hash and salt, admin flag); owner `gcs`, mode 0600; written by the gateway (`/admin`) and `users-cli.js` |
 | `/etc/gcs/mediamtx.yml`, `/etc/gcs/video.env` | MediaMTX and capture settings (device, size, frame rate, bitrate, source) |
 | `/etc/gcs/tls/` | self-signed certificate (`deploy/make-cert.sh`) |

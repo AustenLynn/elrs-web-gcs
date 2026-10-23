@@ -117,16 +117,18 @@ Run the hardware tasks in this order: M1 T9, M3 T8, M4 T10, M5 T3–4, M6 T6, M7
 ## 5. Tests
 
 ```bash
-make -C core test                     # 125 C unit tests (UBSan)
-make -C core integration              # 36 tests: real binaries vs a Python fake TX module on a pty
+make -C core test                     # 138 C unit tests (UBSan)
+make -C core integration              # 39 tests: real binaries vs a Python fake TX module on a pty
 npm --prefix relay install && npm --prefix gateway install   # first time only
 npm --prefix relay test               # 11
-npm --prefix gateway test             # 212 (gateway + web)
+npm --prefix gateway test             # 230 (gateway + web)
 python3 -W error -m unittest discover -s tools/analysis -t tools/analysis   # 26
-make -C core && npm --prefix gateway run e2e   # 9 headless-Firefox tests (admin, handover, keyboard, layout, pilot, video), one at a time
+make -C core && npm --prefix gateway run e2e   # 10 headless-Firefox tests (admin, hold, keyboard, layout, pilot, video), one at a time
 ```
 
-Counts from 2026-10-20 (`feat/pilot-auth-handover`), run on an x86 WSL (Kali) machine, where
+Counts from 2026-10-22 (`feat/hold-then-land`), run on the Pi 4 (≤ 48 °C, not throttled): all
+pass, e2e 10/10, and the three hold e2e tests passed three runs in a row. Earlier counts
+(2026-10-20, `feat/pilot-auth-handover`) came from an x86 WSL (Kali) machine, where
 the video test was skipped (no MediaMTX). There the tools came from `build-essential`,
 `firefox-esr` (linked as `~/.local/bin/firefox`, the name the tests start) and Node 24: Kali's
 Node 22 package crashes `node --test` (`Missing internal module 'internal/deps/brace-expansion'`).
@@ -139,6 +141,34 @@ if MediaMTX is missing. It drops frames when the Pi is throttling, so let the Pi
 first. The gateway's relay tests import `relay/`, so install both packages.
 
 ## 6. Open items for the team
+
+- **Built 2026-10-22, NOT installed and NOT flown: the two-stage failsafe (hold, then land).**
+  Branch `feat/hold-then-land`. Spec `docs/superpowers/specs/2026-10-21-hold-then-land-failsafe-design.md`,
+  plan `docs/superpowers/plans/2026-10-22-hold-then-land-failsafe.md`, rulings
+  `docs/superpowers/ledgers/2026-10-22-hold-then-land.md`.
+  - Why: on 2026-10-22 two pilots on phones over the Cloudflare tunnel lost their command streams
+    10 s apart in flight (`/var/log/crsf-core/events.jsonl`: 01:54:51Z handover, 01:55:02Z FAILSAFE
+    `cmd_timeout`); ARM dropped and the drone fell. The 300 ms timeout and 200 ms stale filter were
+    sized for local Wi-Fi.
+  - What it does: commands lost in flight → HOLD (ARM high, sticks centred, `hold_throttle`, Normal)
+    for `hold_ms`, then LANDING (throttle minimum) for `land_ms`, then FAILSAFE. The main pilot keeps
+    flying if their commands come back. The queue head chooses «Tomar el control» or «Aterrizar» from
+    a banner over the video. «Listo» and the automatic handover are gone.
+  - New `crsf-core.conf` keys: `hold_ms` (0 = off, the default), `hold_throttle`, `land_ms` (required
+    when `hold_ms` > 0). New gateway connection log `/var/log/gcs-gateway/events.jsonl`
+    (`eventLog` in `gateway.json`): join, leave, seat, command gaps > 250 ms, stale drops and hold
+    events, each tagged `local`, `tunnel` or `relay`.
+  - **Deployment gate.** Installing this build with `hold_ms = 0` **removes the automatic handover**:
+    a lost pilot means an instant FAILSAFE with no standby rescue. Install it on the Pi only together
+    with the spec §8 values (team approval, C3 reading, measured `hold_throttle` and `land_ms`).
+    `install.sh` keeps the existing `/etc/gcs/*.conf`: replace `/etc/gcs/gateway.json` (new
+    `eventLog`) and edit `crsf-core.conf` by hand.
+  - Before it flies: bench test `docs/procedures/hold-bench-test.md` (two phones, local Wi-Fi and the
+    tunnel, propellers off), then one measured flight.
+  - Until then, fly only on the Pi's local Wi-Fi, not through the tunnel.
+  - Known leftovers: the gateway unit suites leave `gcs-*` folders in `/tmp` (about 690, 5 MB, a RAM
+    tmpfs); one gateway unit run hung once in `ipc.test.js` (not reproduced in 15 runs). The deferred
+    minor review findings are in the ledger.
 
 - **Resolved 2026-10-20 (branch `feat/pilot-auth-handover`, once merged and installed): login on
   the pilot page.** Before it, the gateway was exposed through a Cloudflare *quick tunnel*
