@@ -4,6 +4,7 @@ import http from 'node:http';
 import https from 'node:https';
 import { WebSocketServer, WebSocket } from 'ws';
 import { authRoutes, cookieToken, LoginLimiter, Sessions } from './auth.js';
+import { openConnLog } from './connlog.js';
 import { ControlHub } from './hub.js';
 import { CoreClient } from './ipc.js';
 import { RelayClient } from './relayClient.js';
@@ -34,7 +35,8 @@ function sameOrigin(req) {
 }
 
 export async function startGateway(cfg, { core = new CoreClient(cfg.coreSocket) } = {}) {
-  const hub = new ControlHub({ core, maxCommandAgeMs: cfg.maxCommandAgeMs });
+  const connlog = openConnLog(cfg.eventLog ?? null);
+  const hub = new ControlHub({ core, maxCommandAgeMs: cfg.maxCommandAgeMs, log: connlog.write });
   core.on('status', (s) => hub.onCoreStatus(s));
   core.on('down', () => hub.onCoreDown());
   core.on('up', () => hub.onCoreUp());
@@ -81,16 +83,16 @@ export async function startGateway(cfg, { core = new CoreClient(cfg.coreSocket) 
       return;
     }
     const user = sessions.get(cookieToken(req));   // no or stale cookie: a spectator
-    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, user));
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, user, req.headers['cf-connecting-ip'] ? 'tunnel' : 'local'));
   });
 
-  wss.on('connection', (ws, user) => {
+  wss.on('connection', (ws, user, via) => {
     const client = {
       send: (obj) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)); },
       close: () => ws.close(),
     };
     ws.isAlive = true;
-    hub.attach(client, { user, relay: false });
+    hub.attach(client, { user, relay: false, via });
     ws.on('pong', () => { ws.isAlive = true; });
     ws.on('message', (data, isBinary) => {
       if (isBinary) return;
@@ -146,6 +148,7 @@ export async function startGateway(cfg, { core = new CoreClient(cfg.coreSocket) 
       for (const ws of wss.clients) ws.terminate();
       core.stop();
       await new Promise((resolve) => server.close(resolve));
+      await connlog.close();
     },
   };
 }

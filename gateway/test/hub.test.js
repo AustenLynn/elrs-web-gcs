@@ -24,8 +24,9 @@ function setup({ maxCommandAgeMs = 200 } = {}) {
   let now = 1000;
   let nextSession = 41;
   const core = fakeCore();
-  const hub = new ControlHub({ core, maxCommandAgeMs, now: () => now, newSession: () => ++nextSession });
-  return { hub, core, clock: { get: () => now, set: (v) => { now = v; } } };
+  const logs = [];
+  const hub = new ControlHub({ core, maxCommandAgeMs, now: () => now, newSession: () => ++nextSession, log: (o) => logs.push(o) });
+  return { hub, core, logs, clock: { get: () => now, set: (v) => { now = v; } } };
 }
 
 const ANA = { user: { name: 'ana', admin: true }, relay: false };
@@ -389,4 +390,51 @@ test('core coming back during a hold clears the hold banner state', () => {
   assert.equal(p.last('status').stageLeftMs, undefined);
   hub.onCoreUp();
   assert.deepEqual(p.last('welcome'), { t: 'welcome', role: 'pilot', session: 43 });
+});
+
+test('late bursts over the tunnel are dropped as stale and logged', () => {
+  const { hub, core, logs, clock } = setup({ maxCommandAgeMs: 200 });
+  const p = join(hub, 'pilot', { ...ANA, via: 'tunnel' });
+  const s0 = p.last('tsync').s0;
+  clock.set(1010);
+  hub.handle(p, { t: 'tsync_r', s0, c1: 50005 });   // browser clock ~49000 ahead
+  clock.set(2000);
+  const send = (seq, age) => hub.handle(p, ctl(seq, { ts: clock.get() + 49000 - age }));
+  [144, 248, 139, 103, 204].forEach((age, i) => { send(i + 1, age); clock.set(clock.get() + 20); });
+  clock.set(clock.get() + 380);                      // 400 ms since the last arrival
+  send(6, 50);
+  const controls = core.calls.filter((c) => c[0] === 'control');
+  assert.deepEqual(controls.map((c) => c[2]), [1, 3, 4, 6]);
+  const stale = logs.filter((l) => l.ev === 'stale');
+  assert.equal(stale.length, 2);
+  assert.deepEqual(stale.map((l) => Math.round(l.ageMs)), [248, 204]);
+  assert.ok(stale.every((l) => l.name === 'ana' && l.via === 'tunnel'));
+  const gaps = logs.filter((l) => l.ev === 'gap');
+  assert.equal(gaps.length, 1);
+  assert.equal(gaps[0].name, 'ana');
+  assert.equal(gaps[0].ms, 400);
+});
+
+test('the connection log names who, how and when', () => {
+  const { hub, logs, clock } = setup();
+  const a = join(hub, 'pilot', { ...ANA, via: 'tunnel' });
+  join(hub, 'pilot', { ...user('bea'), via: 'local' });
+  hub.handle(a, ctl(1));
+  clock.set(clock.get() + 300);
+  hub.handle(a, ctl(2));
+  clock.set(clock.get() + 5000);
+  hub.detach(a);
+  assert.deepEqual(logs.map((l) => l.ev), ['join', 'seat', 'join', 'gap', 'leave']);
+  assert.deepEqual(logs.map((l) => l.via), ['tunnel', 'tunnel', 'local', 'tunnel', 'tunnel']);
+  assert.equal(logs[1].how, 'free');
+  assert.equal(logs[4].connectedS, 5.3);
+  assert.ok(logs.every((l) => !Object.keys(l).some((k) => /ip|pass/i.test(k))));
+});
+
+test('hold events are logged with the lost pilot and the path', () => {
+  const { hub, logs } = setup();
+  const a = join(hub, 'pilot', { ...ANA, via: 'relay' });
+  hub.detach(a);
+  hub.onCoreEvent({ what: 'hold', reason: 'pilot_lost', session: 42 });
+  assert.deepEqual(logs.at(-1), { ev: 'hold', name: 'ana', via: 'relay', reason: 'pilot_lost' });
 });

@@ -13,6 +13,7 @@ export const DEFAULTS = Object.freeze({
   maxCommandAgeMs: 200,
   video: null, // { whep: 'http://127.0.0.1:8889/fpv/whep' }; null = no video
   auth: { usersFile: '/var/lib/gcs/users.json' },
+  eventLog: null, // connection log file (JSON lines); null = stdout (journal)
   relay: null, // { url: 'wss://relay.example.org/relay', room: 'pi1', token: '...', insecure: false }
 });
 
@@ -27,6 +28,7 @@ export function validateConfig(cfg) {
   if (cfg.video !== null && !/^http:\/\/[^/]+\/.+/.test(cfg.video?.whep ?? '')) problems.push('video must be null or { whep: "http://host:port/path/whep" }');
   if (cfg.relay !== null && (!/^wss?:\/\//.test(cfg.relay?.url ?? '') || typeof cfg.relay?.room !== 'string' ||
       !/^[0-9a-f]{32,}$/i.test(cfg.relay?.token ?? ''))) problems.push('relay must be null or { url: "wss://...", room, token: 32+ hex chars }');
+  if (cfg.eventLog !== null && typeof cfg.eventLog !== 'string') problems.push('eventLog must be null or a file path');
   if (typeof cfg.auth?.usersFile !== 'string') problems.push('auth.usersFile must be a path');
   if (problems.length) throw new Error(`invalid gateway config: ${problems.join('; ')}`);
   return cfg;

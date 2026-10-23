@@ -20,6 +20,7 @@ const defaultNow = () => performance.now();
 const randomSession = () => randomInt(1, 0xffffffff);
 const isInt = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
 const round1 = (v) => Math.round(v * 10) / 10;
+const GAP_LOG_MS = 250;   // a longer silence between the pilot's commands is worth a log line
 
 export class ControlHub {
   constructor({ core, maxCommandAgeMs = 200, now = defaultNow, newSession = randomSession, log = () => {} }) {
@@ -36,19 +37,21 @@ export class ControlHub {
     this.telemetry = {};
     this.lastStatus = null;
     this.staleDropped = 0;
+    this.lastPilot = { name: null, via: 'local' };   // who last held the seat (for hold events)
   }
 
-  /** client: { send(obj), close() }; auth: { user: {name, admin} | null, relay } (stored for the queue) */
+  /** client: { send(obj), close() }; auth: { user: {name, admin} | null, relay, via } (stored for the queue) */
   attach(client, auth = { user: null, relay: false }) {
     this.clients.set(client, {
       auth, role: null, session: 0, lastSeq: 0, position: 0, standby: false, clock: new ClockSync(),
-      windowStart: this.now(), windowCount: 0,
+      windowStart: this.now(), windowCount: 0, joinedAt: this.now(), lastCmdAt: null,
     });
   }
 
   detach(client) {
     const c = this.clients.get(client);
     if (!c) return;
+    this.#log('leave', c, { role: c.role, connectedS: round1((this.now() - c.joinedAt) / 1000) });
     this.clients.delete(client);
     if (this.pilot === client) {
       this.pilot = null;
@@ -161,6 +164,7 @@ export class ControlHub {
   }
 
   onCoreEvent(ev) {
+    if (ev.what !== 'taken') this.#logEvent(ev);   // 'taken' is logged once the seat has moved
     switch (ev.what) {
       case 'hold': case 'resumed': case 'landing':
         this.#broadcast({ t: 'event', what: ev.what, reason: ev.reason, session: ev.session });
@@ -168,6 +172,7 @@ export class ControlHub {
       case 'taken':
         this.#broadcast({ t: 'event', what: 'taken', reason: ev.reason, session: ev.session });
         this.#follow(ev.session);
+        this.#logEvent(ev);
         break;
       case 'take': case 'land':   // refused: only the one who asked cares
         this.queue[0]?.send({ t: 'event', what: ev.what, refused: ev.refused });
@@ -196,8 +201,10 @@ export class ControlHub {
     if (next) {
       this.awaitingCore = false;
       const nc = this.clients.get(next);
-      Object.assign(nc, { role: 'pilot', lastSeq: 0 });
+      Object.assign(nc, { role: 'pilot', lastSeq: 0, lastCmdAt: null });
       this.pilot = next;
+      this.lastPilot = { name: this.#name(nc), via: nc.auth.via ?? 'local' };
+      this.#log('seat', nc, { how: 'taken' });
       const o = this.lastStatus?.out;   // the sticks on the air: the taker's page starts from them
       const takeover = o ? { r: o.roll, p: o.pitch, y: o.yaw, th: o.throttle, m: o.mode, sp: o.speed, tu: o.turtle } : null;
       next.send({ t: 'welcome', role: 'pilot', session, ...(takeover ? { takeover } : {}) });
@@ -213,6 +220,7 @@ export class ControlHub {
 
   #hello(client, c, msg) {
     const mayFly = c.auth.user !== null || c.auth.relay;
+    this.#log('join', c, { role: msg.role === 'pilot' ? 'pilot' : 'observer' });
     if (msg.role === 'pilot' && mayFly) {
       c.role = 'queued';
       c.session = this.newSession();
@@ -231,8 +239,10 @@ export class ControlHub {
     if (this.pilot !== null || this.awaitingCore || this.queue.length === 0) return;
     const client = this.queue.shift();
     const c = this.clients.get(client);
-    Object.assign(c, { role: 'pilot', lastSeq: 0 });
+    Object.assign(c, { role: 'pilot', lastSeq: 0, lastCmdAt: null });
     this.pilot = client;
+    this.lastPilot = { name: this.#name(c), via: c.auth.via ?? 'local' };
+    this.#log('seat', c, { how: 'free' });
     this.core.sessionStart(c.session);
     this.sentStandby = 0;          // SESSION clears the core's standby
     client.send({ t: 'welcome', role: 'pilot', session: c.session });
@@ -266,6 +276,16 @@ export class ControlHub {
     this.core.standby(session);
   }
 
+  #log(ev, c, extra = {}) {
+    this.log({ ev, name: this.#name(c), via: c.auth.via ?? 'local', ...extra });
+  }
+
+  /** A core event (hold, resumed, taken, landing) with the pilot it concerns. */
+  #logEvent(ev) {
+    if (!['hold', 'resumed', 'taken', 'landing'].includes(ev.what)) return;
+    this.log({ ev: ev.what, name: this.lastPilot.name, via: this.lastPilot.via, reason: ev.reason });
+  }
+
   #name(c) {
     return c.auth.user?.name ?? (c.auth.relay ? 'remoto' : null);
   }
@@ -277,9 +297,18 @@ export class ControlHub {
       isInt(m.th, 0, 1000) && isInt(m.m, 0, 2) && optional(m.sp, 2) && optional(m.tu, 1);
     if (!valid) return; // garbage never refreshes the core's failsafe timer
     c.lastSeq = m.seq;
-    if (c.clock.ready && c.clock.age(m.ts, this.now()) > this.maxCommandAgeMs) {
-      this.staleDropped++;
-      return;
+    // The gap counts the arrival of any valid-format command, stale or not: a stale one
+    // still proves the link delivered something, and a gap of silence is what we look for.
+    const now = this.now();
+    if (c.lastCmdAt !== null && now - c.lastCmdAt > GAP_LOG_MS) this.#log('gap', c, { ms: round1(now - c.lastCmdAt) });
+    c.lastCmdAt = now;
+    if (c.clock.ready) {
+      const ageMs = c.clock.age(m.ts, now);
+      if (ageMs > this.maxCommandAgeMs) {
+        this.staleDropped++;
+        this.#log('stale', c, { ageMs: round1(ageMs) });
+        return;
+      }
     }
     this.core.control(c.session, m.seq,
       { roll: m.r, pitch: m.p, yaw: m.y, throttle: m.th, mode: m.m, speed: m.sp ?? 0, turtle: m.tu ?? 0 });

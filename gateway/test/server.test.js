@@ -263,10 +263,12 @@ test('the WebSocket auth comes from the sign-in cookie; no or forged cookie is a
   (await connect(wsUrl, { headers: { cookie } })).ws.close();
   (await connect(wsUrl)).ws.close();
   (await connect(wsUrl, { headers: { cookie: `gcs_session=${'0'.repeat(64)}` } })).ws.close();
+  (await connect(wsUrl, { headers: { cookie, 'cf-connecting-ip': '203.0.113.9' } })).ws.close();
   assert.deepEqual(seen, [
-    { user: { name: 'ana', admin: true }, relay: false },
-    { user: null, relay: false },
-    { user: null, relay: false },
+    { user: { name: 'ana', admin: true }, relay: false, via: 'local' },
+    { user: null, relay: false, via: 'local' },
+    { user: null, relay: false, via: 'local' },
+    { user: { name: 'ana', admin: true }, relay: false, via: 'tunnel' },   // Cloudflare adds the header
   ]);
 });
 
