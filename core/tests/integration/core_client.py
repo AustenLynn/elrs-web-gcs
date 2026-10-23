@@ -5,18 +5,23 @@ import threading
 import time
 
 SESSION, CONTROL, ARM, DISARM, ACK, PILOT_LOST, FAILSAFE = 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07
-STANDBY = 0x08
+STANDBY, TAKE, LAND = 0x08, 0x09, 0x0A
 STATUS, LINK, BATTERY, FLIGHT_MODE, DEVICE, EVENT = 0x81, 0x82, 0x83, 0x84, 0x85, 0x86
-STATES = {0: "DISARMED", 1: "ARMED", 2: "FAILSAFE"}
+STATES = {0: "DISARMED", 1: "ARMED", 2: "FAILSAFE", 3: "HOLD", 4: "LANDING"}
 REASONS = {0: "none", 1: "cmd_timeout", 2: "pilot_lost", 3: "gateway_lost", 4: "session_changed", 5: "manual",
            6: "rf_lost"}
 REFUSALS = {0: "none", 1: "wrong_session", 2: "not_disarmed", 3: "not_in_failsafe",
-            4: "link_stale", 5: "throttle_high", 6: "fc_still_armed", 7: "rf_down"}
+            4: "link_stale", 5: "throttle_high", 6: "fc_still_armed", 7: "rf_down", 8: "not_standby",
+            9: "not_in_hold"}
+HOLD_EVENTS = {4: "hold", 5: "resumed", 6: "taken", 7: "landing"}      # detail = fs_reason_t
+REFUSED_EVENTS = {1: "arm_refused", 2: "ack_refused", 8: "take_refused", 9: "land_refused"}   # detail = refuse_t
 
-STATUS_FMT = "<BBBB" + "I" * 8 + "i" + "I" * 2 + "16H"   # 80 bytes, see ipc_status_t
+STATUS_FMT = "<BBBB" + "I" * 8 + "i" + "I" * 2 + "16H" + "I3hH4B"   # 96 bytes, see ipc_status_t
 STATUS_FIELDS = ("state", "fs_reason", "fc_arm", "serial_ok", "session", "last_seq", "cmd_age_ms",
                  "frames_sent", "tx_errors", "rx_frames", "rx_crc_errors", "period_us",
                  "offset_0p1us", "timing_frames", "wake_late_max_us")
+STATUS_TAIL = ("stage_left_ms", "out_roll", "out_pitch", "out_yaw", "out_throttle", "out_mode", "out_speed",
+               "out_turtle")   # the last byte is reserved
 
 
 def msg(mtype, payload=b""):
@@ -85,7 +90,8 @@ class CoreClient:
         if mtype == STATUS:
             values = struct.unpack(STATUS_FMT, p)
             st = dict(zip(STATUS_FIELDS, values[:15]))
-            st["channels"] = list(values[15:])
+            st["channels"] = list(values[15:31])
+            st.update(zip(STATUS_TAIL, values[31:]))
             st["state_name"] = STATES[st["state"]]
             st["reason_name"] = REASONS[st["fs_reason"]]
             self.status = st
@@ -102,10 +108,10 @@ class CoreClient:
             self.device = {"name": p[9:9 + p[8]].decode(), "version": "%d.%d.%d" % (p[1], p[2], p[3])}
         elif mtype == EVENT:
             kind, detail, session = struct.unpack("<BBI", p)
-            if kind == 3:
-                self.events.append(("handover", REASONS[detail], session))
+            if kind in HOLD_EVENTS:
+                self.events.append((HOLD_EVENTS[kind], REASONS[detail], session))
             else:
-                self.events.append(("arm_refused" if kind == 1 else "ack_refused", REFUSALS[detail], session))
+                self.events.append((REFUSED_EVENTS[kind], REFUSALS[detail], session))
 
 
 class Pilot:
@@ -115,6 +121,8 @@ class Pilot:
         self.client = client
         self.session = session
         self.throttle = throttle
+        self.roll = 0
+        self.mode = 0
         self.speed = 0
         self.turtle = 0
         self.seq = 0
@@ -130,8 +138,8 @@ class Pilot:
             if not self.paused:
                 self.seq += 1
                 try:
-                    self.client.control(self.session, self.seq, throttle=self.throttle,
-                                        speed=self.speed, turtle=self.turtle)
+                    self.client.control(self.session, self.seq, roll=self.roll, throttle=self.throttle,
+                                        mode=self.mode, speed=self.speed, turtle=self.turtle)
                 except OSError:
                     return
             time.sleep(0.02)

@@ -18,7 +18,13 @@ static void copy_safe(char *dst, size_t cap, const char *src)
 
 static const char *cmd_name(int kind)
 {
-    return kind == CMD_ARM ? "arm" : kind == CMD_ACK ? "ack" : "?";
+    switch (kind) {
+    case CMD_ARM:  return "arm";
+    case CMD_ACK:  return "ack";
+    case CMD_TAKE: return "take";
+    case CMD_LAND: return "land";
+    default:       return "?";
+    }
 }
 
 size_t evlog_format(char *out, size_t cap, const core_event_t *ev, const char *wall)
@@ -43,9 +49,10 @@ size_t evlog_format(char *out, size_t cap, const core_event_t *ev, const char *w
         m = snprintf(p, left, "\"ev\":\"refused\",\"what\":\"%s\",\"reason\":\"%s\",\"session\":%u}",
                      cmd_name(ev->a), safety_refuse_name((refuse_t)ev->b), ev->session);
         break;
-    case EV_HANDOVER:
-        m = snprintf(p, left, "\"ev\":\"handover\",\"to\":%u,\"reason\":\"%s\",\"cmd_age_ms\":%d}",
-                     ev->session, safety_reason_name((fs_reason_t)ev->a), ev->cmd_age_ms);
+    case EV_HOLD:
+        m = snprintf(p, left, "\"ev\":\"%s\",\"reason\":\"%s\",\"session\":%u,\"cmd_age_ms\":%d}",
+                     safety_hold_ev_name((hold_ev_t)ev->a), safety_reason_name((fs_reason_t)ev->b),
+                     ev->session, ev->cmd_age_ms);
         break;
     case EV_FLIGHT_MODE:
         m = snprintf(p, left, "\"ev\":\"flight_mode\",\"mode\":\"%s\"}", text);

@@ -106,6 +106,8 @@ static void on_msg(uint8_t type, const uint8_t *p, size_t n, void *user)
         case IPC_PILOT_LOST: c.kind = CMD_PILOT_LOST; break;
         case IPC_FAILSAFE:   c.kind = CMD_FAILSAFE; break;
         case IPC_STANDBY:    c.kind = CMD_STANDBY; break;
+        case IPC_TAKE:       c.kind = CMD_TAKE; break;
+        case IPC_LAND:       c.kind = CMD_LAND; break;
         default:             ok = 0; break;
         }
     }
@@ -162,6 +164,18 @@ static void read_client(ipcserver_t *s)
     }
 }
 
+/* The gateway event for a refused command; 0 = none. */
+static uint8_t refused_kind(int32_t cmd)
+{
+    switch (cmd) {
+    case CMD_ARM:  return IPC_EVENT_ARM_REFUSED;
+    case CMD_ACK:  return IPC_EVENT_ACK_REFUSED;
+    case CMD_TAKE: return IPC_EVENT_TAKE_REFUSED;
+    case CMD_LAND: return IPC_EVENT_LAND_REFUSED;
+    default:       return 0;
+    }
+}
+
 static void drain_events(ipcserver_t *s)
 {
     core_event_t evs[64];
@@ -170,12 +184,14 @@ static void drain_events(ipcserver_t *s)
     while ((n = mailbox_take_events(s->mb, evs, 64)) > 0) {
         for (size_t i = 0; i < n; i++) {
             evlog_event(s->log, &evs[i]);
-            if (evs[i].kind == EV_HANDOVER)
-                send_msg(s, buf, ipc_encode_event(buf, sizeof buf, IPC_EVENT_TAKEN, (uint8_t)evs[i].a,
-                                                  evs[i].session));
-            else if (evs[i].kind == EV_REFUSED) {
-                uint8_t kind = evs[i].a == CMD_ARM ? IPC_EVENT_ARM_REFUSED : IPC_EVENT_ACK_REFUSED;
+            if (evs[i].kind == EV_HOLD) {
+                /* hold_ev_t 1..4 = IPC_EVENT_HOLD..IPC_EVENT_LANDING */
+                uint8_t kind = (uint8_t)(IPC_EVENT_HOLD + (evs[i].a - HOLD_EV_HOLD));
                 send_msg(s, buf, ipc_encode_event(buf, sizeof buf, kind, (uint8_t)evs[i].b, evs[i].session));
+            } else if (evs[i].kind == EV_REFUSED) {
+                uint8_t kind = refused_kind(evs[i].a);
+                if (kind != 0)
+                    send_msg(s, buf, ipc_encode_event(buf, sizeof buf, kind, (uint8_t)evs[i].b, evs[i].session));
             }
         }
     }

@@ -25,6 +25,8 @@ typedef enum {
     CMD_FAILSAFE,
     CMD_GATEWAY_LOST,
     CMD_STANDBY,           /* session = the standby (0 = none) */
+    CMD_TAKE,              /* the standby takes over a HOLD or LANDING */
+    CMD_LAND,              /* the standby lands from a HOLD */
 } cmd_kind_t;
 
 typedef struct {
@@ -36,14 +38,14 @@ typedef struct {
 
 typedef enum {
     EV_STATE = 1,    /* a = from, b = to, c = reason; session, cmd_age_ms */
-    EV_REFUSED,      /* a = CMD_ARM or CMD_ACK, b = refuse_t; session */
+    EV_REFUSED,      /* a = CMD_ARM, CMD_ACK, CMD_TAKE or CMD_LAND, b = refuse_t; session */
     EV_FLIGHT_MODE,  /* text = mode reported by the flight controller */
     EV_SERIAL,       /* a = 1 opened, 0 lost */
     EV_DEVICE,       /* text = name; a = origin, b.c.d = firmware version */
     EV_TIMING,       /* a = interval (0.1 us), b = offset (0.1 us) */
     EV_GATEWAY,      /* a = 1 connected, 0 disconnected */
     EV_START,        /* text = version */
-    EV_HANDOVER,     /* a = fs_reason_t that triggered it; session = the new session; cmd_age_ms */
+    EV_HOLD,         /* a = hold_ev_t, b = fs_reason_t that started the hold; session (after the change); cmd_age_ms */
     EV_STICKS,       /* values on the air: a..d = roll, pitch, yaw, throttle (per mille), e = mode, f = arm, g = speed, h = turtle; cmd_age_ms */
 } event_kind_t;
 

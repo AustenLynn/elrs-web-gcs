@@ -7,20 +7,25 @@ import tempfile
 import time
 import unittest
 
-from core_client import ACK, ARM, CONTROL, DISARM, FAILSAFE, STANDBY, CoreClient, Pilot, msg
+from core_client import ACK, ARM, CONTROL, DISARM, FAILSAFE, LAND, STANDBY, TAKE, CoreClient, Pilot, msg
 from fake_tx import FakeTx
 
 CORE_DIR = os.path.join(os.path.dirname(__file__), "..", "..")
 CORE = os.path.join(CORE_DIR, "build", "crsf-core")
 CTL = os.path.join(CORE_DIR, "build", "crsf-ctl")
-CH_ARM, CH_FAILSAFE, CH_THROTTLE = 4, 6, 2   # CH_FAILSAFE: betaflight profile only
+CH_ROLL, CH_PITCH, CH_THROTTLE, CH_YAW = 0, 1, 2, 3
+CH_ARM, CH_MODE, CH_FAILSAFE = 4, 5, 6       # CH_FAILSAFE: betaflight profile only
 CH_SPEED, CH_TURTLE = 6, 7                   # aquila20 profile
 CH_SENSITIVITY = 6                            # aquila20: CH7 is the drone's sensitivity switch
-HIGH, LOW = 1792, 192
+HIGH, LOW, MID = 1792, 192, 992
+HOLD_CONF = "hold_ms = 1000\nland_ms = 1000\nhold_throttle = 450\n"   # test values, never flight values
+HT_CH = LOW + (HIGH - LOW) * 450 // 1000     # hold_throttle on the air
+T300_CH = LOW + (HIGH - LOW) * 300 // 1000   # a pilot flying at throttle 300
 
 
 class CoreHarness(unittest.TestCase):
     PROFILE = "aquila20"          # fc_profile; subclasses may choose "betaflight"
+    EXTRA_CONF = ""               # appended to the config file
 
     def failsafe_on(self, ch):
         """What FAILSAFE looks like on the air in this profile."""
@@ -48,6 +53,7 @@ class CoreHarness(unittest.TestCase):
             f.write("event_log = %s\n" % self.events)
             f.write("rt_priority = 0\nrt_cpu = -1\n")
             f.write("fc_profile = %s\n" % self.PROFILE)
+            f.write(self.EXTRA_CONF)
         self.proc = subprocess.Popen([CORE, "-c", conf], stderr=subprocess.DEVNULL)
         self.addCleanup(self.stop_core)
         for _ in range(100):
@@ -238,47 +244,139 @@ class SafetyTest(CoreHarness):
         self.assertEqual(self.tx.last_channels()[CH_ARM], LOW)
 
 
-class HandoverTest(CoreHarness):
-    def test_standby_takes_over_when_the_pilot_stops_sending(self):
-        a = Pilot(self.client, session=21)
-        self.arm(a)
-        a.throttle = 300                  # arming needs a low throttle (throttle_arm_max)
-        self.client.send(STANDBY, 22)
-        a.paused = True
-        time.sleep(0.35)
-        b = Pilot(self.client, session=22, throttle=300, announce=False)
-        self.assertIsNone(self.tx.wait_for(self.failsafe_on, timeout=1.5))
-        self.assertEqual(self.tx.last_channels()[CH_ARM], HIGH)
-        self.assertTrue(self.client.wait(lambda c: ("handover", "cmd_timeout", 22) in c.events))
-        a.stop()
-        events = self.read_events()                   # b keeps flying while the log is flushed
-        b.stop()
-        self.assertEqual(len([e for e in events if e["ev"] == "handover"]), 1)
-        self.assertEqual([e for e in events if e["ev"] == "state" and e["to"] == "FAILSAFE"], [])
+def near(v, target, tol=2):
+    return abs(v - target) <= tol
 
-    def test_without_a_standby_the_drone_still_disarms(self):
-        a = Pilot(self.client, session=21)
-        self.arm(a)
-        a.throttle = 300                  # arming needs a low throttle (throttle_arm_max)
-        a.paused = True
-        self.assertIsNotNone(self.tx.wait_for(lambda ch: ch[CH_ARM] == LOW, timeout=0.45))
-        a.stop()
 
-    def test_standby_that_never_sends_fails_safe_after_the_handover(self):
-        a = Pilot(self.client, session=21)
+def holding(ch):
+    """HOLD on the air: ARM high, sticks centred, throttle = hold_throttle, flight mode Normal."""
+    return (ch[CH_ARM] == HIGH and near(ch[CH_THROTTLE], HT_CH) and ch[CH_MODE] == LOW
+            and all(near(ch[i], MID) for i in (CH_ROLL, CH_PITCH, CH_YAW)))
+
+
+def landing(ch):
+    return ch[CH_ARM] == HIGH and ch[CH_THROTTLE] == LOW and ch[CH_MODE] == LOW
+
+
+class HoldTest(CoreHarness):
+    EXTRA_CONF = HOLD_CONF
+
+    def fly(self, session=21):
+        """A pilot flying at throttle 300 in a mode other than Normal, stick off centre."""
+        a = Pilot(self.client, session=session)
+        self.addCleanup(a.stop)
         self.arm(a)
-        a.throttle = 300                  # arming needs a low throttle (throttle_arm_max)
-        self.client.send(STANDBY, 22)
+        a.throttle, a.mode, a.roll = 300, 2, 200   # arming needs a low throttle (throttle_arm_max)
+        self.assertIsNotNone(self.tx.wait_for(lambda ch: near(ch[CH_THROTTLE], T300_CH) and ch[CH_MODE] == HIGH))
+        return a
+
+    def pause(self, a):
+        """The pilot stops sending; returns when HOLD is on the air (and the time it stopped)."""
         a.paused = True
         t_stop = time.monotonic()
-        t_fs = self.tx.wait_for(self.failsafe_on, timeout=1.5)
-        a.stop()
-        self.assertIsNotNone(t_fs)
-        self.assertLess(t_fs - t_stop, 0.75)
+        t_hold = self.tx.wait_for(holding, timeout=1)
+        self.assertIsNotNone(t_hold, "HOLD never reached the channels")
+        self.assertLess(t_hold - t_stop, 0.45)             # 300 ms timeout + scheduling slack
+        return t_stop, t_hold
+
+    def arm_low_frames(self, t0):
+        return [t for t, ch in self.tx.frames_since(t0) if ch[CH_ARM] == LOW]
+
+    def test_pilot_stops_sending_hold_then_land_then_disarm(self):
+        a = self.fly()
+        t_stop, t_hold = self.pause(a)
+        t_land = self.tx.wait_for(landing, timeout=2)
+        self.assertIsNotNone(t_land, "LANDING never reached the channels")
+        self.assertTrue(0.75 <= t_land - t_hold <= 1.3, t_land - t_hold)      # hold_ms = 1000
+        held = [ch for t, ch in self.tx.frames_since(t_hold) if t < t_land - 0.02]
+        self.assertTrue(held and all(holding(ch) for ch in held))
+        t_off = self.tx.wait_for(lambda ch: ch[CH_ARM] == LOW, timeout=2)
+        self.assertIsNotNone(t_off, "ARM never went low")
+        self.assertTrue(0.75 <= t_off - t_land <= 1.3, t_off - t_land)        # land_ms = 1000
+        self.assertEqual([t for t in self.arm_low_frames(t_stop) if t < t_off - 0.02], [])
+        self.assertTrue(self.client.wait(lambda c: c.status["state_name"] == "FAILSAFE"
+                                         and c.status["reason_name"] == "cmd_timeout"))
+        self.assertEqual([e for e in self.client.events if e[0] in ("hold", "landing")],
+                         [("hold", "cmd_timeout", 21), ("landing", "cmd_timeout", 21)])
+        seen = [e["ev"] if e["ev"] != "state" else "state:" + e["to"] + ":" + e["reason"]
+                for e in self.read_events() if e["ev"] in ("hold", "landing", "resumed", "taken")
+                or (e["ev"] == "state" and e["to"] == "FAILSAFE")]
+        self.assertEqual(seen, ["hold", "landing", "state:FAILSAFE:cmd_timeout"])
+
+    def test_phone_stall_then_resume_never_drops_arm(self):
+        a = self.fly()
+        t_stop, _ = self.pause(a)
+        time.sleep(max(0.0, t_stop + 0.45 - time.monotonic()))   # a 0.45 s stall over the tunnel
+        a.paused = False
+        self.assertIsNotNone(self.tx.wait_for(lambda ch: near(ch[CH_THROTTLE], T300_CH) and ch[CH_MODE] == HIGH,
+                                              timeout=0.5), "the pilot's throttle never came back")
+        time.sleep(1.5)                                    # well past the end of the hold
+        self.assertEqual(self.arm_low_frames(t_stop), [])
+        self.assertTrue(near(self.tx.last_channels()[CH_THROTTLE], T300_CH))
+        self.assertTrue(self.client.wait(lambda c: c.status["state_name"] == "ARMED"))
+        self.assertEqual([e for e in self.client.events if e[0] in ("hold", "resumed", "landing")],
+                         [("hold", "cmd_timeout", 21), ("resumed", "cmd_timeout", 21)])
+
+    def test_standby_takes_during_hold_without_arm_low(self):
+        a = self.fly()
+        self.client.send(STANDBY, 22)
+        t_stop, _ = self.pause(a)
+        self.client.send(TAKE, 22)
+        self.assertTrue(self.client.wait(lambda c: ("taken", "cmd_timeout", 22) in c.events, timeout=1))
+        t_b = time.monotonic()                             # B's first command goes out at once
+        b = Pilot(self.client, session=22, throttle=455, announce=False)
+        self.addCleanup(b.stop)
+        time.sleep(2.0)                                    # past where the hold would have ended
+        self.assertEqual(self.arm_low_frames(t_stop), [])
+        first = [ch[CH_THROTTLE] for t, ch in self.tx.frames_since(t_b) if t < t_b + 0.3]
+        self.assertTrue(first and all(abs(v - HT_CH) <= (HIGH - LOW) * 5 // 100 for v in first), first)
+        self.assertTrue(near(self.tx.last_channels()[CH_THROTTLE], LOW + (HIGH - LOW) * 455 // 1000))
+        self.assertTrue(self.client.wait(lambda c: c.status["state_name"] == "ARMED" and c.status["session"] == 22))
+
+    def test_land_from_the_standby(self):
+        a = self.fly()
+        self.client.send(STANDBY, 22)
+        self.pause(a)
+        t_cmd = time.monotonic()
+        self.client.send(LAND, 22)
+        t_land = self.tx.wait_for(landing, timeout=1)
+        self.assertIsNotNone(t_land, "LANDING never reached the channels")
+        self.assertLess(t_land - t_cmd, 0.15)              # at once (0.1 s + slack on the Pi)
+        t_off = self.tx.wait_for(lambda ch: ch[CH_ARM] == LOW, timeout=2)
+        self.assertIsNotNone(t_off, "ARM never went low")
+        self.assertTrue(0.75 <= t_off - t_land <= 1.3, t_off - t_land)        # land_ms = 1000
+        self.assertIn(("landing", "cmd_timeout", 21), self.client.events)
+
+    def test_take_from_a_stranger_is_refused(self):
+        a = self.fly()
+        _, t_hold = self.pause(a)
+        self.client.send(TAKE, 23)                         # no standby set
+        self.assertTrue(self.client.wait(lambda c: ("take_refused", "not_standby", 23) in c.events, timeout=1))
+        t_off = self.tx.wait_for(lambda ch: ch[CH_ARM] == LOW, timeout=3)
+        self.assertIsNotNone(t_off, "ARM never went low")
+        self.assertTrue(1.75 <= t_off - t_hold <= 2.4, t_off - t_hold)        # hold_ms + land_ms
+        self.assertNotIn("taken", [e[0] for e in self.client.events])
+        refused = [e for e in self.read_events() if e["ev"] == "refused"]
+        self.assertEqual([(e["what"], e["reason"], e["session"]) for e in refused], [("take", "not_standby", 23)])
+
+
+class HoldOffTest(CoreHarness):
+    EXTRA_CONF = ""                                        # hold_ms = 0: today's behaviour
+
+    def test_hold_off_still_disarms_at_once(self):
+        a = Pilot(self.client, session=21)
+        self.addCleanup(a.stop)
+        self.arm(a)
+        a.throttle = 300                  # arming needs a low throttle (throttle_arm_max)
+        self.assertIsNotNone(self.tx.wait_for(lambda ch: near(ch[CH_THROTTLE], T300_CH)))
+        a.paused = True
+        self.assertIsNotNone(self.tx.wait_for(lambda ch: ch[CH_ARM] == LOW, timeout=0.45))
         self.assertTrue(self.client.wait(lambda c: c.status["reason_name"] == "cmd_timeout"))
 
 
 class StickLogTest(CoreHarness):
+    EXTRA_CONF = HOLD_CONF            # the log covers the whole flight, HOLD and LANDING too
+
     def test_values_on_the_air_are_logged_while_armed(self):
         # Flight test 2026-10-09: the log could not show the throttle when the drone came
         # down. While armed, the core logs the values on the air every 100 ms, plus one line
@@ -309,14 +407,22 @@ class StickLogTest(CoreHarness):
         pilot.speed, pilot.turtle = 2, 1
         self.assertIsNotNone(self.tx.wait_for(lambda ch: ch[CH_SPEED] == HIGH and ch[CH_TURTLE] == HIGH),
                              "speed/turtle never reached CH7/CH8")
+        pilot.throttle = 300                               # flying: the loss starts a HOLD
+        self.assertIsNotNone(self.tx.wait_for(lambda ch: near(ch[CH_THROTTLE], T300_CH)))
         pilot.paused = True                                # the page stops sending
-        self.assertTrue(self.client.wait(lambda c: c.status["reason_name"] == "cmd_timeout", timeout=2))
+        self.assertTrue(self.client.wait(lambda c: c.status["reason_name"] == "cmd_timeout", timeout=4))
         ch = self.tx.last_channels()
         self.assertEqual((ch[CH_ARM], ch[CH_TURTLE], ch[CH_SPEED]), (LOW, LOW, HIGH))
         pilot.stop()
         sticks = [e for e in self.read_events() if e["ev"] == "sticks"]
         self.assertTrue(any(e["speed"] == 2 and e["turtle"] for e in sticks))
-        self.assertFalse(sticks[-1]["turtle"])             # the line after FAILSAFE
+        held = [e for e in sticks if e["arm"] and e["thr"] == 45.0]
+        self.assertTrue(8 <= len(held) <= 14, len(held))  # lines keep coming during the 1 s HOLD
+        self.assertTrue(all(e["mode"] == 0 and not e["turtle"] and e["speed"] == 2 for e in held))
+        self.assertTrue(any(e["arm"] and e["thr"] == 0.0 for e in sticks[-5:]))   # and LANDING
+        self.assertFalse(sticks[-1]["arm"])                # the line after FAILSAFE
+        self.assertFalse(sticks[-1]["turtle"])
+        self.assertTrue(sticks[-2]["arm"])                 # one line once the flight ended, not before
 
 
 class BetaflightTest(CoreHarness):

@@ -1,7 +1,7 @@
 /* crsf-ctl - talk to crsf-core over its socket, for bench tests without the gateway.
  *
  *   crsf-ctl [-s socket] status   print one status line
- *   crsf-ctl [-s socket] watch    print status, telemetry and refusals until Ctrl-C
+ *   crsf-ctl [-s socket] watch    print status, telemetry, refusals and hold events until Ctrl-C
  *   crsf-ctl [-s socket] pilot    keyboard pilot: a=arm d=disarm k=ack f=failsafe
  *                                 w/s=throttle +/-50  x=stop/resume sending  q=quit
  * PROPELLERS OFF: `pilot` really arms the aircraft. */
@@ -55,15 +55,20 @@ static const char *fc_name(uint8_t v)
 
 static void format_status(const ipc_status_t *s, char *out, size_t cap)
 {
-    char age[16];
+    char age[16], state[32];
     if (s->cmd_age_ms == IPC_NO_CMD_AGE)
         snprintf(age, sizeof age, "none");
     else
         snprintf(age, sizeof age, "%ums", s->cmd_age_ms);
+    if (s->stage_left_ms != 0)          /* HOLD or LANDING: time left, e.g. "HOLD 3.2 s" */
+        snprintf(state, sizeof state, "%s %.1f s", safety_state_name((safety_state_t)s->state),
+                 s->stage_left_ms / 1000.0);
+    else
+        snprintf(state, sizeof state, "%s", safety_state_name((safety_state_t)s->state));
     snprintf(out, cap,
              "%-8s reason=%-15s session=%u seq=%u cmd_age=%s serial=%s frames=%u period=%uus "
              "offset=%+.1fus late_max=%uus fc=%s ch5=%u ch7=%u",
-             safety_state_name((safety_state_t)s->state), safety_reason_name((fs_reason_t)s->fs_reason),
+             state, safety_reason_name((fs_reason_t)s->fs_reason),
              s->session, s->last_seq, age, s->serial_ok ? "ok" : "DOWN", s->frames_sent, s->period_us,
              s->offset_0p1us / 10.0, s->wake_late_max_us, fc_name(s->fc_arm), s->channels[4], s->channels[6]);
 }
@@ -100,9 +105,16 @@ static void on_msg(uint8_t type, const uint8_t *p, size_t n, void *user)
             printf("module: %.*s firmware %u.%u.%u\n", p[8], (const char *)p + 9, p[1], p[2], p[3]);
         break;
     case IPC_EVENT:
-        if (n == 6)
+        if (n != 6)
+            break;
+        if (p[0] >= IPC_EVENT_HOLD && p[0] <= IPC_EVENT_LANDING)
+            snprintf(c->last_event, sizeof c->last_event, "%s (%s)",
+                     safety_hold_ev_name((hold_ev_t)(HOLD_EV_HOLD + (p[0] - IPC_EVENT_HOLD))),
+                     safety_reason_name((fs_reason_t)p[1]));
+        else
             snprintf(c->last_event, sizeof c->last_event, "%s refused: %s",
-                     p[0] == IPC_EVENT_ARM_REFUSED ? "arm" : "ack", safety_refuse_name((refuse_t)p[1]));
+                     p[0] == IPC_EVENT_ARM_REFUSED ? "arm" : p[0] == IPC_EVENT_ACK_REFUSED ? "ack"
+                     : p[0] == IPC_EVENT_TAKE_REFUSED ? "take" : "land", safety_refuse_name((refuse_t)p[1]));
         if (c->verbose)
             printf("%s\n", c->last_event);
         break;

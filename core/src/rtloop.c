@@ -34,14 +34,14 @@ static void push(rtloop_t *l, event_kind_t kind, int32_t a, int32_t b, int32_t c
     mailbox_push_event(l->mb, &ev);
 }
 
-/* Drains the hold reports. Not forwarded yet (events and IPC come with the gateway side). */
+/* Forwards what the hold reported (hold, resumed, taken, landing) to the log and the gateway. */
 static void report_hold(rtloop_t *l)
 {
     hold_ev_t ev;
     fs_reason_t why;
     uint32_t session;
     while (safety_take_report(&l->safety, &ev, &why, &session))
-        ;
+        push(l, EV_HOLD, (int32_t)ev, (int32_t)why, 0, 0, session, cmd_age_ms(l), NULL);
 }
 
 static void apply(rtloop_t *l, const core_cmd_t *c)
@@ -57,6 +57,8 @@ static void apply(rtloop_t *l, const core_cmd_t *c)
     case CMD_ARM:          r = safety_arm(s, c->session, l->now_ns); break;
     case CMD_DISARM:       safety_disarm(s, c->session); break;
     case CMD_STANDBY:      safety_set_standby(s, c->session); break;
+    case CMD_TAKE:         r = safety_take(s, c->session, l->now_ns); break;
+    case CMD_LAND:         r = safety_land(s, c->session, l->now_ns); break;
     case CMD_ACK:          r = safety_ack(s, c->session, l->now_ns); break;
     case CMD_PILOT_LOST:   safety_pilot_lost(s, c->session, l->now_ns); break;
     case CMD_FAILSAFE:     safety_manual_failsafe(s, c->session); break;
@@ -189,19 +191,29 @@ static void publish(rtloop_t *l, const uint16_t ch[CRSF_NUM_CHANNELS])
         .offset_0p1us = l->last_offset_0p1us,
         .timing_frames = l->sched.timing_frames,
         .wake_late_max_us = (uint32_t)(l->late_max_ns / NS_PER_US),
+        .stage_left_ms = safety_stage_left_ms(s, l->now_ns),
+        .out_roll = s->out.roll,
+        .out_pitch = s->out.pitch,
+        .out_yaw = s->out.yaw,
+        .out_throttle = s->out.throttle,
+        .out_mode = s->out.mode,
+        .out_speed = s->out.speed,
+        .out_turtle = s->out.turtle,
     };
     memcpy(st.channels, ch, sizeof st.channels);
     mailbox_put_status(l->mb, &st);
     l->late_max_ns = 0;
 }
 
-/* While armed, log the values on the air every stick_log_ms, and once more in the first
- * frame after leaving ARMED (disarm or failsafe), so the log shows how a flight ended. */
+/* While flying (ARMED, HOLD or LANDING), log the values on the air every stick_log_ms, and
+ * once more in the first frame after the flight ends (disarm or failsafe), so the log shows
+ * how a flight ended. */
 static void log_sticks(rtloop_t *l, const uint16_t ch[CRSF_NUM_CHANNELS])
 {
     if (l->cfg->stick_log_ms <= 0)
         return;
-    bool armed = l->safety.state == SAFETY_ARMED;
+    safety_state_t st = l->safety.state;
+    bool armed = st == SAFETY_ARMED || st == SAFETY_HOLD || st == SAFETY_LANDING;
     if (armed && l->stick_logging &&
         l->now_ns - l->last_stick_log_ns < (int64_t)l->cfg->stick_log_ms * NS_PER_MS)
         return;
@@ -286,6 +298,9 @@ void rtloop_init(rtloop_t *l, const config_t *cfg, mailbox_t *mb, atomic_bool *s
     l->last_open_attempt_ns = INT64_MIN / 2;
     safety_init(&l->safety, (int64_t)cfg->cmd_timeout_ms * NS_PER_MS,
                 (int64_t)cfg->fc_armed_fresh_ms * NS_PER_MS, (uint16_t)cfg->throttle_arm_max);
+    if (cfg->hold_ms > 0)       /* config validation requires land_ms and hold_throttle then */
+        safety_set_hold(&l->safety, (int64_t)cfg->hold_ms * NS_PER_MS, (int64_t)cfg->land_ms * NS_PER_MS,
+                        (uint16_t)cfg->hold_throttle);
     if (cfg->fc_profile == FC_PROFILE_AQUILA20)       /* it disarms silently on link loss */
         safety_set_rf_timeout(&l->safety, (int64_t)AQUILA20_RF_TIMEOUT_MS * NS_PER_MS);
     crsf_deframer_init(&l->deframer);
