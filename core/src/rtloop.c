@@ -34,12 +34,14 @@ static void push(rtloop_t *l, event_kind_t kind, int32_t a, int32_t b, int32_t c
     mailbox_push_event(l->mb, &ev);
 }
 
-static void report_handover(rtloop_t *l)
+/* Drains the hold reports. Not forwarded yet (events and IPC come with the gateway side). */
+static void report_hold(rtloop_t *l)
 {
-    uint32_t to;
+    hold_ev_t ev;
     fs_reason_t why;
-    if (safety_take_handover(&l->safety, &to, &why))
-        push(l, EV_HANDOVER, (int32_t)why, 0, 0, 0, to, cmd_age_ms(l), NULL);
+    uint32_t session;
+    while (safety_take_report(&l->safety, &ev, &why, &session))
+        ;
 }
 
 static void apply(rtloop_t *l, const core_cmd_t *c)
@@ -62,11 +64,11 @@ static void apply(rtloop_t *l, const core_cmd_t *c)
     }
     if (r != REFUSE_NONE)
         push(l, EV_REFUSED, (int32_t)c->kind, (int32_t)r, 0, 0, c->session, age, NULL);
-    /* The session active after the command: the new one after a handover. */
+    /* The session active after the command: the new one after a TAKE. */
     uint32_t session = s->session != 0 ? s->session : c->session;
     if (s->state != before)
         push(l, EV_STATE, (int32_t)before, (int32_t)s->state, (int32_t)s->fs_reason, 0, session, age, NULL);
-    report_handover(l);
+    report_hold(l);
 }
 
 static void on_frame(const uint8_t *frame, size_t len, void *user)
@@ -233,7 +235,7 @@ static void tick(rtloop_t *l, int64_t deadline)
     if (l->safety.state != before)
         push(l, EV_STATE, (int32_t)before, (int32_t)l->safety.state, (int32_t)l->safety.fs_reason, 0,
              l->safety.session, age, NULL);
-    report_handover(l);
+    report_hold(l);
 
     if (l->fd < 0)
         try_open(l);

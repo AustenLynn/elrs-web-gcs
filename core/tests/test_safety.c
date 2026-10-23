@@ -397,98 +397,6 @@ static void test_losing_the_pilot_or_gateway_drops_turtle_even_disarmed(void)
     CHECK(!s.out.turtle);
 }
 
-static void test_timeout_with_standby_hands_over_and_keeps_flying(void)
-{
-    safety_t s;
-    armed(&s);                                   /* session 7, cmd at t=0 */
-    stick_cmd_t c = { .throttle = 400, .roll = 120 };
-    CHECK(safety_control(&s, 7, 2, &c, 10 * MS));
-    safety_set_standby(&s, 9);
-    safety_tick(&s, 311 * MS);                   /* 301 ms after the last command */
-    CHECK_EQ_INT(s.state, SAFETY_ARMED);
-    CHECK_EQ_INT(s.session, 9);
-    CHECK_EQ_INT(s.standby, 0);
-    CHECK_EQ_INT(s.out.throttle, 400);           /* last sticks kept */
-    CHECK_EQ_INT(s.out.roll, 120);
-    CHECK(s.out.arm);
-    uint32_t to; fs_reason_t why;
-    CHECK(safety_take_handover(&s, &to, &why));
-    CHECK_EQ_INT(to, 9);
-    CHECK_STR(safety_reason_name(why), "cmd_timeout");
-    CHECK(!safety_take_handover(&s, &to, &why));
-    CHECK(safety_control(&s, 9, 1, &LOW, 320 * MS));  /* new session starts at seq 1 */
-    CHECK(!s.handover_pending);
-}
-
-static void test_pilot_lost_with_standby_hands_over(void)
-{
-    safety_t s;
-    armed(&s);
-    stick_cmd_t c = { .throttle = 400, .roll = 120 };
-    CHECK(safety_control(&s, 7, 2, &c, 10 * MS));
-    safety_set_standby(&s, 9);
-    safety_pilot_lost(&s, 7, 50 * MS);
-    CHECK_EQ_INT(s.state, SAFETY_ARMED);
-    CHECK(!s.out.failsafe);
-    CHECK_EQ_INT(s.session, 9);
-    CHECK_EQ_INT(s.standby, 0);
-    CHECK_EQ_INT(s.out.throttle, 400);
-    CHECK(s.out.arm);
-    uint32_t to; fs_reason_t why;
-    CHECK(safety_take_handover(&s, &to, &why));
-    CHECK_EQ_INT(to, 9);
-    CHECK_STR(safety_reason_name(why), "pilot_lost");
-    CHECK(!safety_control(&s, 7, 3, &c, 60 * MS));    /* the old session is refused */
-}
-
-static void test_handover_pending_no_command_in_300ms_fails_safe(void)
-{
-    safety_t s;
-    armed(&s);
-    safety_set_standby(&s, 9);
-    safety_pilot_lost(&s, 7, 100 * MS);          /* handover at t = 100 ms: fresh timer */
-    safety_tick(&s, 400 * MS);                   /* 300 ms: still fresh */
-    CHECK_EQ_INT(s.state, SAFETY_ARMED);
-    safety_tick(&s, 401 * MS);                   /* 301 ms, nothing from 9 */
-    CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
-    CHECK_STR(safety_reason_name(s.fs_reason), "cmd_timeout");
-}
-
-static void test_no_chained_handover(void)
-{
-    safety_t s;
-    armed(&s);
-    safety_set_standby(&s, 9);
-    safety_pilot_lost(&s, 7, 100 * MS);
-    CHECK(s.handover_pending);
-    safety_set_standby(&s, 11);                  /* stored, but not used while the handover is pending */
-    CHECK_EQ_INT(s.standby, 11);
-    safety_pilot_lost(&s, 9, 150 * MS);
-    CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
-    CHECK_STR(safety_reason_name(s.fs_reason), "pilot_lost");
-    CHECK_EQ_INT(s.session, 0);
-    CHECK(!s.handover_pending);                  /* no session: nothing is pending */
-}
-
-static void test_standby_stored_during_pending_takes_over_after_the_first_command(void)
-{
-    safety_t s;
-    stick_cmd_t c = { .throttle = 300 };
-    uint32_t to;
-    fs_reason_t why;
-    armed(&s);
-    safety_set_standby(&s, 9);
-    safety_pilot_lost(&s, 7, 100 * MS);
-    safety_set_standby(&s, 11);
-    CHECK(safety_control(&s, 9, 1, &c, 120 * MS));   /* 9 sends: no longer pending */
-    CHECK(safety_take_handover(&s, &to, &why));
-    safety_pilot_lost(&s, 9, 150 * MS);
-    CHECK_EQ_INT(s.state, SAFETY_ARMED);
-    CHECK_EQ_INT(s.session, 11);
-    CHECK(safety_take_handover(&s, &to, &why));
-    CHECK_EQ_INT(to, 11);
-}
-
 static void test_standby_zero_clears_the_standby(void)
 {
     safety_t s;
@@ -499,108 +407,6 @@ static void test_standby_zero_clears_the_standby(void)
     CHECK_EQ_INT(s.standby, 0);
 }
 
-static void test_without_standby_timeout_still_fails_safe(void)
-{
-    safety_t s;
-    armed(&s);
-    safety_tick(&s, 301 * MS);
-    CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
-    CHECK_STR(safety_reason_name(s.fs_reason), "cmd_timeout");
-    uint32_t to; fs_reason_t why;
-    CHECK(!safety_take_handover(&s, &to, &why));
-}
-
-static void test_other_triggers_ignore_the_standby(void)
-{
-    safety_t s;
-    uint32_t to; fs_reason_t why;
-
-    armed(&s);
-    safety_set_standby(&s, 9);
-    safety_gateway_lost(&s);
-    CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
-    CHECK_STR(safety_reason_name(s.fs_reason), "gateway_lost");
-    CHECK(!safety_take_handover(&s, &to, &why));
-
-    armed(&s);
-    safety_set_standby(&s, 9);
-    safety_manual_failsafe(&s, 7);
-    CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
-    CHECK_STR(safety_reason_name(s.fs_reason), "manual");
-    CHECK_EQ_INT(s.session, 7);
-    CHECK(!safety_take_handover(&s, &to, &why));
-
-    armed(&s);
-    safety_set_rf_timeout(&s, 1000 * MS);
-    safety_set_standby(&s, 9);
-    for (int t = 100; t <= 1100; t += 100) {     /* commands keep coming, the radio is gone */
-        CHECK(safety_control(&s, 7, (uint32_t)t, &LOW, t * MS));
-        safety_tick(&s, t * MS);
-    }
-    CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
-    CHECK_STR(safety_reason_name(s.fs_reason), "rf_lost");
-    CHECK_EQ_INT(s.session, 7);
-    CHECK(!safety_take_handover(&s, &to, &why));
-
-    armed(&s);
-    safety_set_standby(&s, 9);
-    safety_session_start(&s, 12);
-    CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
-    CHECK_STR(safety_reason_name(s.fs_reason), "session_changed");
-    CHECK_EQ_INT(s.session, 12);
-    CHECK_EQ_INT(s.standby, 0);
-    CHECK(!safety_take_handover(&s, &to, &why));
-}
-
-static void test_handover_while_disarmed_switches_session(void)
-{
-    safety_t s;
-    setup(&s);
-    safety_session_start(&s, 7);
-    CHECK(safety_control(&s, 7, 1, &LOW, 0));
-    safety_set_standby(&s, 9);
-    safety_pilot_lost(&s, 7, 50 * MS);
-    CHECK_EQ_INT(s.state, SAFETY_DISARMED);
-    CHECK_EQ_INT(s.session, 9);
-    CHECK(!s.out.arm);
-    uint32_t to; fs_reason_t why;
-    CHECK(safety_take_handover(&s, &to, &why));
-    CHECK_EQ_INT(to, 9);
-    CHECK_STR(safety_reason_name(why), "pilot_lost");
-}
-
-static void test_handover_in_failsafe_keeps_it_latched(void)
-{
-    safety_t s;
-    armed(&s);
-    safety_manual_failsafe(&s, 7);
-    safety_set_standby(&s, 9);
-    safety_pilot_lost(&s, 7, 50 * MS);
-    CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
-    CHECK(s.out.failsafe);
-    CHECK_EQ_INT(s.session, 9);
-    CHECK_EQ_INT(safety_ack(&s, 7, 60 * MS), REFUSE_WRONG_SESSION);
-    CHECK(safety_control(&s, 9, 1, &LOW, 60 * MS));
-    CHECK_EQ_INT(safety_ack(&s, 9, 60 * MS), REFUSE_NONE);
-    CHECK_EQ_INT(s.state, SAFETY_DISARMED);
-}
-
-static void test_old_session_disarm_and_failsafe_ignored_after_handover(void)
-{
-    safety_t s;
-    armed(&s);
-    safety_set_standby(&s, 9);
-    safety_pilot_lost(&s, 7, 50 * MS);
-    CHECK(safety_control(&s, 9, 1, &LOW, 60 * MS));
-    safety_disarm(&s, 7);                        /* late DISARM from the old pilot's page */
-    safety_manual_failsafe(&s, 7);
-    CHECK_EQ_INT(s.state, SAFETY_ARMED);
-    CHECK(s.out.arm);
-    safety_disarm(&s, 9);
-    CHECK_EQ_INT(s.state, SAFETY_DISARMED);
-    CHECK(!s.out.arm);
-}
-
 static void test_standby_equal_to_active_is_ignored(void)
 {
     safety_t s;
@@ -609,43 +415,416 @@ static void test_standby_equal_to_active_is_ignored(void)
     CHECK_EQ_INT(s.standby, 0);
 }
 
-static void test_arm_and_ack_refused_until_the_new_pilot_sends(void)
-{
-    /* After a handover the last command is the old pilot's: the new one must send its own. */
-    safety_t s;
-    setup(&s);
-    safety_session_start(&s, 7);
-    CHECK(safety_control(&s, 7, 1, &LOW, 0));
-    safety_set_standby(&s, 9);
-    safety_pilot_lost(&s, 7, 50 * MS);
-    CHECK_EQ_INT(safety_arm(&s, 9, 60 * MS), REFUSE_LINK_STALE);
-    CHECK(safety_control(&s, 9, 1, &LOW, 70 * MS));
-    CHECK_EQ_INT(safety_arm(&s, 9, 70 * MS), REFUSE_NONE);
+#define HOLD (5000 * MS)
+#define LAND (6000 * MS)
+#define HT 450
+#define T0 (TIMEOUT + 1)               /* first tick without a fresh command */
 
-    armed(&s);
-    safety_manual_failsafe(&s, 7);
-    safety_set_standby(&s, 9);
-    safety_pilot_lost(&s, 7, 50 * MS);
-    CHECK_EQ_INT(safety_ack(&s, 9, 60 * MS), REFUSE_LINK_STALE);
-    CHECK(safety_control(&s, 9, 1, &LOW, 70 * MS));
-    CHECK_EQ_INT(safety_ack(&s, 9, 70 * MS), REFUSE_NONE);
+/* Session 7 armed at t=0 flying at throttle 600, hold enabled, standby 9. */
+static void flying(safety_t *s)
+{
+    armed(s);
+    safety_set_hold(s, HOLD, LAND, HT);
+    stick_cmd_t c = { .roll = 100, .throttle = 600, .mode = 2, .speed = 1, .turtle = false };
+    CHECK(safety_control(s, 7, 2, &c, 0));
+    safety_set_standby(s, 9);
 }
 
-static void test_session_start_or_gateway_lost_drops_the_handover_report(void)
+/* Pops the next report and checks it. */
+static void check_report(safety_t *s, hold_ev_t ev, fs_reason_t why, uint32_t session)
+{
+    hold_ev_t e;
+    fs_reason_t r;
+    uint32_t ses;
+    CHECK(safety_take_report(s, &e, &r, &ses));
+    CHECK_STR(safety_hold_ev_name(e), safety_hold_ev_name(ev));
+    CHECK_STR(safety_reason_name(r), safety_reason_name(why));
+    CHECK_EQ_INT(ses, session);
+}
+
+static bool no_report(safety_t *s)
+{
+    hold_ev_t e;
+    fs_reason_t r;
+    uint32_t ses;
+    return !safety_take_report(s, &e, &r, &ses);
+}
+
+static void test_timeout_enters_hold_with_hold_outputs(void)
 {
     safety_t s;
-    uint32_t to; fs_reason_t why;
-    setup(&s);
-    safety_session_start(&s, 7);
-    safety_set_standby(&s, 9);
-    safety_pilot_lost(&s, 7, 0);                 /* handover, report not taken */
-    safety_session_start(&s, 12);
-    CHECK(!safety_take_handover(&s, &to, &why));
+    flying(&s);
+    stick_cmd_t c = { .roll = 100, .pitch = -50, .yaw = 30, .throttle = 600, .mode = 2, .speed = 1,
+                      .turtle = true };
+    CHECK(safety_control(&s, 7, 3, &c, 0));
+    safety_tick(&s, TIMEOUT);
+    CHECK_EQ_INT(s.state, SAFETY_ARMED);
+    safety_tick(&s, T0);
+    CHECK_EQ_INT(s.state, SAFETY_HOLD);
+    CHECK(s.out.arm);
+    CHECK_EQ_INT(s.out.roll, 0);
+    CHECK_EQ_INT(s.out.pitch, 0);
+    CHECK_EQ_INT(s.out.yaw, 0);
+    CHECK_EQ_INT(s.out.throttle, HT);
+    CHECK_EQ_INT(s.out.mode, 0);            /* Normal: the mode that holds height */
+    CHECK_EQ_INT(s.out.speed, 1);           /* kept */
+    CHECK(!s.out.turtle);
+    CHECK(!s.out.failsafe);
+    check_report(&s, HOLD_EV_HOLD, FS_CMD_TIMEOUT, 7);
+    CHECK(no_report(&s));
+}
 
-    safety_set_standby(&s, 13);
-    safety_pilot_lost(&s, 12, 0);
-    safety_gateway_lost(&s);
-    CHECK(!safety_take_handover(&s, &to, &why));
+static void test_hold_off_still_fails_safe_at_once(void)
+{
+    safety_t s;
+    armed(&s);                              /* no safety_set_hold: hold_ns = 0 */
+    safety_tick(&s, T0);
+    CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
+    CHECK_STR(safety_reason_name(s.fs_reason), "cmd_timeout");
+    CHECK(no_report(&s));
+}
+
+static void test_pilot_lost_enters_hold(void)
+{
+    safety_t s;
+    flying(&s);
+    safety_pilot_lost(&s, 7, 100 * MS);
+    CHECK_EQ_INT(s.state, SAFETY_HOLD);
+    CHECK_EQ_INT(s.out.throttle, HT);
+    check_report(&s, HOLD_EV_HOLD, FS_PILOT_LOST, 7);
+    stick_cmd_t c = { .throttle = 610 };
+    CHECK(!safety_control(&s, 7, 3, &c, 110 * MS));   /* that session is gone: no resume */
+    CHECK_EQ_INT(s.state, SAFETY_HOLD);
+    CHECK_EQ_INT(s.out.throttle, HT);
+}
+
+static void test_low_throttle_skips_hold_and_lands(void)
+{
+    /* Maybe on the ground: hold_throttle would lift it. */
+    safety_t s;
+    armed(&s);
+    safety_set_hold(&s, HOLD, LAND, HT);
+    stick_cmd_t c = { .throttle = 50, .mode = 2 };
+    CHECK(safety_control(&s, 7, 2, &c, 0));
+    safety_set_standby(&s, 9);
+    safety_tick(&s, T0);
+    CHECK_EQ_INT(s.state, SAFETY_LANDING);
+    CHECK_EQ_INT(s.out.throttle, 0);
+    CHECK_EQ_INT(s.out.mode, 0);
+    CHECK(s.out.arm);
+    CHECK(!s.out.failsafe);
+    check_report(&s, HOLD_EV_LANDING, FS_CMD_TIMEOUT, 7);
+    CHECK(no_report(&s));
+}
+
+static void test_resume_by_the_same_session(void)
+{
+    safety_t s;
+    flying(&s);
+    safety_tick(&s, T0);
+    check_report(&s, HOLD_EV_HOLD, FS_CMD_TIMEOUT, 7);
+    stick_cmd_t c = { .throttle = 610 };
+    CHECK(safety_control(&s, 7, 3, &c, T0 + 10 * MS));
+    CHECK_EQ_INT(s.state, SAFETY_ARMED);
+    CHECK_EQ_INT(s.out.throttle, 610);
+    check_report(&s, HOLD_EV_RESUMED, FS_CMD_TIMEOUT, 7);
+    CHECK(no_report(&s));
+    CHECK_EQ_INT(safety_stage_left_ms(&s, T0 + 10 * MS), 0);
+}
+
+static void test_no_resume_during_landing(void)
+{
+    safety_t s;
+    flying(&s);
+    safety_tick(&s, T0);
+    safety_tick(&s, T0 + HOLD - 1);
+    CHECK_EQ_INT(s.state, SAFETY_HOLD);
+    safety_tick(&s, T0 + HOLD);
+    CHECK_EQ_INT(s.state, SAFETY_LANDING);
+    stick_cmd_t c = { .throttle = 610 };
+    safety_control(&s, 7, 3, &c, T0 + HOLD + 10 * MS);
+    CHECK_EQ_INT(s.state, SAFETY_LANDING);
+    CHECK_EQ_INT(s.out.throttle, 0);
+}
+
+static void test_hold_expires_into_landing_then_failsafe(void)
+{
+    safety_t s;
+    flying(&s);
+    safety_tick(&s, T0);
+    safety_tick(&s, T0 + HOLD);
+    CHECK_EQ_INT(s.state, SAFETY_LANDING);
+    CHECK_EQ_INT(s.out.throttle, 0);
+    CHECK(s.out.arm);
+    check_report(&s, HOLD_EV_HOLD, FS_CMD_TIMEOUT, 7);
+    check_report(&s, HOLD_EV_LANDING, FS_CMD_TIMEOUT, 7);
+    safety_tick(&s, T0 + HOLD + LAND - 1);
+    CHECK_EQ_INT(s.state, SAFETY_LANDING);
+    safety_tick(&s, T0 + HOLD + LAND);
+    CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
+    CHECK_EQ_INT(s.fs_reason, FS_CMD_TIMEOUT);    /* the reason that started the hold */
+    CHECK(s.out.failsafe);                         /* ARM low on the air */
+    CHECK_EQ_INT(s.session, 7);                    /* the page is still there: it keeps the seat */
+    CHECK(no_report(&s));
+}
+
+static void test_pilot_lost_landing_clears_the_session(void)
+{
+    safety_t s;
+    flying(&s);
+    safety_pilot_lost(&s, 7, 0);
+    safety_tick(&s, HOLD);
+    CHECK_EQ_INT(s.state, SAFETY_LANDING);
+    safety_tick(&s, HOLD + LAND);
+    CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
+    CHECK_EQ_INT(s.fs_reason, FS_PILOT_LOST);
+    CHECK_EQ_INT(s.session, 0);
+    CHECK(!safety_control(&s, 7, 3, &LOW, HOLD + LAND + 10 * MS));
+}
+
+static void test_take_only_from_standby(void)
+{
+    safety_t s;
+    flying(&s);
+    safety_tick(&s, T0);
+    CHECK_EQ_INT(safety_take(&s, 8, T0), REFUSE_NOT_STANDBY);
+    CHECK_EQ_INT(safety_take(&s, 7, T0), REFUSE_NOT_STANDBY);
+    CHECK_EQ_INT(safety_take(&s, 0, T0), REFUSE_NOT_STANDBY);
+    CHECK_EQ_INT(s.session, 7);
+
+    flying(&s);
+    CHECK_EQ_INT(safety_take(&s, 9, 10 * MS), REFUSE_NOT_IN_HOLD);
+    CHECK_EQ_INT(s.session, 7);
+    CHECK_EQ_INT(s.standby, 9);
+}
+
+static void test_take_switches_session_and_stays_hold_until_first_command(void)
+{
+    safety_t s;
+    flying(&s);
+    safety_tick(&s, T0);
+    check_report(&s, HOLD_EV_HOLD, FS_CMD_TIMEOUT, 7);
+    CHECK_EQ_INT(safety_take(&s, 9, T0 + 10 * MS), REFUSE_NONE);
+    CHECK_EQ_INT(s.session, 9);
+    CHECK_EQ_INT(s.standby, 0);
+    CHECK_EQ_INT(s.state, SAFETY_HOLD);
+    CHECK(s.out.arm);
+    CHECK_EQ_INT(s.out.throttle, HT);
+    CHECK_EQ_INT(s.out.mode, 0);
+    check_report(&s, HOLD_EV_TAKEN, FS_CMD_TIMEOUT, 9);
+    CHECK(no_report(&s));
+    stick_cmd_t c = { .throttle = 610 };
+    CHECK(!safety_control(&s, 7, 3, &c, T0 + 15 * MS));  /* the old session is refused */
+    CHECK_EQ_INT(s.state, SAFETY_HOLD);
+    c.throttle = 455;
+    CHECK(safety_control(&s, 9, 1, &c, T0 + 20 * MS));   /* new session starts at seq 1 */
+    CHECK_EQ_INT(s.state, SAFETY_ARMED);
+    CHECK_EQ_INT(s.out.throttle, 455);
+    CHECK(s.out.arm);
+    CHECK(no_report(&s));                    /* taken was reported at the TAKE */
+}
+
+static void test_take_during_landing(void)
+{
+    safety_t s;
+    flying(&s);
+    safety_tick(&s, T0);
+    safety_tick(&s, T0 + HOLD);
+    CHECK_EQ_INT(s.state, SAFETY_LANDING);
+    CHECK_EQ_INT(safety_take(&s, 9, T0 + HOLD + 10 * MS), REFUSE_NONE);
+    CHECK_EQ_INT(s.state, SAFETY_LANDING);
+    CHECK_EQ_INT(s.out.throttle, 0);
+    stick_cmd_t c = { .throttle = 300 };
+    CHECK(safety_control(&s, 9, 1, &c, T0 + HOLD + 20 * MS));
+    CHECK_EQ_INT(s.state, SAFETY_ARMED);
+    CHECK_EQ_INT(s.out.throttle, 300);
+}
+
+static void test_take_countdown_keeps_running(void)
+{
+    safety_t s;
+    flying(&s);
+    safety_tick(&s, T0);
+    CHECK_EQ_INT(safety_take(&s, 9, TIMEOUT + 100 * MS), REFUSE_NONE);
+    safety_tick(&s, T0 + HOLD - 1);
+    CHECK_EQ_INT(s.state, SAFETY_HOLD);
+    safety_tick(&s, T0 + HOLD);
+    CHECK_EQ_INT(s.state, SAFETY_LANDING);
+}
+
+static void test_taker_lost_before_first_command_lands_on_time(void)
+{
+    safety_t s;
+    flying(&s);
+    safety_tick(&s, T0);
+    CHECK_EQ_INT(safety_take(&s, 9, T0 + 10 * MS), REFUSE_NONE);
+    safety_pilot_lost(&s, 9, T0 + 200 * MS);
+    CHECK_EQ_INT(s.state, SAFETY_HOLD);
+    CHECK(!safety_control(&s, 9, 1, &LOW, T0 + 210 * MS));
+    safety_tick(&s, T0 + HOLD);
+    CHECK_EQ_INT(s.state, SAFETY_LANDING);
+    safety_tick(&s, T0 + HOLD + LAND);
+    CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
+    CHECK_EQ_INT(s.fs_reason, FS_CMD_TIMEOUT);
+    CHECK_EQ_INT(s.session, 0);
+}
+
+static void test_second_loss_after_take_starts_a_new_hold(void)
+{
+    safety_t s;
+    flying(&s);
+    safety_tick(&s, T0);
+    CHECK_EQ_INT(safety_take(&s, 9, T0 + 10 * MS), REFUSE_NONE);
+    int64_t t1 = T0 + 20 * MS;
+    stick_cmd_t c = { .throttle = 455 };
+    CHECK(safety_control(&s, 9, 1, &c, t1));
+    check_report(&s, HOLD_EV_HOLD, FS_CMD_TIMEOUT, 7);
+    check_report(&s, HOLD_EV_TAKEN, FS_CMD_TIMEOUT, 9);
+    safety_tick(&s, t1 + TIMEOUT);
+    CHECK_EQ_INT(s.state, SAFETY_ARMED);
+    safety_tick(&s, t1 + TIMEOUT + 1);
+    CHECK_EQ_INT(s.state, SAFETY_HOLD);
+    CHECK_EQ_INT(safety_stage_left_ms(&s, t1 + TIMEOUT + 1), 5000);
+    check_report(&s, HOLD_EV_HOLD, FS_CMD_TIMEOUT, 9);
+}
+
+static void test_land_only_from_standby_in_hold(void)
+{
+    safety_t s;
+    flying(&s);
+    CHECK_EQ_INT(safety_land(&s, 9, 10 * MS), REFUSE_NOT_IN_HOLD);   /* ARMED */
+    safety_tick(&s, T0);
+    check_report(&s, HOLD_EV_HOLD, FS_CMD_TIMEOUT, 7);
+    CHECK_EQ_INT(safety_land(&s, 8, T0 + 10 * MS), REFUSE_NOT_STANDBY);
+    CHECK_EQ_INT(safety_land(&s, 7, T0 + 10 * MS), REFUSE_NOT_STANDBY);
+    CHECK_EQ_INT(s.state, SAFETY_HOLD);
+    CHECK_EQ_INT(safety_land(&s, 9, T0 + 10 * MS), REFUSE_NONE);
+    CHECK_EQ_INT(s.state, SAFETY_LANDING);
+    CHECK_EQ_INT(s.out.throttle, 0);
+    CHECK_EQ_INT(s.session, 7);
+    CHECK_EQ_INT(safety_stage_left_ms(&s, T0 + 10 * MS), 6000);
+    check_report(&s, HOLD_EV_LANDING, FS_CMD_TIMEOUT, 7);
+    CHECK_EQ_INT(safety_land(&s, 9, T0 + 20 * MS), REFUSE_NOT_IN_HOLD);
+}
+
+/* Flying, then HOLD at T0; with `landing`, LAND from the standby right away. */
+static void in_stage(safety_t *s, bool landing)
+{
+    flying(s);
+    safety_tick(s, T0);
+    if (landing)
+        CHECK_EQ_INT(safety_land(s, 9, T0), REFUSE_NONE);
+    CHECK_EQ_INT(s->state, landing ? SAFETY_LANDING : SAFETY_HOLD);
+}
+
+static void test_instant_paths_from_hold_and_landing(void)
+{
+    for (int landing = 0; landing <= 1; landing++) {
+        safety_t s;
+
+        in_stage(&s, landing);
+        safety_disarm(&s, 8);                         /* someone else: ignored */
+        CHECK(s.out.arm);
+        safety_disarm(&s, 7);
+        CHECK_EQ_INT(s.state, SAFETY_DISARMED);
+        CHECK(!s.out.arm);
+        CHECK_EQ_INT(safety_stage_left_ms(&s, T0), 0);
+
+        in_stage(&s, landing);
+        safety_manual_failsafe(&s, 7);
+        CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
+        CHECK_STR(safety_reason_name(s.fs_reason), "manual");
+
+        in_stage(&s, landing);
+        safety_gateway_lost(&s);
+        CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
+        CHECK_STR(safety_reason_name(s.fs_reason), "gateway_lost");
+
+        in_stage(&s, landing);
+        safety_session_start(&s, 5);
+        CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
+        CHECK_STR(safety_reason_name(s.fs_reason), "session_changed");
+
+        in_stage(&s, landing);
+        safety_set_rf_timeout(&s, 1000 * MS);         /* no link report since t=0 */
+        safety_tick(&s, 1000 * MS);
+        CHECK_EQ_INT(s.state, landing ? SAFETY_LANDING : SAFETY_HOLD);
+        safety_tick(&s, 1000 * MS + 1);
+        CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
+        CHECK_STR(safety_reason_name(s.fs_reason), "rf_lost");
+        CHECK(s.out.failsafe);
+    }
+}
+
+static void test_lost_seat_stays_lost_after_disarm(void)
+{
+    /* The pilot_lost session's Desarmar is obeyed, but it does not get the seat back. */
+    safety_t s;
+    flying(&s);
+    safety_pilot_lost(&s, 7, 10 * MS);
+    safety_disarm(&s, 7);
+    CHECK_EQ_INT(s.state, SAFETY_DISARMED);
+    CHECK(!s.out.arm);
+    CHECK_EQ_INT(s.session, 0);
+    CHECK(!safety_control(&s, 7, 3, &LOW, 20 * MS));
+}
+
+static void test_stage_left_counts_down(void)
+{
+    safety_t s;
+    flying(&s);
+    CHECK_EQ_INT(safety_stage_left_ms(&s, 0), 0);                /* ARMED */
+    safety_tick(&s, T0);
+    CHECK_EQ_INT(safety_stage_left_ms(&s, T0), 5000);
+    CHECK_EQ_INT(safety_stage_left_ms(&s, T0 + 1000 * MS), 4000);
+    CHECK_EQ_INT(safety_stage_left_ms(&s, T0 + 1000 * MS + 1), 4000);   /* rounded up */
+    safety_tick(&s, T0 + HOLD);
+    CHECK_EQ_INT(safety_stage_left_ms(&s, T0 + HOLD), 6000);
+    safety_tick(&s, T0 + HOLD + LAND);
+    CHECK_EQ_INT(s.state, SAFETY_FAILSAFE);
+    CHECK_EQ_INT(safety_stage_left_ms(&s, T0 + HOLD + LAND), 0);
+}
+
+static void test_arm_and_ack_unaffected(void)
+{
+    safety_t s;
+    flying(&s);
+    safety_tick(&s, T0);
+    CHECK_EQ_INT(safety_arm(&s, 7, T0), REFUSE_NOT_DISARMED);
+    CHECK_EQ_INT(safety_ack(&s, 7, T0), REFUSE_NOT_IN_FAILSAFE);
+    CHECK_EQ_INT(s.state, SAFETY_HOLD);
+}
+
+static void test_report_fifo_drops_the_newest_on_overflow(void)
+{
+    safety_t s;
+    flying(&s);
+    safety_tick(&s, T0);                                         /* 1: hold */
+    stick_cmd_t c = { .throttle = 600 };
+    CHECK(safety_control(&s, 7, 3, &c, T0 + 10 * MS));           /* 2: resumed */
+    safety_tick(&s, T0 + 10 * MS + T0);                          /* 3: hold */
+    CHECK(safety_control(&s, 7, 4, &c, T0 + 20 * MS + T0));      /* 4: resumed */
+    safety_tick(&s, T0 + 20 * MS + 2 * T0);                      /* 5: dropped */
+    CHECK_EQ_INT(s.state, SAFETY_HOLD);
+    check_report(&s, HOLD_EV_HOLD, FS_CMD_TIMEOUT, 7);
+    check_report(&s, HOLD_EV_RESUMED, FS_CMD_TIMEOUT, 7);
+    check_report(&s, HOLD_EV_HOLD, FS_CMD_TIMEOUT, 7);
+    check_report(&s, HOLD_EV_RESUMED, FS_CMD_TIMEOUT, 7);
+    CHECK(no_report(&s));
+}
+
+static void test_hold_names(void)
+{
+    CHECK_STR(safety_state_name(SAFETY_HOLD), "HOLD");
+    CHECK_STR(safety_state_name(SAFETY_LANDING), "LANDING");
+    CHECK_EQ_INT(SAFETY_HOLD, 3);
+    CHECK_EQ_INT(SAFETY_LANDING, 4);
+    CHECK_STR(safety_refuse_name(REFUSE_NOT_STANDBY), "not_standby");
+    CHECK_STR(safety_refuse_name(REFUSE_NOT_IN_HOLD), "not_in_hold");
+    CHECK_STR(safety_hold_ev_name(HOLD_EV_HOLD), "hold");
+    CHECK_STR(safety_hold_ev_name(HOLD_EV_RESUMED), "resumed");
+    CHECK_STR(safety_hold_ev_name(HOLD_EV_TAKEN), "taken");
+    CHECK_STR(safety_hold_ev_name(HOLD_EV_LANDING), "landing");
 }
 
 int main(void)
@@ -678,19 +857,28 @@ int main(void)
     RUN(test_speed_and_turtle_follow_the_command_and_are_clamped);
     RUN(test_failsafe_forces_turtle_off_and_keeps_speed);
     RUN(test_losing_the_pilot_or_gateway_drops_turtle_even_disarmed);
-    RUN(test_timeout_with_standby_hands_over_and_keeps_flying);
-    RUN(test_pilot_lost_with_standby_hands_over);
-    RUN(test_handover_pending_no_command_in_300ms_fails_safe);
-    RUN(test_no_chained_handover);
-    RUN(test_standby_stored_during_pending_takes_over_after_the_first_command);
     RUN(test_standby_zero_clears_the_standby);
-    RUN(test_without_standby_timeout_still_fails_safe);
-    RUN(test_other_triggers_ignore_the_standby);
-    RUN(test_handover_while_disarmed_switches_session);
-    RUN(test_handover_in_failsafe_keeps_it_latched);
-    RUN(test_old_session_disarm_and_failsafe_ignored_after_handover);
     RUN(test_standby_equal_to_active_is_ignored);
-    RUN(test_arm_and_ack_refused_until_the_new_pilot_sends);
-    RUN(test_session_start_or_gateway_lost_drops_the_handover_report);
+    RUN(test_timeout_enters_hold_with_hold_outputs);
+    RUN(test_hold_off_still_fails_safe_at_once);
+    RUN(test_pilot_lost_enters_hold);
+    RUN(test_low_throttle_skips_hold_and_lands);
+    RUN(test_resume_by_the_same_session);
+    RUN(test_no_resume_during_landing);
+    RUN(test_hold_expires_into_landing_then_failsafe);
+    RUN(test_pilot_lost_landing_clears_the_session);
+    RUN(test_take_only_from_standby);
+    RUN(test_take_switches_session_and_stays_hold_until_first_command);
+    RUN(test_take_during_landing);
+    RUN(test_take_countdown_keeps_running);
+    RUN(test_taker_lost_before_first_command_lands_on_time);
+    RUN(test_second_loss_after_take_starts_a_new_hold);
+    RUN(test_land_only_from_standby_in_hold);
+    RUN(test_instant_paths_from_hold_and_landing);
+    RUN(test_lost_seat_stays_lost_after_disarm);
+    RUN(test_stage_left_counts_down);
+    RUN(test_arm_and_ack_unaffected);
+    RUN(test_report_fifo_drops_the_newest_on_overflow);
+    RUN(test_hold_names);
     return CHECK_EXIT();
 }
