@@ -171,7 +171,7 @@ static void drain_events(ipcserver_t *s)
         for (size_t i = 0; i < n; i++) {
             evlog_event(s->log, &evs[i]);
             if (evs[i].kind == EV_HANDOVER)
-                send_msg(s, buf, ipc_encode_event(buf, sizeof buf, IPC_EVENT_HANDOVER, (uint8_t)evs[i].a,
+                send_msg(s, buf, ipc_encode_event(buf, sizeof buf, IPC_EVENT_TAKEN, (uint8_t)evs[i].a,
                                                   evs[i].session));
             else if (evs[i].kind == EV_REFUSED) {
                 uint8_t kind = evs[i].a == CMD_ARM ? IPC_EVENT_ARM_REFUSED : IPC_EVENT_ACK_REFUSED;

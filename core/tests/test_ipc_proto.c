@@ -14,6 +14,8 @@ static ipc_status_t sample_status(void)
         .session = 0x01020304, .last_seq = 99, .cmd_age_ms = 301,
         .frames_sent = 1000, .tx_errors = 2, .rx_frames = 50, .rx_crc_errors = 1,
         .period_us = 4000, .offset_0p1us = -1234, .timing_frames = 7, .wake_late_max_us = 85,
+        .stage_left_ms = 4321, .out_roll = -250, .out_throttle = 450,
+        .out_mode = 0, .out_speed = 2, .out_turtle = 0,
     };
     for (int i = 0; i < CRSF_NUM_CHANNELS; i++)
         s.channels[i] = (uint16_t)(172 + i);
@@ -71,6 +73,7 @@ static void test_control_from_an_older_gateway_is_still_accepted(void)
 static void test_status_round_trip_and_layout(void)
 {
     ipc_status_t s = sample_status(), d;
+    memset(&d, 0, sizeof d);                      /* the struct now has tail padding; CHECK_MEM compares it */
     uint8_t buf[128];
     size_t n = ipc_encode_status(buf, sizeof buf, &s);
     CHECK_EQ_INT(n, 3 + IPC_STATUS_LEN);
@@ -79,6 +82,10 @@ static void test_status_round_trip_and_layout(void)
     CHECK_EQ_INT(buf[3], 2);                       /* state first */
     CHECK_EQ_INT(buf[3 + 12], 0x2D);               /* cmd_age_ms = 301 = 0x012D, LE */
     CHECK_EQ_INT(buf[3 + 48], 172);                /* channels start at payload offset 48 */
+    CHECK_EQ_INT(buf[3 + 80], 0xE1);               /* stage_left_ms = 4321 = 0x10E1, LE */
+    CHECK_EQ_INT(buf[3 + 90], 0xC2);               /* out_throttle = 450 = 0x01C2, LE */
+    CHECK_EQ_INT(buf[3 + 91], 0x01);
+    CHECK_EQ_INT(buf[3 + 95], 0);                  /* reserved */
     CHECK_EQ_INT(ipc_decode_status(buf + 3, n - 3, &d), 0);
     CHECK_MEM(&s, &d, sizeof s);
 }
@@ -99,6 +106,20 @@ static void test_small_messages(void)
     CHECK_EQ_INT(ipc_encode_flight_mode(buf, sizeof buf, "THIS-IS-A-VERY-LONG-MODE"), 3 + 1 + 15);
     CHECK_EQ_INT(ipc_encode_event(buf, sizeof buf, IPC_EVENT_ARM_REFUSED, REFUSE_THROTTLE_HIGH, 9), 9);
     CHECK_EQ_INT(ipc_encode_session_msg(buf, 6, IPC_ARM, 1), 0);   /* too small */
+}
+
+static void test_take_and_land_decode_like_session_messages(void)
+{
+    uint8_t buf[16];
+    uint32_t session = 0;
+    CHECK_EQ_INT(ipc_encode_session_msg(buf, sizeof buf, IPC_TAKE, 9), 7);
+    CHECK_EQ_INT(buf[2], 0x09);
+    CHECK_EQ_INT(ipc_decode_session_msg(buf + 3, 4, &session), 0);
+    CHECK_EQ_INT(session, 9);
+    CHECK_EQ_INT(ipc_encode_session_msg(buf, sizeof buf, IPC_LAND, 9), 7);
+    CHECK_EQ_INT(buf[2], 0x0A);
+    CHECK_EQ_INT(ipc_decode_session_msg(buf + 3, 4, &session), 0);
+    CHECK_EQ_INT(session, 9);
 }
 
 static void test_reader_handles_split_and_batched_messages(void)
@@ -142,6 +163,7 @@ int main(void)
     RUN(test_control_from_an_older_gateway_is_still_accepted);
     RUN(test_status_round_trip_and_layout);
     RUN(test_small_messages);
+    RUN(test_take_and_land_decode_like_session_messages);
     RUN(test_reader_handles_split_and_batched_messages);
     RUN(test_reader_rejects_bad_lengths);
     return CHECK_EXIT();
