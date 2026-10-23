@@ -5,15 +5,18 @@ import net from 'node:net';
 
 export const MSG = Object.freeze({
   SESSION: 0x01, CONTROL: 0x02, ARM: 0x03, DISARM: 0x04, ACK: 0x05, PILOT_LOST: 0x06, FAILSAFE: 0x07,
-  STANDBY: 0x08,
+  STANDBY: 0x08, TAKE: 0x09, LAND: 0x0A,
   STATUS: 0x81, LINK: 0x82, BATTERY: 0x83, FLIGHT_MODE: 0x84, DEVICE: 0x85, EVENT: 0x86,
 });
-export const STATES = ['DISARMED', 'ARMED', 'FAILSAFE'];
+export const STATES = ['DISARMED', 'ARMED', 'FAILSAFE', 'HOLD', 'LANDING'];
 export const REASONS = ['none', 'cmd_timeout', 'pilot_lost', 'gateway_lost', 'session_changed', 'manual', 'rf_lost'];
-const EVENT_KINDS = { 1: 'arm', 2: 'ack', 3: 'handover' };
+const EVENT_KINDS = {
+  1: 'arm', 2: 'ack', 4: 'hold', 5: 'resumed', 6: 'taken', 7: 'landing', 8: 'take', 9: 'land',
+};
+const REASON_EVENTS = new Set(['hold', 'resumed', 'taken', 'landing']);   // detail = failsafe reason; the rest: refusal
 export const FC_ARM = ['unknown', 'disarmed', 'armed'];
 export const REFUSALS = ['none', 'wrong_session', 'not_disarmed', 'not_in_failsafe', 'link_stale',
-  'throttle_high', 'fc_still_armed', 'rf_down'];
+  'throttle_high', 'fc_still_armed', 'rf_down', 'not_standby', 'not_in_hold'];
 
 const MAX_MSG = 255;
 const NO_CMD_AGE = 0xffffffff;
@@ -51,7 +54,7 @@ export function encodeControl({ session, seq, roll, pitch, yaw, throttle, mode, 
 }
 
 export function decodeStatus(p) {
-  expectLength(p, 80, 'STATUS');
+  expectLength(p, 96, 'STATUS');
   const cmdAge = p.readUInt32LE(12);
   const channels = [];
   for (let i = 0; i < 16; i++) channels.push(p.readUInt16LE(48 + 2 * i));
@@ -72,6 +75,11 @@ export function decodeStatus(p) {
     timingFrames: p.readUInt32LE(40),
     wakeLateMaxUs: p.readUInt32LE(44),
     channels,
+    stageLeftMs: p.readUInt32LE(80),
+    out: {   // what is on the air: a taker's page starts from these
+      roll: p.readInt16LE(84), pitch: p.readInt16LE(86), yaw: p.readInt16LE(88),
+      throttle: p.readUInt16LE(90), mode: p[92], speed: p[93], turtle: p[94],
+    },
   };
 }
 
@@ -113,7 +121,7 @@ export function decodeEvent(p) {
   expectLength(p, 6, 'EVENT');
   const what = EVENT_KINDS[p[0]] ?? 'ack';
   const session = p.readUInt32LE(2);
-  if (what === 'handover') return { what, reason: REASONS[p[1]] ?? 'unknown', session };
+  if (REASON_EVENTS.has(what)) return { what, reason: REASONS[p[1]] ?? 'unknown', session };
   return { what, refused: REFUSALS[p[1]] ?? 'unknown', session };
 }
 
@@ -219,4 +227,6 @@ export class CoreClient extends EventEmitter {
   pilotLost(session) { this.#send(encodeSessionMsg(MSG.PILOT_LOST, session)); }
   failsafe(session) { this.#send(encodeSessionMsg(MSG.FAILSAFE, session)); }
   standby(session) { this.#send(encodeSessionMsg(MSG.STANDBY, session)); }
+  take(session) { this.#send(encodeSessionMsg(MSG.TAKE, session)); }
+  land(session) { this.#send(encodeSessionMsg(MSG.LAND, session)); }
 }

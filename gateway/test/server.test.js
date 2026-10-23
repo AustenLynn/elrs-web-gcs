@@ -138,8 +138,8 @@ test('pilot session end to end: sign in, hello, control, status, disconnect', as
   assert.deepEqual([c.readUInt32LE(0), c.readUInt32LE(4), c.readInt16LE(8), c.readInt16LE(10), c.readInt16LE(12), c.readUInt16LE(14), c[16]],
     [session, 1, 10, -20, 30, 400, 1]);
 
-  const status = Buffer.alloc(83);
-  status.writeUInt16LE(81, 0);
+  const status = Buffer.alloc(99);
+  status.writeUInt16LE(97, 0);
   status[2] = MSG.STATUS;
   status[3] = 1; // ARMED
   core.conn.write(status);
@@ -156,7 +156,7 @@ test('pilot session end to end: sign in, hello, control, status, disconnect', as
   observer.ws.close();
 });
 
-test('a ready queued pilot is registered as STANDBY and the core\'s handover event gives it the seat', async (t) => {
+test('the queue head can take during a hold and the core\'s taken event gives it the seat', async (t) => {
   const { core, wsUrl, login } = await setup(t);
   const cookie = await login();
   const a = await connect(wsUrl, { headers: { cookie } });
@@ -165,24 +165,25 @@ test('a ready queued pilot is registered as STANDBY and the core\'s handover eve
   const b = await connect(wsUrl, { headers: { cookie } });
   b.send({ t: 'hello', role: 'pilot' });
   await waitFor(() => b.msgs.some((m) => m.t === 'welcome'));
-  assert.deepEqual(b.msgs.find((m) => m.t === 'welcome'), { t: 'welcome', role: 'queued', position: 1 });
-  b.send({ t: 'ready', on: true });
+  assert.deepEqual(b.msgs.find((m) => m.t === 'welcome'), { t: 'welcome', role: 'queued', position: 1, standby: true });
   await waitFor(() => core.received.some((m) => m.type === MSG.STANDBY));
   const standby = core.received.find((m) => m.type === MSG.STANDBY).payload.readUInt32LE(0);
 
-  a.ws.close();
-  await waitFor(() => core.received.some((m) => m.type === MSG.PILOT_LOST));
-  const ev = Buffer.alloc(9);                        // EVENT handover, reason pilot_lost, to the standby
+  b.send({ t: 'take' });
+  await waitFor(() => core.received.some((m) => m.type === MSG.TAKE));
+  assert.equal(core.received.find((m) => m.type === MSG.TAKE).payload.readUInt32LE(0), standby);
+
+  const ev = Buffer.alloc(9);                        // EVENT taken (kind 6), reason pilot_lost, to the standby
   ev.writeUInt16LE(7, 0);
   ev[2] = MSG.EVENT;
-  ev[3] = 3;
+  ev[3] = 6;
   ev[4] = 2;
   ev.writeUInt32LE(standby, 5);
   core.conn.write(ev);
   await waitFor(() => b.msgs.some((m) => m.t === 'welcome' && m.role === 'pilot'));
   assert.equal(b.msgs.findLast((m) => m.t === 'welcome').session, standby);
-  assert.deepEqual(b.msgs.find((m) => m.t === 'event'), { t: 'event', what: 'handover', reason: 'pilot_lost' });
-  assert.equal(core.received.filter((m) => m.type === MSG.SESSION).length, 1);   // no SESSION for the promoted standby
+  assert.deepEqual(b.msgs.find((m) => m.t === 'event'), { t: 'event', what: 'taken', reason: 'pilot_lost', session: standby });
+  assert.equal(core.received.filter((m) => m.type === MSG.SESSION).length, 1);   // no SESSION for the taker
   b.ws.close();
 });
 
