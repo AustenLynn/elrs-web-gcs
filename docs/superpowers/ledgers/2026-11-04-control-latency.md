@@ -88,3 +88,11 @@
 - C1 from 1 s after start, test window +-30 s: p99 48-52 us, max <= 290 us, 0 missed slots in all four runs.
 - Suspected cause of the bursts: the Pi hotspot (wlan1, RTL8822BU, IoT-05) runs on 2.4 GHz channel 1, beside the 1 W ELRS TX on 2.4 GHz. Proposed fix: move the AP to 5 GHz channel 36-48 (no DFS in MX). Not applied.
 - latency_stats.py now compares every run with the first (`comparisons`); the results page takes any number of runs and an optional goal-evidence JSON.
+
+## 2026-11-06 — hotspot on 5 GHz (measure-20261106T222546Z)
+
+- IoT-05 (AP-IoT, wlan1) moved from 2.4 GHz channel 1 to 5 GHz channel 36, 20 MHz (operator ran ~/ap-5ghz.sh via systemd-run; revert = band bg, channel 1).
+- Same procedure, video on laptop + phone: sent while armed 99.63 % within 50 ms (was 92.61 % on 2.4 GHz); p99 delivered 10.9 ms (was 28.4); replaced while armed 0.12 % (was 6.87 %). Median equals the no-video run (Mann-Whitney p 0.34).
+- C4: both viewers 30.0 fps, 0 dropped, laptop 0.2 s frozen, phone 0; jitter buffer 24 / 33 ms (was 102 / 171); overlap 309.7 s.
+- Still two command timeouts (22:29:41, 22:31:04): browser pause 143 ms plus ~270 ms network in the first, commands steadily ~220 ms old in the second (TCP queue behind a lost frame). All-sent 89.16 % and whole-session 92.77 % are lowered by these and by ~110 s of pre-arm sending.
+- C1 test window: p99 47 us, max 215 us, 0 missed.

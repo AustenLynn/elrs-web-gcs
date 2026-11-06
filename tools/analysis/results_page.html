@@ -3,23 +3,23 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
-/* Layout: one column. A live replay of real commands opens the page, then the Minitab-style summary, capability, stability, each run against the no-video baseline, and the goal evidence. Run colours are categorical slots 1-4 in fixed order (validated light and dark): blue = local no video, orange = tunnel, aqua = local + video 1, yellow = local + video 2. Red only for the 50 ms limit. */
+/* Layout: one column. A live replay of real commands opens the page, then the Minitab-style summary, capability, stability, each run against the no-video baseline, and the goal evidence. Run colours are categorical slots 1-4 in fixed order (validated light and dark): blue = local no video, orange = tunnel, aqua = local + video 1, yellow = local + video 2, magenta = local + video with the hotspot on 5 GHz. Red only for the 50 ms limit. */
 :root {
   --bg: #f2f4f8; --surface: #ffffff; --ink: #121925; --muted: #586477; --faint: #8a94a6; --line: #d8dee8; --grid: #e7ebf1;
-  --local: #2a78d6; --tunnel: #eb6834; --video1: #1baf7a; --video2: #eda100; --limit: #c03c35; --ok: #1d8549;
-  --local-soft: rgba(42,120,214,.12); --tunnel-soft: rgba(235,104,52,.13); --video1-soft: rgba(27,175,122,.13); --video2-soft: rgba(237,161,0,.14); --dim-soft: rgba(136,146,165,.16);
+  --local: #2a78d6; --tunnel: #eb6834; --video1: #1baf7a; --video2: #eda100; --wifi5: #e87ba4; --limit: #c03c35; --ok: #1d8549;
+  --local-soft: rgba(42,120,214,.12); --tunnel-soft: rgba(235,104,52,.13); --video1-soft: rgba(27,175,122,.13); --video2-soft: rgba(237,161,0,.14); --wifi5-soft: rgba(232,123,164,.15); --dim-soft: rgba(136,146,165,.16);
   --f-display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
   --f-body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
   --f-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #0d121a; --surface: #151c27; --ink: #e5ebf3; --muted: #9aa6b9; --faint: #6c778a; --line: #283241; --grid: #1f2834;
-  --local: #3987e5; --tunnel: #d95926; --video1: #199e70; --video2: #c98500; --limit: #f06c62; --ok: #41c377;
-  --local-soft: rgba(57,135,229,.18); --tunnel-soft: rgba(217,89,38,.2); --video1-soft: rgba(25,158,112,.2); --video2-soft: rgba(201,133,0,.2); --dim-soft: rgba(108,119,138,.2); color-scheme: dark; } }
+  --local: #3987e5; --tunnel: #d95926; --video1: #199e70; --video2: #c98500; --wifi5: #d55181; --limit: #f06c62; --ok: #41c377;
+  --local-soft: rgba(57,135,229,.18); --tunnel-soft: rgba(217,89,38,.2); --video1-soft: rgba(25,158,112,.2); --video2-soft: rgba(201,133,0,.2); --wifi5-soft: rgba(213,81,129,.2); --dim-soft: rgba(108,119,138,.2); color-scheme: dark; } }
 :root[data-theme="dark"] {
   --bg: #0d121a; --surface: #151c27; --ink: #e5ebf3; --muted: #9aa6b9; --faint: #6c778a; --line: #283241; --grid: #1f2834;
-  --local: #3987e5; --tunnel: #d95926; --video1: #199e70; --video2: #c98500; --limit: #f06c62; --ok: #41c377;
-  --local-soft: rgba(57,135,229,.18); --tunnel-soft: rgba(217,89,38,.2); --video1-soft: rgba(25,158,112,.2); --video2-soft: rgba(201,133,0,.2); --dim-soft: rgba(108,119,138,.2); color-scheme: dark; }
+  --local: #3987e5; --tunnel: #d95926; --video1: #199e70; --video2: #c98500; --wifi5: #d55181; --limit: #f06c62; --ok: #41c377;
+  --local-soft: rgba(57,135,229,.18); --tunnel-soft: rgba(217,89,38,.2); --video1-soft: rgba(25,158,112,.2); --video2-soft: rgba(201,133,0,.2); --wifi5-soft: rgba(213,81,129,.2); --dim-soft: rgba(108,119,138,.2); color-scheme: dark; }
 
 body { background: var(--bg); color: var(--ink); font: 16px/1.6 var(--f-body);
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 64px; }
@@ -99,12 +99,13 @@ tr:last-child td { border-bottom: 0; }
 <header>
   <span class="eyebrow">elrs-web-gcs · bench campaigns 2026-11-05 and 2026-11-06 · props off</span>
   <h1>Control latency results</h1>
-  <p class="lede">Four armed bench runs flown from the same laptop: local Wi-Fi without video, the Cloudflare tunnel without video, and two local runs with the FPV video playing on a laptop and a phone at the same time. Every number comes from the per-command logs of the browser, the gateway and crsf-core, and from the viewers' WebRTC statistics.</p>
+  <p class="lede">Five armed bench runs flown from the same laptop: local Wi-Fi without video, the Cloudflare tunnel without video, two local runs with the FPV video playing on a laptop and a phone at the same time, and the same video run after moving the Pi's hotspot from 2.4 GHz (shared with the ELRS radio) to 5 GHz. Every number comes from the per-command logs of the browser, the gateway and crsf-core, and from the viewers' WebRTC statistics.</p>
   <div class="legend">
     <span class="key"><i style="background:var(--local)"></i>Local, no video</span>
     <span class="key"><i style="background:var(--tunnel)"></i>Tunnel, no video</span>
     <span class="key"><i style="background:var(--video1)"></i>Local + video, run 1</span>
     <span class="key"><i style="background:var(--video2)"></i>Local + video, run 2</span>
+    <span class="key"><i style="background:var(--wifi5)"></i>Local + video, hotspot on 5 GHz</span>
     <span class="key"><i style="background:var(--limit);border-radius:1px;width:3px;height:12px"></i>50 ms limit</span>
   </div>
 </header>
@@ -122,13 +123,13 @@ tr:last-child td { border-bottom: 0; }
       </span>
       <button id="restart" type="button">Restart</button>
     </div>
-    <div class="lanes scroll"><svg id="lanes" viewBox="0 0 1000 650" role="img" aria-label="Four lanes of commands moving from browser to serial write, one per run"></svg></div>
+    <div class="lanes scroll"><svg id="lanes" viewBox="0 0 1000 650" role="img" aria-label="Five lanes of commands moving from browser to serial write, one per run"></svg></div>
     <div class="stats" id="lanestats"></div>
   </div>
 </section>
 
 <section aria-labelledby="head-h">
-  <h2 id="head-h">The four runs side by side</h2>
+  <h2 id="head-h">The five runs side by side</h2>
   <div class="tbl"><table id="headline"></table></div>
   <p class="note">Total = network + gateway + core, from the browser's send to the full 26-byte serial write. "Within 50 ms" counts every command the browser sent, and adds the clock-sync uncertainty (RTT/2) before comparing. Through the tunnel RTT/2 is about 30 ms, so no command can be shown under 50 ms with that margin, even though the estimate puts 91 % there. The goal-evidence section below repeats the percentage with two other denominators.</p>
 </section>
@@ -176,10 +177,10 @@ tr:last-child td { border-bottom: 0; }
 
 <section aria-labelledby="goal-h" id="goals" hidden>
   <h2 id="goal-h">Evidence for setting the goals</h2>
-  <p>The goals are frozen once declared, so each candidate below is checked against the worst run that respects its conditions. "Margin" is how far the worst run sits from the limit.</p>
+  <p>The goals are frozen once declared, so each proposed goal is checked against the <strong>worst</strong> run that respects its conditions, not the best. "Margin" is the room for failure: how far the worst run sits from the limit. Video latency (C2) is not here because it has not been measured yet.</p>
   <div class="tbl"><table id="goalTable"></table></div>
   <h3>Control latency with three denominators</h3>
-  <p class="note">All figures include the clock-sync uncertainty (RTT/2). "All sent" counts commands sent before arming and after disarming. "Sent while armed" counts only commands the gateway received while crsf-core was ARMED. "Delivered" counts only commands that reached the serial write.</p>
+  <p class="note">All figures include the clock-sync uncertainty (RTT/2). "All sent" counts commands sent before arming and after disarming. "Sent while armed" counts only commands the gateway received while crsf-core was ARMED. "Delivered" counts only commands that reached the serial write. "Whole armed session" counts everything from the first arm to the last disarm, so each command timeout costs its recovery time (landing, failsafe and the operator re-arming, about 13 s or 4 %).</p>
   <div class="tbl"><table id="ctlTable"></table></div>
   <h3>C1 frame timing (from 1 s after core start, the test window ± 30 s)</h3>
   <div class="tbl"><table id="c1Table"></table></div>
@@ -193,6 +194,8 @@ tr:last-child td { border-bottom: 0; }
   <div class="two">
     <div class="callout"><h3>Video costs about 1 ms at the median, but widens the tail</h3><p>With two viewers playing, the median rises only from 4.6 to 5.7–5.8 ms, but p99 rises from 18.6 to 26–28 ms and the commands over 50 ms rise from 696 to 1,777–5,037 per million. The software still adds about 2 ms (gateway 0.05 ms, core 2 ms); the rest and all the spread is Wi-Fi.</p></div>
     <div class="callout"><h3>Run 2 fails on the denominator, not on speed</h3><p>99.47 % of the commands that reached the radio did so within 50 ms. What fails is a 306 ms Wi-Fi stall at 21:44:09 that tripped the 300 ms command timeout (landing, then failsafe) and 6.9 % of armed commands replaced in the same 4 ms frame because Wi-Fi delivered them in bursts.</p></div>
+    <div class="callout"><h3>Moving the hotspot to 5 GHz removed the video penalty</h3><p>On 2.4 GHz channel 1 the hotspot shared the band with the 1 W ELRS transmitter. On 5 GHz, with the same two viewers playing, the median (4.64 ms) is no different from the no-video run (Mann-Whitney p = 0.34), p99 drops from 28 to 11 ms, replaced commands from 6.9 % to 0.1 % of armed commands, and both viewers hold 30 fps with no dropped frames.</p></div>
+    <div class="callout"><h3>What 5 GHz did not fix</h3><p>Two command timeouts (22:29:41 and 22:31:04) still sent the drone to landing. In the first the laptop's browser itself paused 143 ms and the network added about 270 ms more; in the second commands arrived steadily but about 220 ms old, the pattern of a WebSocket (TCP) queue held behind a lost Wi-Fi frame. These are rare events (2 in 5 minutes), not a slow link.</p></div>
     <div class="callout"><h3>The tunnel costs about 29 ms</h3><p>The median rises from 4.5 to 33.2 ms, almost all of it in the network segment. The tunnel run is a comparison, never a qualifying run: the criterion requires local routing, and its clock uncertainty (about ±30 ms) is too large to prove any command under 50 ms.</p></div>
     <div class="callout"><h3>Where it stops</h3><p>All figures end at the serial write on the Pi. The TX module, the radio and the drone are not included.</p></div>
   </div>
@@ -207,9 +210,9 @@ const DATA = /*__DATA__*/null;
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const runs = DATA.runs;
   const USL = DATA.usl;
-  const COLOR = { local: 'var(--local)', tunnel: 'var(--tunnel)', video1: 'var(--video1)', video2: 'var(--video2)' };
-  const SOFT = { local: 'var(--local-soft)', tunnel: 'var(--tunnel-soft)', video1: 'var(--video1-soft)', video2: 'var(--video2-soft)' };
-  const NAME = { local: 'Local, no video', tunnel: 'Tunnel, no video', video1: 'Local + video 1', video2: 'Local + video 2' };
+  const COLOR = { local: 'var(--local)', tunnel: 'var(--tunnel)', video1: 'var(--video1)', video2: 'var(--video2)', wifi5: 'var(--wifi5)' };
+  const SOFT = { local: 'var(--local-soft)', tunnel: 'var(--tunnel-soft)', video1: 'var(--video1-soft)', video2: 'var(--video2-soft)', wifi5: 'var(--wifi5-soft)' };
+  const NAME = { local: 'Local, no video', tunnel: 'Tunnel, no video', video1: 'Local + video 1', video2: 'Local + video 2', wifi5: 'Video, 5 GHz' };
   const COLS = [['total_ms', 'Total'], ['network_ms', 'Network'], ['gateway_ms', 'Gateway'], ['core_ms', 'Core'], ['upper_ms', 'Total + uncertainty']];
   const f = (v, d = 2) => v == null ? 'n/a' : Number(v).toFixed(d);
   const int = (v) => Number(v).toLocaleString('en-US');
@@ -563,10 +566,10 @@ const DATA = /*__DATA__*/null;
     const pill = (ok) => ok ? '<span class="pill pass">Met</span>' : '<span class="pill fail">Not met</span>';
     const head = (cols) => '<thead><tr>' + cols.map((c, i) => `<th${i ? ' class="num"' : ''}>${c}</th>`).join('') + '</tr></thead>';
     // control table
-    document.getElementById('ctlTable').innerHTML = head(['Run', 'All sent ≤ 50 ms', 'Sent while armed ≤ 50 ms', 'Delivered ≤ 50 ms', 'p99 delivered', 'Replaced while armed', 'Stalls > 250 ms', 'Failsafe entries', 'Send rate']) + '<tbody>' +
+    document.getElementById('ctlTable').innerHTML = head(['Run', 'All sent ≤ 50 ms', 'Sent while armed ≤ 50 ms', 'Delivered ≤ 50 ms', 'p99 delivered', 'Replaced while armed', 'Whole armed session ≤ 50 ms', 'Command timeouts', 'Send rate']) + '<tbody>' +
       G.runs.map((r) => { const c = r.control, st = runs.find((x) => x.label === r.label).columns.total_ms.summary; return `<tr><td>${key(r.label)}</td>
         <td class="num">${f(c.all_sent_pct)} %</td><td class="num">${f(c.armed_pct)} %</td><td class="num">${f(c.delivered_pct)} %</td><td class="num">${f(st.p99)} ms</td>
-        <td class="num">${f(c.replaced_armed_pct)} %</td><td class="num">${c.gaps_250}</td><td class="num">${c.failsafes}</td><td class="num">${f(c.send_hz, 1)} Hz</td></tr>`; }).join('') + '</tbody>';
+        <td class="num">${f(c.replaced_armed_pct)} %</td><td class="num">${f(c.session_pct)} %</td><td class="num">${c.timeouts}</td><td class="num">${f(c.send_hz, 1)} Hz</td></tr>`; }).join('') + '</tbody>';
     // C1
     document.getElementById('c1Table').innerHTML = head(['Run', 'Frames', 'Seconds', 'p99 lateness', 'Max lateness', 'Missed slots', 'Spec P6']) + '<tbody>' +
       G.runs.map((r) => { const c = r.c1; return `<tr><td>${key(r.label)}</td><td class="num">${int(c.frames)}</td><td class="num">${f(c.seconds, 0)}</td>
@@ -580,16 +583,18 @@ const DATA = /*__DATA__*/null;
     // candidate goals
     const worst = (arr, fn, dir) => arr.reduce((w, r) => { const v = fn(r); return w == null || (dir < 0 ? v < w.v : v > w.v) ? { v, r } : w; }, null);
     const viewers = G.runs.filter((r) => r.c4).flatMap((r) => r.c4.viewers.map((v) => ({ ...v, label: r.label })));
+    const wil = (pc, n) => { const p = pc / 100, z = 1.96, c = p + z * z / (2 * n), a = z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)); return 100 * (c - a) / (1 + z * z / n); };
+    const p99 = (l) => runs.find((x) => x.label === l).columns.total_ms.summary.p99;
     const goals = [
-      ['Control: ≥ 90 % of commands sent while armed reach the serial write within 50 ms (local, video on)', worst(local, (r) => r.control.armed_pct, -1), (v) => v >= 90, (v) => f(v) + ' %', (v) => '+' + f(v - 90) + ' points'],
-      ['Control: ≥ 90 % of all sent commands within 50 ms (current wording)', worst(local, (r) => r.control.all_sent_pct, -1), (v) => v >= 90, (v) => f(v) + ' %', (v) => (v >= 90 ? '+' : '') + f(v - 90) + ' points'],
-      ['Control: p99 of delivered commands ≤ 50 ms', worst(local.map((r) => ({ ...r, p99: runs.find((x) => x.label === r.label).columns.total_ms.summary.p99 })), (r) => r.p99, 1), (v) => v <= 50, (v) => f(v) + ' ms', (v) => f(50 - v) + ' ms spare'],
-      ['C1: p99 ≤ 250 µs, max ≤ 1 ms, no missed slot (from 1 s after start)', worst(G.runs, (r) => r.c1.max_us, 1), (v, w) => G.runs.every((r) => r.c1.pass), (v) => 'max ' + f(v, 0) + ' µs', (v) => f(1000 - v, 0) + ' µs spare'],
-      ['C4: each viewer ≥ 25 fps mean', worst(viewers, (v) => v.fps, -1), (v) => v >= 25, (v) => f(v) + ' fps', (v) => '+' + f(v - 25) + ' fps'],
-      ['C4: each viewer total freeze ≤ 5 % of the time', worst(viewers, (v) => v.freeze_pct, 1), (v) => v <= 5, (v) => f(v) + ' %', (v) => (v <= 5 ? '' : '+') + f(v - 5) + ' points'],
+      ['G1 Control latency: ≥ 90 % of commands sent while armed reach the serial write within 50 ms, clock uncertainty included (local, video on 2 viewers, ≥ 5 min armed)', worst(local, (r) => r.control.armed_pct, -1), (v) => v >= 90, (v, w) => f(v) + ' % (95 % lower bound ' + f(wil(v, w.r.control.armed_n)) + ' %)', (v) => '+' + f(v - 90) + ' points'],
+      ['G1b Control latency, reported: p99 of delivered commands ≤ 50 ms', worst(local.map((r) => ({ ...r, p99: p99(r.label) })), (r) => r.p99, 1), (v) => v <= 50, (v) => f(v) + ' ms', (v) => f(50 - v) + ' ms spare'],
+      ['G2 Commands (C1): p99 send lateness ≤ 250 µs and max ≤ 1 ms, from 1 s after start', worst(G.runs, (r) => r.c1.max_us, 1), (v) => G.runs.every((r) => r.c1.p99_us <= 250 && r.c1.max_us <= 1000), (v, w) => 'p99 ' + f(Math.max(...G.runs.map((r) => r.c1.p99_us)), 0) + ' µs, max ' + f(v, 0) + ' µs', (v) => f(250 / Math.max(...G.runs.map((r) => r.c1.p99_us)), 1) + '× and ' + f(1000 / v, 1) + '× spare'],
+      ['G2b Commands (C1): missed frame slots ≤ 0.01 %', worst(G.runs, (r) => r.c1.missed / r.c1.frames * 100, 1), (v) => v <= 0.01, (v) => f(v, 4) + ' %', (v) => '0 missed in every test window'],
+      ['G4 Video (C4): ≥ 2 viewers together ≥ 5 min, each ≥ 25 fps mean', worst(viewers, (v) => v.fps, -1), (v) => v >= 25, (v) => f(v) + ' fps', (v) => '+' + f(v - 25) + ' fps'],
+      ['G4b Video (C4): each viewer frozen ≤ 5 % of the time, no reconnection', worst(viewers.filter((v) => v.label === 'wifi5'), (v) => v.freeze_pct, 1), (v) => v <= 5, (v) => f(v) + ' % (5 GHz run)', (v) => f(5 - v) + ' points spare'],
     ];
     document.getElementById('goalTable').innerHTML = head(['Candidate goal', 'Worst run', 'Value', 'Margin', 'Status']) + '<tbody>' +
-      goals.map(([name, w, ok, fmtv, fmtm]) => `<tr><td style="white-space:normal;min-width:260px">${name}</td><td>${key(w.r.label)}${w.r.device ? ' · ' + w.r.device : ''}</td><td class="num">${fmtv(w.v)}</td><td class="num">${fmtm(w.v)}</td><td class="num">${pill(ok(w.v))}</td></tr>`).join('') + '</tbody>';
+      goals.map(([name, w, ok, fmtv, fmtm]) => `<tr><td style="white-space:normal;min-width:260px">${name}</td><td>${key(w.r.label)}${w.r.device ? ' · ' + w.r.device : ''}</td><td class="num">${fmtv(w.v, w)}</td><td class="num">${fmtm(w.v)}</td><td class="num">${pill(ok(w.v))}</td></tr>`).join('') + '</tbody>';
   })();
 })();
 </script>
