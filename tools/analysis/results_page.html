@@ -1,0 +1,537 @@
+<title>Control Latency Results</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one column. A live replay of real commands opens the page, then the Minitab-style summary, capability, stability and the local-vs-tunnel comparison. Blue = local Wi-Fi, orange = Cloudflare tunnel (validated categorical slots 1 and 2); red only for the 50 ms limit. */
+:root {
+  --bg: #f2f4f8; --surface: #ffffff; --ink: #121925; --muted: #586477; --faint: #8a94a6; --line: #d8dee8; --grid: #e7ebf1;
+  --local: #2a78d6; --tunnel: #eb6834; --limit: #c03c35; --ok: #1d8549;
+  --local-soft: rgba(42,120,214,.12); --tunnel-soft: rgba(235,104,52,.13); --dim-soft: rgba(136,146,165,.16);
+  --f-display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0d121a; --surface: #151c27; --ink: #e5ebf3; --muted: #9aa6b9; --faint: #6c778a; --line: #283241; --grid: #1f2834;
+  --local: #3987e5; --tunnel: #d95926; --limit: #f06c62; --ok: #41c377;
+  --local-soft: rgba(57,135,229,.18); --tunnel-soft: rgba(217,89,38,.2); --dim-soft: rgba(108,119,138,.2); color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0d121a; --surface: #151c27; --ink: #e5ebf3; --muted: #9aa6b9; --faint: #6c778a; --line: #283241; --grid: #1f2834;
+  --local: #3987e5; --tunnel: #d95926; --limit: #f06c62; --ok: #41c377;
+  --local-soft: rgba(57,135,229,.18); --tunnel-soft: rgba(217,89,38,.2); --dim-soft: rgba(108,119,138,.2); color-scheme: dark; }
+
+body { background: var(--bg); color: var(--ink); font: 16px/1.6 var(--f-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 64px; }
+main { max-width: 1040px; margin: 0 auto; display: grid; gap: 52px; }
+section, header { display: grid; gap: 16px; min-width: 0; }
+h1, h2, h3 { font-family: var(--f-display); font-weight: 700; line-height: 1.1; margin: 0; text-wrap: balance; }
+h1 { font-size: clamp(2.1rem, 5vw, 3.2rem); }
+h2 { font-size: clamp(1.5rem, 3vw, 2rem); }
+h3 { font-size: 1.15rem; }
+p { margin: 0; max-width: 70ch; }
+.lede { color: var(--muted); font-size: 1.1rem; }
+.eyebrow { font: 600 .76rem/1 var(--f-body); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.note { color: var(--muted); font-size: .88rem; }
+code { font-family: var(--f-mono); font-size: .85em; background: var(--dim-soft); padding: 1px 5px; border-radius: 4px; }
+.num, td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.key { display: inline-flex; align-items: center; gap: 7px; }
+.key i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .9rem; color: var(--muted); }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
+.scroll { overflow-x: auto; }
+svg text { font-family: var(--f-mono); font-size: 11px; fill: var(--muted); }
+svg .lbl { font-family: var(--f-body); font-weight: 600; font-size: 13px; fill: var(--ink); }
+svg .sub { font-family: var(--f-body); font-size: 11px; fill: var(--muted); }
+
+/* controls */
+.bar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.seg button { border: 0; border-right: 1px solid var(--line); border-radius: 0; background: var(--surface); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+button { font: 600 .88rem var(--f-body); border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 7px; padding: 7px 12px; cursor: pointer; }
+button:hover { border-color: var(--muted); }
+button:focus-visible { outline: 2px solid var(--local); outline-offset: 2px; }
+
+/* replay */
+.lanes svg { display: block; width: 100%; min-width: 760px; height: auto; }
+.lane-bg { fill: var(--bg); }
+.seglabel { font-family: var(--f-body); font-size: 11px; fill: var(--muted); }
+.node { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.lanestat { display: grid; gap: 6px; border-left: 3px solid var(--c); padding: 2px 0 2px 12px; min-width: 0; }
+.lanestat .row { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: .9rem; }
+.lanestat b { font: 600 1rem var(--f-mono); font-variant-numeric: tabular-nums; }
+.lanestat .last { font-family: var(--f-mono); font-size: .82rem; color: var(--muted); overflow-wrap: anywhere; }
+
+/* tables */
+.tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font: 600 .72rem var(--f-body); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+td.num, th.num { text-align: right; }
+tr:last-child td { border-bottom: 0; }
+.pill { font: 600 .72rem/1 var(--f-body); letter-spacing: .06em; text-transform: uppercase; padding: 4px 7px; border-radius: 999px; display: inline-block; }
+.pill.pass { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.pill.fail { color: var(--limit); background: color-mix(in srgb, var(--limit) 14%, transparent); }
+.pill.na { color: var(--muted); background: var(--dim-soft); }
+
+/* graphical summary */
+.gs { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 820px) { .gs { grid-template-columns: 1fr; } }
+.gs svg { display: block; width: 100%; height: auto; }
+.kv { display: grid; grid-template-columns: 1fr auto; gap: 2px 14px; font-size: .88rem; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; text-align: right; font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.kv .h { grid-column: 1 / -1; font: 600 .72rem var(--f-body); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); }
+.kv .h:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+
+.tip { position: fixed; pointer-events: none; background: var(--ink); color: var(--surface); font: 500 .8rem/1.35 var(--f-mono); padding: 6px 9px; border-radius: 6px; z-index: 20; white-space: nowrap; }
+.callout { border-left: 3px solid var(--line); padding: 2px 0 2px 14px; display: grid; gap: 6px; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<main>
+<header>
+  <span class="eyebrow">elrs-web-gcs · bench campaigns 2026-11-05 · props off</span>
+  <h1>Control latency results</h1>
+  <p class="lede">Two runs of about 19,560 commands each, flown from the same laptop: one on the local Wi-Fi, one through the Cloudflare tunnel. Every number here comes from the per-command logs of the browser, the gateway and crsf-core.</p>
+  <div class="legend">
+    <span class="key"><i style="background:var(--local)"></i>Local Wi-Fi · <span class="num">https://192.168.100.65:8443</span></span>
+    <span class="key"><i style="background:var(--tunnel)"></i>Cloudflare tunnel</span>
+    <span class="key"><i style="background:var(--limit);border-radius:1px;width:3px;height:12px"></i>50 ms limit</span>
+  </div>
+</header>
+
+<section aria-labelledby="replay-h">
+  <h2 id="replay-h">Replay of 500 real commands</h2>
+  <p>The same stretch of each run (commands 9,530 to 10,029, the middle of the run), replayed in slow motion. Each dot is one command; it moves through each segment for as long as that command really took there. Hollow dots never reached the radio: they were replaced by a newer command in the same 4 ms frame, or dropped as stale.</p>
+  <div class="panel">
+    <div class="bar">
+      <button id="play" type="button">Pause</button>
+      <span class="seg" role="group" aria-label="Replay speed">
+        <button type="button" data-speed="100">100× slower</button>
+        <button type="button" data-speed="50" aria-pressed="true">50× slower</button>
+        <button type="button" data-speed="20">20× slower</button>
+      </span>
+      <button id="restart" type="button">Restart</button>
+    </div>
+    <div class="lanes scroll"><svg id="lanes" viewBox="0 0 1000 330" role="img" aria-label="Two lanes of commands moving from browser to serial write, local and tunnel"></svg></div>
+    <div class="stats" id="lanestats"></div>
+  </div>
+</section>
+
+<section aria-labelledby="head-h">
+  <h2 id="head-h">The two runs side by side</h2>
+  <div class="tbl"><table id="headline"></table></div>
+  <p class="note">Total = network + gateway + core, from the browser's send to the full 26-byte serial write. "Within 50 ms" counts every command the browser sent, and adds the clock-sync uncertainty (RTT/2) before comparing. Through the tunnel RTT/2 is about 30 ms, so no command can be shown under 50 ms with that margin, even though the estimate puts 91 % there.</p>
+</section>
+
+<section aria-labelledby="gs-h">
+  <h2 id="gs-h">Graphical summary</h2>
+  <p>The same layout as Minitab's <em>Graphical Summary</em>: histogram with the fitted normal curve, boxplot, Anderson-Darling normality test and confidence intervals. The dashed curve is the fitted lognormal.</p>
+  <div class="bar">
+    <span class="seg" role="group" aria-label="Run" id="gsRun"></span>
+    <span class="seg" role="group" aria-label="Segment" id="gsCol"></span>
+  </div>
+  <div class="panel gs">
+    <div style="display:grid;gap:4px;min-width:0">
+      <svg id="hist" viewBox="0 0 640 330" role="img" aria-label="Histogram of latency with normal and lognormal fits"></svg>
+      <p class="note" id="histNote"></p>
+    </div>
+    <dl class="kv" id="gsTable"></dl>
+  </div>
+</section>
+
+<section aria-labelledby="cap-h">
+  <h2 id="cap-h">Process capability against the 50 ms limit</h2>
+  <p>Only an upper limit exists (latency has no lower limit), so the indices are one-sided: Ppk = Ppu. Common targets: 1.33 is capable, 1.67 is good. Calculated on the commands that reached the radio; the commands that never did are in the attribute row of the first table.</p>
+  <div class="tbl"><table id="capTable"></table></div>
+  <div class="two">
+    <div class="callout"><h3>Which index to quote</h3><p>The data fails the normality test badly (A² in the thousands) and has a long right tail from Wi-Fi bursts. The normal Ppk assumes the tail away and predicts almost no command over 50 ms, while 696 per million actually were (local). Quote the <strong>percentile (ISO) Ppk</strong>, which uses the data's own 99.865th percentile, and show the observed PPM next to it.</p></div>
+    <div class="callout"><h3>What the numbers say</h3><p id="capSay"></p></div>
+  </div>
+</section>
+
+<section aria-labelledby="xbar-h">
+  <h2 id="xbar-h">Stability over the run</h2>
+  <p>Xbar-R chart of total latency, subgroups of 25 consecutive commands (0.5 s each). A capability index describes a stable process; points outside the limits mark moments when the network behaved differently.</p>
+  <div class="bar"><span class="seg" role="group" aria-label="Run" id="xbRun"></span></div>
+  <div class="panel scroll"><svg id="xbar" viewBox="0 0 1000 380" role="img" aria-label="Xbar and R control charts" style="min-width:680px;width:100%;height:auto;display:block"></svg></div>
+  <p class="note" id="xbNote"></p>
+</section>
+
+<section aria-labelledby="cmp-h">
+  <h2 id="cmp-h">Local against tunnel</h2>
+  <div class="panel scroll"><svg id="box" viewBox="0 0 1000 200" role="img" aria-label="Box plots of total latency, local and tunnel" style="min-width:640px;width:100%;height:auto;display:block"></svg></div>
+  <div class="tbl"><table id="cmpTable"></table></div>
+  <p class="note">Mann-Whitney compares the two distributions without assuming normality (the right test for this skewed data). Box = Q1 to Q3, line = median, whisker from the minimum to p99, dot or arrow = maximum.</p>
+</section>
+
+<section aria-labelledby="read-h">
+  <h2 id="read-h">How to read these results in the report</h2>
+  <div class="two">
+    <div class="callout"><h3>Local Wi-Fi qualifies</h3><p>95.44 % of all 19,558 sent commands reached the serial port within 50 ms including clock uncertainty (95 % CI 95.14–95.72 %). The software adds about 2 ms (gateway 0.05 ms, core 2 ms); the rest and all the spread is Wi-Fi.</p></div>
+    <div class="callout"><h3>The tunnel costs about 29 ms</h3><p>The median rises from 4.5 to 33.2 ms, almost all of it in the network segment. The tunnel run is a comparison, never a qualifying run: the criterion requires local routing, and its clock uncertainty (about ±30 ms) is too large to prove any command under 50 ms.</p></div>
+    <div class="callout"><h3>Where it stops</h3><p>All figures end at the serial write on the Pi. The TX module, the radio and the drone are not included.</p></div>
+  </div>
+</section>
+</main>
+<div class="tip" id="tip" hidden></div>
+
+<script>
+const DATA = /*__DATA__*/null;
+(() => {
+  const NS = 'http://www.w3.org/2000/svg';
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const runs = DATA.runs;
+  const USL = DATA.usl;
+  const COLOR = { local: 'var(--local)', tunnel: 'var(--tunnel)' };
+  const SOFT = { local: 'var(--local-soft)', tunnel: 'var(--tunnel-soft)' };
+  const NAME = { local: 'Local Wi-Fi', tunnel: 'Tunnel' };
+  const COLS = [['total_ms', 'Total'], ['network_ms', 'Network'], ['gateway_ms', 'Gateway'], ['core_ms', 'Core'], ['upper_ms', 'Total + uncertainty']];
+  const f = (v, d = 2) => v == null ? 'n/a' : Number(v).toFixed(d);
+  const int = (v) => Number(v).toLocaleString('en-US');
+  const pct = (v, d = 2) => (v * 100).toFixed(d) + ' %';
+  const pval = (p) => p == null ? 'n/a' : p < 0.005 ? '< 0.005' : p.toFixed(3);
+  const el = (parent, name, attrs = {}, text) => {
+    const e = document.createElementNS(NS, name);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (text != null) e.textContent = text;
+    parent.appendChild(e); return e;
+  };
+  const tip = document.getElementById('tip');
+  const showTip = (ev, text) => { tip.textContent = text; tip.hidden = false;
+    const x = Math.min(ev.clientX + 14, innerWidth - tip.offsetWidth - 8); tip.style.left = x + 'px'; tip.style.top = (ev.clientY + 14) + 'px'; };
+  const hideTip = () => { tip.hidden = true; };
+  function segmented(container, items, initial, onChange) {
+    container.innerHTML = '';
+    items.forEach(([value, label]) => {
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.dataset.value = value;
+      b.setAttribute('aria-pressed', String(value === initial));
+      b.addEventListener('click', () => { container.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); onChange(value); });
+      container.appendChild(b);
+    });
+  }
+
+  /* ---------------- headline table ---------------- */
+  (() => {
+    const t = document.getElementById('headline');
+    const rows = [
+      ['Commands sent', (r) => int(r.sent)],
+      ['Reached the serial port', (r) => int(r.complete)],
+      ['Replaced in the same frame', (r) => int(r.outcomes.not_submitted || 0)],
+      ['Dropped as stale (> 200 ms old)', (r) => int(r.outcomes.stale || 0)],
+      ['Total median (p50)', (r) => f(r.columns.total_ms.summary.median) + ' ms'],
+      ['Total p90', (r) => f(r.columns.total_ms.summary.p90) + ' ms'],
+      ['Total p99', (r) => f(r.columns.total_ms.summary.p99) + ' ms'],
+      ['Total max', (r) => f(r.columns.total_ms.summary.max) + ' ms'],
+      ['Clock uncertainty (median RTT/2)', (r) => f(r.columns.upper_ms.summary.median - r.columns.total_ms.summary.median) + ' ms'],
+      ['Within 50 ms, estimate', (r) => pct(r.attribute.fraction_estimate)],
+      ['Within 50 ms with uncertainty (criterion ≥ 90 %)', (r) => pct(r.attribute.fraction) + '  [' + pct(r.attribute.ci[0]) + ' – ' + pct(r.attribute.ci[1]) + ']'],
+      ['Result', (r) => r.label === 'local' && r.attribute.fraction >= 0.9 ? '<span class="pill pass">Pass</span>' : r.label === 'local' ? '<span class="pill fail">Fail</span>' : '<span class="pill na">Comparison only</span>'],
+    ];
+    t.innerHTML = '<thead><tr><th></th>' + runs.map((r) => `<th class="num"><span class="key"><i style="background:${COLOR[r.label]}"></i>${NAME[r.label]}</span></th>`).join('') + '</tr></thead><tbody>' +
+      rows.map(([label, fn]) => `<tr><td>${label}</td>${runs.map((r) => `<td class="num">${fn(r)}</td>`).join('')}</tr>`).join('') + '</tbody>';
+  })();
+
+  /* ---------------- replay ---------------- */
+  const svg = document.getElementById('lanes');
+  const X = { browser: 70, gateway: 430, core: 560, serial: 930 };
+  const LANE_Y = [70, 230];
+  let speed = 50;
+  const lanes = runs.map((run, i) => {
+    const y = LANE_Y[i];
+    const g = el(svg, 'g');
+    el(g, 'rect', { x: 10, y: y - 52, width: 980, height: 104, rx: 10, class: 'lane-bg' });
+    el(g, 'text', { x: 24, y: y - 32, class: 'lbl' }, NAME[run.label]);
+    el(g, 'line', { x1: X.browser, x2: X.serial, y1: y, y2: y, stroke: 'var(--line)', 'stroke-width': 2 });
+    [['browser', 'Browser'], ['gateway', 'Gateway'], ['core', 'crsf-core']].forEach(([k, label]) => {
+      el(g, 'rect', { x: X[k] - 30, y: y - 14, width: 60, height: 28, rx: 6, class: 'node' });
+      el(g, 'text', { x: X[k], y: y + 4, 'text-anchor': 'middle', class: 'sub' }, label);
+    });
+    el(g, 'line', { x1: X.serial, x2: X.serial, y1: y - 30, y2: y + 30, stroke: 'var(--limit)', 'stroke-width': 2 });
+    el(g, 'text', { x: X.serial, y: y + 44, 'text-anchor': 'middle', class: 'sub' }, 'serial write');
+    el(g, 'text', { x: (X.browser + X.gateway) / 2, y: y + 32, 'text-anchor': 'middle', class: 'seglabel' }, 'network');
+    el(g, 'text', { x: (X.gateway + X.core) / 2, y: y + 32, 'text-anchor': 'middle', class: 'seglabel' }, 'gateway');
+    el(g, 'text', { x: (X.core + X.serial) / 2, y: y + 32, 'text-anchor': 'middle', class: 'seglabel' }, 'core: wait for frame, write');
+    const dots = el(g, 'g');
+    return { run, y, dots, live: [], done: [], counts: { complete: 0, not_submitted: 0, stale: 0 } };
+  });
+  // fallback timing for commands that never reached the serial port (their timing is not recorded)
+  lanes.forEach((L) => { const s = L.run.columns; L.fallback = { network_ms: s.network_ms.summary.median, gateway_ms: s.gateway_ms.summary.median, core_ms: s.core_ms.summary.median }; });
+
+  const statsBox = document.getElementById('lanestats');
+  lanes.forEach((L) => {
+    const d = document.createElement('div'); d.className = 'lanestat'; d.style.setProperty('--c', COLOR[L.run.label]);
+    d.innerHTML = `<div class="row"><span>${NAME[L.run.label]}</span></div>
+      <div class="row"><span>replayed <b data-k="n">0</b></span><span>median <b data-k="p50">–</b></span><span>p90 <b data-k="p90">–</b></span><span>max <b data-k="max">–</b></span></div>
+      <div class="row"><span>reached radio <b data-k="ok">0</b></span><span>replaced <b data-k="rep">0</b></span><span>stale <b data-k="st">0</b></span></div>
+      <div class="last" data-k="last">–</div>`;
+    statsBox.appendChild(d); L.box = d;
+  });
+  const setK = (L, k, v) => { L.box.querySelector(`[data-k="${k}"]`).textContent = v; };
+  function quant(arr, p) { if (!arr.length) return null; const s = [...arr].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.max(0, Math.ceil(p * s.length) - 1))]; }
+  function updateStats(L) {
+    const n = L.counts.complete + L.counts.not_submitted + L.counts.stale;
+    setK(L, 'n', n); setK(L, 'ok', L.counts.complete); setK(L, 'rep', L.counts.not_submitted); setK(L, 'st', L.counts.stale);
+    if (L.done.length) { setK(L, 'p50', f(quant(L.done, .5)) + ' ms'); setK(L, 'p90', f(quant(L.done, .9)) + ' ms'); setK(L, 'max', f(Math.max(...L.done)) + ' ms'); }
+  }
+
+  const N = Math.min(...runs.map((r) => r.samples.length));
+  let clock = 0, last = null, raf = 0, playing = true, nextIdx = 0;
+  const PERIOD = 20; // real ms between commands (50 Hz)
+
+  function spawn(i) {
+    lanes.forEach((L) => {
+      const s = L.run.samples[i];
+      const t = s.outcome === 'complete' ? s : L.fallback;
+      const c = el(L.dots, 'circle', { cx: X.browser, cy: L.y, r: 6, fill: COLOR[L.run.label], stroke: 'var(--surface)', 'stroke-width': 2 });
+      if (s.outcome !== 'complete') { c.setAttribute('fill', 'var(--bg)'); c.setAttribute('stroke', COLOR[L.run.label]); }
+      L.live.push({ c, s, t0: clock, seg: [t.network_ms, t.gateway_ms, t.core_ms] });
+    });
+  }
+  function finish(L, d) {
+    L.counts[d.s.outcome] = (L.counts[d.s.outcome] || 0) + 1;
+    if (d.s.outcome === 'complete') {
+      L.done.push(d.s.total_ms);
+      setK(L, 'last', `#${d.s.seq}  ${f(d.s.network_ms)} + ${f(d.s.gateway_ms)} + ${f(d.s.core_ms)} = ${f(d.s.total_ms)} ms`);
+    } else {
+      setK(L, 'last', `#${d.s.seq}  ${d.s.outcome === 'stale' ? 'dropped by the gateway: older than 200 ms' : 'replaced by a newer command before the next frame'}`);
+    }
+    updateStats(L);
+  }
+  function frame(now) {
+    if (last != null) clock += (now - last) / speed;      // real milliseconds of the run
+    last = now;
+    while (nextIdx < N && nextIdx * PERIOD <= clock) spawn(nextIdx++);
+    lanes.forEach((L) => {
+      L.live = L.live.filter((d) => {
+        const age = clock - d.t0;
+        const [a, b, c] = d.seg;
+        let x;
+        const stopAt = d.s.outcome === 'stale' ? 1 : d.s.outcome === 'complete' ? 3 : 2.6;
+        if (age < a) x = X.browser + (X.gateway - X.browser) * (age / a);
+        else if (age < a + b) x = X.gateway + (X.core - X.gateway) * ((age - a) / Math.max(b, 1e-6));
+        else if (age < a + b + c) x = X.core + (X.serial - X.core) * ((age - a - b) / c);
+        else x = X.serial;
+        const limits = [X.gateway, X.gateway, X.core + (X.serial - X.core) * 0.6, X.serial];
+        const cap = stopAt === 1 ? X.gateway : stopAt === 2.6 ? limits[2] : X.serial;
+        if (x >= cap) {
+          x = cap;
+          if (!d.ended) { d.ended = clock; finish(L, d); }
+          const fade = 1 - (clock - d.ended) / 60;
+          d.c.setAttribute('opacity', Math.max(0, fade));
+          d.c.setAttribute('cx', x);
+          if (fade <= 0) { d.c.remove(); return false; }
+          return true;
+        }
+        d.c.setAttribute('cx', x);
+        return true;
+      });
+    });
+    if (nextIdx >= N && lanes.every((L) => !L.live.length)) { setTimeout(restart, 1500); playing = false; document.getElementById('play').textContent = 'Play'; return; }
+    if (playing) raf = requestAnimationFrame(frame);
+  }
+  function restart() {
+    cancelAnimationFrame(raf);
+    lanes.forEach((L) => { L.dots.innerHTML = ''; L.live = []; L.done = []; L.counts = { complete: 0, not_submitted: 0, stale: 0 }; updateStats(L); setK(L, 'last', '–'); setK(L, 'p50', '–'); setK(L, 'p90', '–'); setK(L, 'max', '–'); });
+    clock = 0; last = null; nextIdx = 0; playing = true; document.getElementById('play').textContent = 'Pause';
+    raf = requestAnimationFrame(frame);
+  }
+  document.getElementById('play').addEventListener('click', (e) => {
+    if (playing) { playing = false; cancelAnimationFrame(raf); e.target.textContent = 'Play'; }
+    else { playing = true; last = null; e.target.textContent = 'Pause'; if (nextIdx >= N && lanes.every((L) => !L.live.length)) restart(); else raf = requestAnimationFrame(frame); }
+  });
+  document.getElementById('restart').addEventListener('click', restart);
+  document.querySelectorAll('[data-speed]').forEach((b) => b.addEventListener('click', () => {
+    speed = Number(b.dataset.speed);
+    document.querySelectorAll('[data-speed]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  }));
+  if (reduce) {
+    // Static resting state: the whole window's statistics, no moving dots.
+    lanes.forEach((L) => { L.run.samples.forEach((s) => { L.counts[s.outcome] = (L.counts[s.outcome] || 0) + 1; if (s.outcome === 'complete') L.done.push(s.total_ms); }); updateStats(L); setK(L, 'last', 'Motion reduced: statistics of all 500 commands shown.'); });
+    playing = false; document.getElementById('play').textContent = 'Play';
+  } else raf = requestAnimationFrame(frame);
+
+  /* ---------------- graphical summary ---------------- */
+  let gsRun = 'local', gsCol = 'total_ms';
+  const normPdf = (x, m, s) => Math.exp(-0.5 * ((x - m) / s) ** 2) / (s * Math.sqrt(2 * Math.PI));
+  const lognPdf = (x, mu, s) => x <= 0 ? 0 : Math.exp(-0.5 * ((Math.log(x) - mu) / s) ** 2) / (x * s * Math.sqrt(2 * Math.PI));
+  function drawHist() {
+    const run = runs.find((r) => r.label === gsRun);
+    const col = run.columns[gsCol];
+    const s = col.summary, h = col.histogram, cap = col.capability;
+    const hs = document.getElementById('hist'); hs.innerHTML = '';
+    const L = 46, R = 626, T = 14, B = 236;
+    // view range: from 0 to beyond the limit or p99.9-ish, capped at the histogram top
+    const hi = Math.min(h.top, Math.max(USL + 5, Math.ceil((s.p99 + 2) / 5) * 5));
+    const nb = Math.round(hi / h.width);
+    const counts = h.counts.slice(0, nb);
+    const beyond = h.counts.slice(nb).reduce((a, b) => a + b, 0) + h.over;
+    const xs = (v) => L + (v / hi) * (R - L);
+    const curveN = (x) => s.n * h.width * normPdf(x, s.mean, s.sd);
+    const ln = cap.lognormal;
+    const curveL = (x) => ln ? s.n * h.width * lognPdf(x, ln.mu, ln.sigma) : 0;
+    let ymax = Math.max(...counts, 1);
+    for (let x = 0.25; x < hi; x += 0.25) ymax = Math.max(ymax, Math.min(curveN(x), ymax * 1.6));
+    const ys = (v) => B - (v / ymax) * (B - T);
+    const step = ymax > 4000 ? 1000 : ymax > 2000 ? 500 : ymax > 800 ? 200 : ymax > 200 ? 50 : 10;
+    for (let v = 0; v <= ymax; v += step) { el(hs, 'line', { x1: L, x2: R, y1: ys(v), y2: ys(v), stroke: 'var(--grid)' }); el(hs, 'text', { x: L - 6, y: ys(v) + 4, 'text-anchor': 'end' }, int(v)); }
+    const tick = hi > 40 ? 10 : 5;
+    for (let v = 0; v <= hi + 1e-9; v += tick) el(hs, 'text', { x: xs(v), y: B + 16, 'text-anchor': 'middle' }, v);
+    el(hs, 'text', { x: R, y: B + 32, 'text-anchor': 'end', class: 'sub' }, 'milliseconds');
+    const bw = (R - L) / nb;
+    counts.forEach((c, i) => {
+      if (!c) return;
+      const r = el(hs, 'rect', { x: xs(i * h.width) + 1, y: ys(c), width: Math.max(1, bw - 2), height: Math.max(1, B - ys(c)), fill: COLOR[gsRun], rx: 2 });
+      r.addEventListener('mousemove', (ev) => showTip(ev, `${f(i * h.width, 1)}–${f((i + 1) * h.width, 1)} ms: ${int(c)} commands`));
+      r.addEventListener('mouseleave', hideTip);
+    });
+    const path = (fn) => { let d = ''; for (let x = h.width / 4; x < hi; x += h.width / 4) { const y = Math.max(T, ys(fn(x))); d += (d ? 'L' : 'M') + xs(x).toFixed(1) + ' ' + y.toFixed(1); } return d; };
+    if (s.sd > 0) el(hs, 'path', { d: path(curveN), fill: 'none', stroke: 'var(--ink)', 'stroke-width': 2 });
+    if (ln) el(hs, 'path', { d: path(curveL), fill: 'none', stroke: 'var(--muted)', 'stroke-width': 2, 'stroke-dasharray': '6 4' });
+    if (USL <= hi) { el(hs, 'line', { x1: xs(USL), x2: xs(USL), y1: T, y2: B + 4, stroke: 'var(--limit)', 'stroke-width': 2 }); el(hs, 'text', { x: xs(USL) - 4, y: T + 10, 'text-anchor': 'end', fill: 'var(--limit)' }, 'USL 50'); }
+    // boxplot row
+    const by = 282;
+    el(hs, 'text', { x: L - 6, y: by + 4, 'text-anchor': 'end' }, 'box');
+    const clip = (v) => xs(Math.min(v, hi));
+    el(hs, 'line', { x1: xs(s.min), x2: clip(s.p99), y1: by, y2: by, stroke: 'var(--ink)', 'stroke-width': 1.5 });
+    el(hs, 'rect', { x: xs(s.q1), y: by - 10, width: Math.max(2, xs(s.q3) - xs(s.q1)), height: 20, fill: SOFT[gsRun], stroke: COLOR[gsRun], 'stroke-width': 2, rx: 3 });
+    el(hs, 'line', { x1: xs(s.median), x2: xs(s.median), y1: by - 10, y2: by + 10, stroke: 'var(--ink)', 'stroke-width': 2.5 });
+    // median and mean confidence intervals (Minitab draws them under the box)
+    // Confidence intervals on their own zoomed scale, as in Minitab's summary.
+    const ciy = 312;
+    const lo = Math.min(s.mean_ci[0], s.median_ci[0]), up = Math.max(s.mean_ci[1], s.median_ci[1]);
+    const pad = Math.max((up - lo) * 0.25, 0.005);
+    const CL = 150, CR = 470;
+    const cx = (v) => CL + ((v - (lo - pad)) / (up - lo + 2 * pad)) * (CR - CL);
+    el(hs, 'text', { x: L - 6, y: ciy + 4, 'text-anchor': 'end' }, '95% CI');
+    el(hs, 'text', { x: CL - 8, y: ciy - 1, 'text-anchor': 'end', class: 'sub' }, 'mean');
+    el(hs, 'text', { x: CL - 8, y: ciy + 13, 'text-anchor': 'end', class: 'sub' }, 'median');
+    el(hs, 'line', { x1: cx(s.mean_ci[0]), x2: cx(s.mean_ci[1]), y1: ciy - 5, y2: ciy - 5, stroke: 'var(--ink)', 'stroke-width': 3, 'stroke-linecap': 'round' });
+    el(hs, 'circle', { cx: cx(s.mean), cy: ciy - 5, r: 3.5, fill: 'var(--ink)' });
+    el(hs, 'line', { x1: cx(s.median_ci[0]), x2: cx(s.median_ci[1]), y1: ciy + 9, y2: ciy + 9, stroke: COLOR[gsRun], 'stroke-width': 3, 'stroke-linecap': 'round' });
+    el(hs, 'circle', { cx: cx(s.median), cy: ciy + 9, r: 3.5, fill: COLOR[gsRun] });
+    el(hs, 'text', { x: CR + 10, y: ciy + 8 }, `zoomed: ${f(lo - pad, 3)} – ${f(up + pad, 3)} ms`);
+    const notes = [];
+    if (beyond) notes.push(`${int(beyond)} commands beyond ${hi} ms are not drawn (max ${f(s.max)} ms).`);
+    if (gsCol === 'gateway_ms') notes.push('The gateway takes about 0.05 ms, below the 0.5 ms bin width, so nearly every command falls in the first bin.');
+    notes.push('Solid curve: fitted normal. Dashed: fitted lognormal. Box: Q1–Q3 and median; whisker from the minimum to p99.');
+    document.getElementById('histNote').textContent = notes.join(' ');
+    // table
+    const nd = col.normality, cp = cap;
+    document.getElementById('gsTable').innerHTML = `
+      <dt class="h">Anderson-Darling normality test</dt>
+      <dt>A²</dt><dd>${f(nd.a2, 1)}</dd><dt>p-value</dt><dd>${pval(nd.p)}</dd>
+      <dt class="h">Descriptive statistics</dt>
+      <dt>N</dt><dd>${int(s.n)}</dd><dt>Mean</dt><dd>${f(s.mean, 3)}</dd><dt>StDev</dt><dd>${f(s.sd, 3)}</dd>
+      <dt>Variance</dt><dd>${f(s.sd * s.sd, 3)}</dd><dt>Skewness</dt><dd>${f(s.skewness, 2)}</dd><dt>Kurtosis</dt><dd>${f(s.kurtosis, 1)}</dd>
+      <dt>Minimum</dt><dd>${f(s.min, 3)}</dd><dt>1st quartile</dt><dd>${f(s.q1, 3)}</dd><dt>Median</dt><dd>${f(s.median, 3)}</dd>
+      <dt>3rd quartile</dt><dd>${f(s.q3, 3)}</dd><dt>p90 / p99</dt><dd>${f(s.p90)} / ${f(s.p99)}</dd><dt>Maximum</dt><dd>${f(s.max, 3)}</dd>
+      <dt class="h">95 % confidence intervals</dt>
+      <dt>Mean</dt><dd>${f(s.mean_ci[0], 3)} – ${f(s.mean_ci[1], 3)}</dd>
+      <dt>Median</dt><dd>${f(s.median_ci[0], 3)} – ${f(s.median_ci[1], 3)}</dd>
+      <dt class="h">Lognormal fit</dt>
+      <dt>Location μ / scale σ</dt><dd>${cp.lognormal ? f(cp.lognormal.mu, 3) + ' / ' + f(cp.lognormal.sigma, 3) : 'n/a'}</dd>
+      <dt>A² on log values, p</dt><dd>${cp.lognormal ? f(cp.lognormal.fit.a2, 1) + ', ' + pval(cp.lognormal.fit.p) : 'n/a'}</dd>
+      <dt class="h">All values in milliseconds</dt>`;
+  }
+  segmented(document.getElementById('gsRun'), runs.map((r) => [r.label, NAME[r.label]]), gsRun, (v) => { gsRun = v; drawHist(); });
+  segmented(document.getElementById('gsCol'), COLS, gsCol, (v) => { gsCol = v; drawHist(); });
+  drawHist();
+
+  /* ---------------- capability table ---------------- */
+  (() => {
+    const t = document.getElementById('capTable');
+    const lines = [];
+    runs.forEach((r) => COLS.forEach(([c, label]) => {
+      if (c === 'gateway_ms') return;
+      const cp = r.columns[c].capability;
+      const tag = (v) => v == null ? '<span class="pill na">n/a</span>' : v >= 1.33 ? `<span class="pill pass">${f(v)}</span>` : `<span class="pill fail">${f(v)}</span>`;
+      lines.push(`<tr><td><span class="key"><i style="background:${COLOR[r.label]}"></i>${NAME[r.label]}</span></td><td>${label}</td>
+        <td class="num">${f(cp.normal.ppk)}</td><td class="num">${f(cp.normal.cpk)}</td><td class="num">${tag(cp.percentile.ppk)}</td><td class="num">${cp.lognormal ? f(cp.lognormal.ppk) : 'n/a'}</td>
+        <td class="num">${int(Math.round(cp.observed_ppm))}</td><td class="num">${f(cp.normal.ppm, 1)}</td><td class="num">${cp.lognormal ? f(cp.lognormal.ppm, 1) : 'n/a'}</td></tr>`);
+    }));
+    t.innerHTML = `<thead><tr><th>Run</th><th>Segment</th><th class="num">Ppk normal</th><th class="num">Cpk normal</th><th class="num">Ppk percentile (ISO)</th><th class="num">Ppk lognormal</th><th class="num">PPM observed</th><th class="num">PPM expected normal</th><th class="num">PPM expected lognormal</th></tr></thead><tbody>${lines.join('')}</tbody>`;
+    const l = runs.find((r) => r.label === 'local').columns.total_ms.capability, tu = runs.find((r) => r.label === 'tunnel').columns.total_ms.capability;
+    document.getElementById('capSay').textContent = `Local total: Ppk ${f(l.percentile.ppk)} by the percentile method, above 1.33, with ${int(Math.round(l.observed_ppm))} commands per million over 50 ms. Tunnel total: Ppk ${f(tu.percentile.ppk)}, not capable, with ${int(Math.round(tu.observed_ppm))} per million over the limit. The lognormal fit is also rejected by its own A² test, so its Ppk is shown for completeness only. The gateway segment is left out: it has no meaningful spread against a 50 ms limit.`;
+  })();
+
+  /* ---------------- Xbar-R ---------------- */
+  let xbRun = 'local';
+  function drawXbar() {
+    const run = runs.find((r) => r.label === xbRun);
+    const xb = run.columns.total_ms.xbar;
+    const s = document.getElementById('xbar'); s.innerHTML = '';
+    const L = 60, R = 980;
+    const n = xb.means.length;
+    const xs = (i) => L + (i / (n - 1)) * (R - L);
+    function chart(values, center, ucl, lcl, top, bottom, title, unit) {
+      const vmax = Math.max(ucl * 1.15, Math.min(Math.max(...values), ucl * 4));
+      const vmin = Math.max(0, Math.min(lcl, ...values) * 0.9);
+      const ys = (v) => bottom - ((Math.min(v, vmax) - vmin) / (vmax - vmin)) * (bottom - top);
+      el(s, 'text', { x: L, y: top - 8, class: 'lbl' }, title);
+      [[ucl, 'UCL'], [center, 'CL'], [lcl, 'LCL']].forEach(([v, name]) => {
+        el(s, 'line', { x1: L, x2: R, y1: ys(v), y2: ys(v), stroke: name === 'CL' ? 'var(--muted)' : 'var(--limit)', 'stroke-dasharray': name === 'CL' ? '' : '5 4', 'stroke-width': 1.2 });
+        el(s, 'text', { x: L - 6, y: ys(v) + 4, 'text-anchor': 'end' }, name + ' ' + f(v, 1));
+      });
+      let d = '';
+      values.forEach((v, i) => { d += (i ? 'L' : 'M') + xs(i).toFixed(1) + ' ' + ys(v).toFixed(1); });
+      el(s, 'path', { d, fill: 'none', stroke: COLOR[xbRun], 'stroke-width': 1.2, 'stroke-linejoin': 'round' });
+      values.forEach((v, i) => {
+        if (v > ucl || v < lcl) {
+          const c = el(s, 'circle', { cx: xs(i), cy: ys(v), r: 4, fill: 'var(--limit)', stroke: 'var(--surface)', 'stroke-width': 1.5 });
+          c.addEventListener('mousemove', (ev) => showTip(ev, `subgroup ${i + 1} (≈ ${f(i * xb.size / 50, 1)} s): ${f(v)} ${unit}`));
+          c.addEventListener('mouseleave', hideTip);
+        }
+      });
+      // invisible hover strip
+      const hit = el(s, 'rect', { x: L, y: top, width: R - L, height: bottom - top, fill: 'transparent' });
+      hit.addEventListener('mousemove', (ev) => {
+        const box = s.getBoundingClientRect(); const vx = (ev.clientX - box.left) / box.width * 1000;
+        const i = Math.max(0, Math.min(n - 1, Math.round((vx - L) / (R - L) * (n - 1))));
+        showTip(ev, `subgroup ${i + 1} (≈ ${f(i * xb.size / 50, 1)} s): ${f(values[i])} ${unit}`);
+      });
+      hit.addEventListener('mouseleave', hideTip);
+    }
+    chart(xb.means, xb.center, xb.ucl, xb.lcl, 30, 190, 'Xbar: mean total latency of each subgroup (ms)', 'ms mean');
+    chart(xb.ranges, xb.rbar, xb.r_ucl, xb.r_lcl, 236, 352, 'R: range within each subgroup (ms)', 'ms range');
+    el(s, 'text', { x: R, y: 374, 'text-anchor': 'end', class: 'sub' }, `subgroup number (1 to ${n}, 25 commands each)`);
+    const outside = xb.means.filter((v) => v > xb.ucl || v < xb.lcl).length;
+    document.getElementById('xbNote').textContent = `${NAME[xbRun]}: ${outside} of ${n} subgroup means and ${xb.out_of_control - outside} ranges fall outside their limits. Within-subgroup sigma (R̄/d₂) = ${f(xb.sigma_within, 2)} ms. Wi-Fi delivers commands in bursts, so out-of-control points are expected; they show the process is not perfectly stable, which is one more reason to quote the percentile-based index and the observed PPM.`;
+  }
+  segmented(document.getElementById('xbRun'), runs.map((r) => [r.label, NAME[r.label]]), xbRun, (v) => { xbRun = v; drawXbar(); });
+  drawXbar();
+
+  /* ---------------- comparison ---------------- */
+  (() => {
+    const s = document.getElementById('box');
+    const L = 150, R = 960, hi = 60;
+    const xs = (v) => L + (Math.min(v, hi) / hi) * (R - L);
+    for (let v = 0; v <= hi; v += 10) { el(s, 'line', { x1: xs(v), x2: xs(v), y1: 20, y2: 160, stroke: 'var(--grid)' }); el(s, 'text', { x: xs(v), y: 178, 'text-anchor': 'middle' }, v); }
+    el(s, 'text', { x: R, y: 196, 'text-anchor': 'end', class: 'sub' }, 'total latency, milliseconds');
+    el(s, 'line', { x1: xs(USL), x2: xs(USL), y1: 14, y2: 164, stroke: 'var(--limit)', 'stroke-width': 2 });
+    runs.forEach((r, i) => {
+      const st = r.columns.total_ms.summary, y = 55 + i * 70;
+      el(s, 'text', { x: L - 12, y: y + 4, 'text-anchor': 'end', class: 'lbl' }, NAME[r.label]);
+      el(s, 'line', { x1: xs(st.min), x2: xs(st.p99), y1: y, y2: y, stroke: 'var(--ink)', 'stroke-width': 1.5 });
+      el(s, 'line', { x1: xs(st.p99), x2: xs(st.p99), y1: y - 8, y2: y + 8, stroke: 'var(--ink)', 'stroke-width': 1.5 });
+      el(s, 'rect', { x: xs(st.q1), y: y - 14, width: Math.max(3, xs(st.q3) - xs(st.q1)), height: 28, fill: SOFT[r.label], stroke: COLOR[r.label], 'stroke-width': 2, rx: 3 });
+      el(s, 'line', { x1: xs(st.median), x2: xs(st.median), y1: y - 14, y2: y + 14, stroke: 'var(--ink)', 'stroke-width': 2.5 });
+      el(s, 'text', { x: xs(st.median), y: y - 20, 'text-anchor': 'middle' }, 'median ' + f(st.median));
+      if (st.max > hi) el(s, 'text', { x: R + 4, y: y + 4 }, '→ ' + f(st.max, 0));
+      else el(s, 'circle', { cx: xs(st.max), cy: y, r: 4, fill: 'var(--ink)' });
+    });
+    const c = DATA.comparison;
+    document.getElementById('cmpTable').innerHTML = `<thead><tr><th>Test</th><th class="num">Statistic</th><th class="num">p-value</th><th>Reading</th></tr></thead><tbody>
+      <tr><td>Difference of medians (tunnel − local)</td><td class="num">${f(c.median_difference_ms)} ms</td><td class="num"></td><td>The tunnel adds about ${f(c.median_difference_ms, 0)} ms</td></tr>
+      <tr><td>Mann-Whitney U</td><td class="num">z = ${f(c.mann_whitney.z, 1)}</td><td class="num">${pval(c.mann_whitney.p)}</td><td>A local command is faster than a tunnel command ${pct(c.mann_whitney.prob_a_less, 1)} of the time</td></tr>
+      <tr><td>Two proportions, within 50 ms (estimate)</td><td class="num">z = ${f(c.within_estimate.z, 1)}</td><td class="num">${pval(c.within_estimate.p)}</td><td>${pct(c.within_estimate.p1)} local against ${pct(c.within_estimate.p2)} tunnel</td></tr></tbody>`;
+  })();
+})();
+</script>

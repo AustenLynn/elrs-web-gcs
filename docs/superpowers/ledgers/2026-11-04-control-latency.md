@@ -60,3 +60,22 @@
   core is still writing; run it on a copy without that row, or after stopping the core.
 - Suites before the commit: C unit all, integration 41, relay 11, gateway+web 243, analysis 40.
   Browser e2e not re-run (Pi heat rule; the phone-layout timeout above is still open).
+
+## 2026-11-05: tunnel comparison and statistics
+
+- Tunnel run 21:36-21:43 local (measure-20261106T033547Z), same laptop through the Cloudflare URL:
+  19,559 sent, 18,001 complete, all `tunnel`. Total p50 33.17 ms, p99 49.61, max 177.36.
+  Within 50 ms: estimate 91.19 %, with clock uncertainty 0.00 % (RTT/2 about 30 ms through the
+  tunnel). NOT VALIDATED by design (routing). 1,519 replaced in the same frame, 39 stale.
+- `tools/analysis/latency_stats.py` (standard library only): Minitab-style summary, Anderson-
+  Darling, Ppk normal / percentile (ISO) / lognormal (ISO), observed and expected PPM, Xbar-R
+  (subgroups of 25), Wilson interval, Mann-Whitney, two-proportion z. 16 tests written first.
+- Ruling: quote the percentile (ISO) Ppk and the observed PPM. The data fails normality (A2 1311
+  local, 2211 tunnel) and the lognormal fit also fails, so the normal Ppk (4.36 local) overstates
+  capability. Local total: Ppk percentile 1.85, 696 PPM over 50 ms. Tunnel: 0.20, 9,166 PPM.
+- Ruling: Anderson-Darling p is 0 for adjusted A2 >= 10; the D'Agostino quadratic turns back up
+  past A2 = 153 and first reported p = 1.000 for A2 = 1311 (caught on the real data; a test now pins it).
+- Local vs tunnel: median +28.62 ms, Mann-Whitney z -165.5 (p < 0.005), within-limit
+  two-proportion z 16.8 (p < 0.005). Xbar-R: 195 / 174 subgroup points out of control (Wi-Fi bursts).
+- `tools/analysis/build_results_page.py` + `results_page.html` render the replay and charts from the
+  stats JSON. Output: `~/ProyectoTerminal/results/control-latency-results.html`.
