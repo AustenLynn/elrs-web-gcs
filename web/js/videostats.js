@@ -32,8 +32,8 @@ export class StatsLog {
 
   /** session: identifies the RTCPeerConnection the stats came from (a reconnect makes a
    *  new one whose counters start again from zero). */
-  add(tMs, stats, session = 0) {
-    if (stats) this.rows.push({ t: tMs, ...stats, session });
+  add(tMs, stats, session = 0, wallMs = null) {
+    if (stats) this.rows.push({ t: tMs, ...stats, session, ...(wallMs === null ? {} : { wallMs }) });
   }
 
   /** Changes between the first and last sample, everything that makes the run invalid,
@@ -65,14 +65,17 @@ export class StatsLog {
       packetsLost: b.packetsLost - a.packetsLost,
       problems,
     };
+    if (!(s.seconds > 0 && s.framesDecoded / s.seconds >= 25)) problems.push('average decoded fps below 25');
+    if (this.rows.some((r) => r.width !== 1280 || r.height !== 720)) problems.push('received resolution is not 1280x720 throughout');
     s.pass = problems.length === 0 && s.seconds >= minSeconds && s.framesDecoded > 0 &&
       s.framesDropped === 0 && s.freezes === 0;
     return s;
   }
 
   toCsv() {
-    const lines = [COLUMNS.join(',')];
-    for (const r of this.rows) lines.push(COLUMNS.map((c) => r[c] ?? '').join(','));
+    const columns = this.rows.some((r) => r.wallMs !== undefined) ? [...COLUMNS, 'wallMs'] : COLUMNS;
+    const lines = [columns.join(',')];
+    for (const r of this.rows) lines.push(columns.map((c) => r[c] ?? '').join(','));
     return `${lines.join('\n')}\n`;
   }
 }

@@ -71,3 +71,17 @@ test('CSV has a header and one line per sample', () => {
   assert.match(lines[0], /^t,framesReceived,framesDecoded,framesDropped,freezeCount/);
   assert.match(lines[1], /^1000,100,98,0,0,0,0,30,30,1280,720,0$/);
 });
+
+test('video qualification enforces 25 fps average and received 720p resolution', () => {
+  assert.equal(record(300, (i) => ({ framesDecoded: 25 * i })).summary().pass, true);
+  assert.equal(record(300, (i) => ({ framesDecoded: 24 * i })).summary().pass, false);
+  const wrongResolution = record(300, (i) => ({ framesDecoded: 30 * i, frameHeight: i === 150 ? 480 : 720 }));
+  assert.equal(wrongResolution.summary().pass, false);
+});
+
+test('CSV preserves absolute sample times when supplied for multi-client overlap checks', () => {
+  const log = new StatsLog();
+  log.add(1000, videoStats([inbound({})]), 1, 1700000000000);
+  assert.match(log.toCsv().split('\n')[0], /wallMs$/);
+  assert.match(log.toCsv(), /1700000000000/);
+});

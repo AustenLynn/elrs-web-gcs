@@ -3,14 +3,15 @@ import { StatsLog, videoStats } from './videostats.js';
 import { keepPlaying } from './whep.js';
 
 const $ = (id) => document.getElementById(id);
-const RECORD_SECONDS = 300;
+const RECORD_SECONDS = 310;  // leave up to 10 s to start the second client's recorder
+const MIN_SECONDS = 300;
 const player = keepPlaying($('video'), { onState: (s) => { $('v-state').textContent = s; } });
 let log = null;
-let recordUntil = 0;
+let recording = false;
 
 $('v-record').addEventListener('click', () => {
   log = new StatsLog();
-  recordUntil = performance.now() + RECORD_SECONDS * 1000;
+  recording = true;
   $('v-record').disabled = true;
   $('v-download').disabled = true;
   $('v-result').textContent = 'grabando…';
@@ -40,13 +41,13 @@ setInterval(async () => {
   if (!stats) return;
   $('v-stats').textContent = `${stats.width}×${stats.height} ${Math.round(stats.fps)} fps · ` +
     `perdidos ${stats.framesDropped ?? '?'} · congelados ${stats.freezeCount ?? '?'}`;
-  if (log && recordUntil) {
-    log.add(performance.now(), stats, sessionOf(pc));
-    if (performance.now() >= recordUntil) {
-      recordUntil = 0;
-      const s = log.summary(RECORD_SECONDS - 1);
+  if (log && recording) {
+    log.add(performance.now(), stats, sessionOf(pc), Date.now());
+    if (log.rows.at(-1).t - log.rows[0].t >= RECORD_SECONDS * 1000) {
+      recording = false;
+      const s = log.summary(MIN_SECONDS);
       $('v-result').textContent = `${s.pass ? 'PASA' : 'NO PASA'}: ${Math.round(s.seconds)} s, ` +
-        `${s.framesDecoded} cuadros, ${s.framesDropped} perdidos, ${s.freezes} congelamientos, ${s.packetsLost} paquetes perdidos` +
+        `${(s.framesDecoded / s.seconds).toFixed(1)} fps promedio, ${s.framesDecoded} cuadros, ${s.framesDropped} perdidos, ${s.freezes} congelamientos, ${s.packetsLost} paquetes perdidos` +
         (s.problems.length ? ` · ${s.problems.join('; ')}` : '');
       $('v-record').disabled = false;
       $('v-download').disabled = false;
