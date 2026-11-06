@@ -14,6 +14,11 @@ import { fullscreenTip, takeControlSteps } from './fullscreen.js';
 import { StickModel, bindStick, layoutAction, orientationLock, padsMoved, sticksToCommand } from './sticks.js';
 import { LinkTracker, failsafeAlert, formatBattery, formatCmdAge, formatFlightMode, formatLink, formatMs, holdBanner, pilotLine, queueText, recoverySteps, reportsTurtle, segments, stateLabel } from './view.js';
 import { keepPlaying } from './whep.js';
+import { ControlTrace } from './controltrace.js';
+
+// Add ?measure to opt in. Export after a props-off bench run with controlLatency.download().
+const controlTrace = new URLSearchParams(location.search).has('measure') ? new ControlTrace() : null;
+if (controlTrace) window.controlLatency = controlTrace;
 
 const $ = (id) => document.getElementById(id);
 const wantRole = new URLSearchParams(location.search).has('observe') ? 'observer' : 'pilot';
@@ -58,7 +63,11 @@ let lastCmd = sticksToCommand(left, right, mode);
 const storage = () => { try { return window.localStorage; } catch { return null; } };
 
 const wsOpen = () => ws?.readyState === WebSocket.OPEN;
-const send = (msg) => { if (wsOpen()) ws.send(JSON.stringify(msg)); };
+const send = (msg) => {
+  if (!wsOpen()) return;
+  ws.send(JSON.stringify(msg));
+  if (msg.t === 'ctl' && controlTrace) controlTrace.add(welcome?.session, msg);
+};
 
 function toast(text, persist = false, ms = 4000) {
   const el = $('toast');
@@ -228,7 +237,7 @@ setInterval(() => {
     focused: document.hasFocus(),
     wsOpen: wsOpen(),
   });
-  if (engaged && role === 'pilot') send(controlMessage(++seq, now, lastCmd, switches.wire(locked)));
+  if (engaged && role === 'pilot') send(controlMessage(++seq, performance.now(), lastCmd, switches.wire(locked)));
 }, 1000 / RATE_HZ);
 
 /** Changes how the pilot flies. Refused while armed; every input starts again from neutral

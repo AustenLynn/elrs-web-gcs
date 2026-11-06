@@ -53,7 +53,12 @@ static void apply(rtloop_t *l, const core_cmd_t *c)
 
     switch (c->kind) {
     case CMD_SESSION:      safety_session_start(s, c->session); break;
-    case CMD_CONTROL:      safety_control(s, c->session, c->seq, &c->sticks, l->now_ns); break;
+    case CMD_CONTROL:
+        if (safety_control(s, c->session, c->seq, &c->sticks, l->now_ns) && l->cfg->control_trace) {
+            l->trace_pending = *c;
+            l->trace_pending_valid = s->state == SAFETY_ARMED;
+        }
+        break;
     case CMD_ARM:          r = safety_arm(s, c->session, l->now_ns); break;
     case CMD_DISARM:       safety_disarm(s, c->session); break;
     case CMD_STANDBY:      safety_set_standby(s, c->session); break;
@@ -262,12 +267,23 @@ static void tick(rtloop_t *l, int64_t deadline)
     timing_sample_t ts = { .deadline_ns = deadline, .wake_ns = l->now_ns, .period_ns = l->sched.period_ns };
     ts.write_start_ns = mono_ns();
     ts.write_end_ns = ts.write_start_ns;
+    // Safety transitions can replace a command's outputs before its first write.
+    if (l->safety.state != SAFETY_ARMED || l->trace_pending.session != l->safety.session ||
+        l->trace_pending.seq != l->safety.last_seq)
+        l->trace_pending_valid = false;
     if (l->fd >= 0) {
         ssize_t w = write(l->fd, frame, sizeof frame);
         ts.write_end_ns = mono_ns();
-        if (w == (ssize_t)sizeof frame)
+        if (w == (ssize_t)sizeof frame) {
             l->frames_sent++;
-        else if (w >= 0 || errno == EAGAIN || errno == EINTR)
+            if (l->trace_pending_valid) {
+                core_event_t ev = { .kind = EV_CONTROL_SERIAL, .t_ns = ts.write_end_ns,
+                    .session = l->trace_pending.session, .seq = l->trace_pending.seq,
+                    .received_ns = l->trace_pending.received_ns, .a = (int32_t)sizeof frame };
+                mailbox_push_event(l->mb, &ev);
+                l->trace_pending_valid = false;
+            }
+        } else if (w >= 0 || errno == EAGAIN || errno == EINTR)
             l->tx_errors++;                      /* frame dropped, port still fine */
         else {
             l->tx_errors++;

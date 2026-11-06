@@ -7,7 +7,10 @@ function fakeCore() {
   const rec = (name) => (...args) => calls.push([name, ...args]);
   return {
     calls,
-    sessionStart: rec('sessionStart'), control: rec('control'), arm: rec('arm'), disarm: rec('disarm'),
+    sessionStart: rec('sessionStart'), control: (session, seq, sticks, trace = false) => {
+      calls.push(['control', session, seq, sticks]);
+      return trace ? { queued: true, submittedNs: process.hrtime.bigint().toString() } : true;
+    }, arm: rec('arm'), disarm: rec('disarm'),
     ack: rec('ack'), pilotLost: rec('pilotLost'), failsafe: rec('failsafe'), standby: rec('standby'),
     take: rec('take'), land: rec('land'),
   };
@@ -41,6 +44,52 @@ function join(hub, role = 'pilot', auth = ANA) {
 }
 
 const ctl = (seq, extra = {}) => ({ t: 'ctl', seq, ts: 0, r: 0, p: 0, y: 0, th: 0, m: 0, ...extra });
+
+test('opt-in control trace correlates monotonic boundaries and sync uncertainty', () => {
+  const core = fakeCore();
+  const logs = [];
+  let now = 110;
+  let ns = 1_000_000_000n;
+  const hub = new ControlHub({ core, controlTrace: true, now: () => now,
+    monoNow: () => { ns += 1_000_000n; return ns; }, newSession: () => 42, log: (o) => logs.push(o) });
+  const p = join(hub);
+  hub.handle(p, { t: 'tsync_r', s0: 100, c1: 105 });
+  now = 130;
+  hub.handle(p, ctl(1, { ts: 120 }));
+  const r = logs.find((x) => x.ev === 'control');
+  assert.ok(r, 'one record for the command');
+  assert.equal(r.session, 42);
+  assert.equal(r.seq, 1);
+  assert.equal(r.network_ms, 10);
+  assert.equal(r.sync_error_ms, 5);
+  assert.equal(r.sync_age_ms, 20);
+  assert.equal(r.outcome, 'forwarded');
+  assert.ok(BigInt(r.forward_ns) >= BigInt(r.recv_ns));
+});
+
+test('trace marks unknown sync and logs stale commands without forwarding them', () => {
+  const logs = [];
+  const core = fakeCore();
+  let now = 100;
+  const hub = new ControlHub({ core, controlTrace: true, now: () => now, log: (o) => logs.push(o) });
+  const p = join(hub);
+  hub.handle(p, ctl(1));
+  assert.equal(logs.find((x) => x.ev === 'control').network_ms, null);
+  hub.handle(p, { t: 'tsync_r', s0: 90, c1: 95 });
+  now = 500;
+  hub.handle(p, ctl(2, { ts: 100 }));
+  const r = logs.filter((x) => x.ev === 'control').at(-1);
+  assert.equal(r.outcome, 'stale');
+  assert.equal(r.forward_ns, null);
+  assert.equal(core.calls.filter((x) => x[0] === 'control').length, 1);
+});
+
+test('control trace is off by default', () => {
+  const { hub, logs } = setup();
+  const p = join(hub);
+  hub.handle(p, ctl(1));
+  assert.equal(logs.some((x) => x.ev === 'control'), false);
+});
 
 test('first pilot gets a session and the core is told', () => {
   const { hub, core } = setup();

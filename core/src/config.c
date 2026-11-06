@@ -148,10 +148,11 @@ int config_set(config_t *c, const char *key, const char *value, char *err, size_
         }
         return 0;
     }
-    if (!strcmp(key, "rt_required")) {
-        if (parse_bool(value, &c->rt_required) == 0)
+    if (!strcmp(key, "rt_required") || !strcmp(key, "control_trace")) {
+        bool *setting = !strcmp(key, "control_trace") ? &c->control_trace : &c->rt_required;
+        if (parse_bool(value, setting) == 0)
             return 0;
-        snprintf(err, errlen, "rt_required: expected true or false, got \"%s\"", value);
+        snprintf(err, errlen, "%s: expected true or false, got \"%s\"", key, value);
         return -1;
     }
     snprintf(err, errlen, "unknown setting \"%s\"", key);

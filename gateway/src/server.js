@@ -54,7 +54,8 @@ export function heartbeatSweep(sockets, { now, pilot, holdMs }) {
 
 export async function startGateway(cfg, { core = new CoreClient(cfg.coreSocket) } = {}) {
   const connlog = openConnLog(cfg.eventLog ?? null);
-  const hub = new ControlHub({ core, maxCommandAgeMs: cfg.maxCommandAgeMs, log: connlog.write });
+  const hub = new ControlHub({ core, maxCommandAgeMs: cfg.maxCommandAgeMs, log: connlog.write,
+    controlTrace: cfg.controlTrace ?? false });
   core.on('status', (s) => hub.onCoreStatus(s));
   core.on('down', () => hub.onCoreDown());
   core.on('up', () => hub.onCoreUp());

@@ -96,6 +96,12 @@ static void on_msg(uint8_t type, const uint8_t *p, size_t n, void *user)
         c.session = ctl.session;
         c.seq = ctl.seq;
         c.sticks = ctl.sticks;
+        if (ok && s->cfg->control_trace) {
+            c.received_ns = mono_ns();
+            core_event_t ev = { .kind = EV_CONTROL_RECEIVED, .t_ns = c.received_ns,
+                                .session = c.session, .seq = c.seq };
+            evlog_event(s->log, &ev);
+        }
     } else {
         ok = ipc_decode_session_msg(p, n, &c.session) == 0;
         switch (type) {

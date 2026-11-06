@@ -34,6 +34,7 @@ typedef struct {
     uint32_t session;
     uint32_t seq;          /* CMD_CONTROL only */
     stick_cmd_t sticks;    /* CMD_CONTROL only */
+    int64_t received_ns;   /* IPC receipt, CLOCK_MONOTONIC; tracing only */
 } core_cmd_t;
 
 typedef enum {
@@ -47,6 +48,8 @@ typedef enum {
     EV_START,        /* text = version */
     EV_HOLD,         /* a = hold_ev_t, b = fs_reason_t that started the hold; session (after the change); cmd_age_ms */
     EV_STICKS,       /* values on the air: a..d = roll, pitch, yaw, throttle (per mille), e = mode, f = arm, g = speed, h = turtle; cmd_age_ms */
+    EV_CONTROL_RECEIVED,
+    EV_CONTROL_SERIAL,  /* successful full serial write for a new active command */
 } event_kind_t;
 
 typedef struct {
@@ -58,6 +61,8 @@ typedef struct {
     uint32_t session;
     int32_t cmd_age_ms;    /* -1 = no command received yet */
     char text[32];
+    uint32_t seq;          /* control trace correlation */
+    int64_t received_ns;   /* EV_CONTROL_SERIAL: time of IPC receipt */
 } core_event_t;
 
 typedef struct {

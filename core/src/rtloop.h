@@ -32,6 +32,8 @@ typedef struct {
     char flight_mode[16];
     bool stick_logging;            /* armed at the last stick-log line: one more line follows */
     int64_t last_stick_log_ns;
+    core_cmd_t trace_pending;
+    bool trace_pending_valid;
 } rtloop_t;
 
 void rtloop_init(rtloop_t *l, const config_t *cfg, mailbox_t *mb, atomic_bool *stop);

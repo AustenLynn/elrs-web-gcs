@@ -137,6 +137,12 @@ test('core client connects, decodes, sends and reconnects', async (t) => {
   assert.deepEqual(received[2], { type: MSG.TAKE, payload: Buffer.from([7, 0, 0, 0]) });
   assert.deepEqual(received[3], { type: MSG.LAND, payload: Buffer.from([8, 0, 0, 0]) });
 
+  const beforeSubmit = process.hrtime.bigint();
+  const submission = client.control(7, 100, { roll: 0, pitch: 0, yaw: 0, throttle: 0, mode: 0 }, true);
+  assert.equal(submission.queued, true);
+  assert.ok(BigInt(submission.submittedNs) >= beforeSubmit);
+  assert.ok(BigInt(submission.submittedNs) <= process.hrtime.bigint());
+
   const down = new Promise((resolve) => client.once('down', resolve));
   const upAgain = new Promise((resolve) => client.once('up', resolve));
   serverSide.destroy();

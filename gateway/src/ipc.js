@@ -216,12 +216,17 @@ export class CoreClient extends EventEmitter {
     }
   }
 
-  #send(buf) {
-    if (this.connected) this.#sock.write(buf);
+  #send(buf, trace = false) {
+    if (!this.connected || !this.#sock) return trace ? { queued: false, submittedNs: null } : false;
+    const submittedNs = trace ? process.hrtime.bigint().toString() : null;
+    this.#sock.write(buf);
+    return trace ? { queued: true, submittedNs } : true;
   }
 
   sessionStart(session) { this.#send(encodeSessionMsg(MSG.SESSION, session)); }
-  control(session, seq, sticks) { this.#send(encodeControl({ session, seq, ...sticks })); }
+  control(session, seq, sticks, trace = false) {
+    return this.#send(encodeControl({ session, seq, ...sticks }), trace);
+  }
   arm(session) { this.#send(encodeSessionMsg(MSG.ARM, session)); }
   disarm(session) { this.#send(encodeSessionMsg(MSG.DISARM, session)); }
   ack(session) { this.#send(encodeSessionMsg(MSG.ACK, session)); }

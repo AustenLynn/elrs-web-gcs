@@ -39,6 +39,15 @@ size_t evlog_format(char *out, size_t cap, const core_event_t *ev, const char *w
     int m;
 
     switch (ev->kind) {
+    case EV_CONTROL_RECEIVED:
+        m = snprintf(p, left, "\"ev\":\"control_received\",\"session\":%u,\"seq\":%u}",
+                     ev->session, ev->seq);
+        break;
+    case EV_CONTROL_SERIAL:
+        m = snprintf(p, left, "\"ev\":\"control_serial\",\"session\":%u,\"seq\":%u,"
+                     "\"received_ns\":%lld,\"bytes\":%d}",
+                     ev->session, ev->seq, (long long)ev->received_ns, ev->a);
+        break;
     case EV_STATE:
         m = snprintf(p, left, "\"ev\":\"state\",\"from\":\"%s\",\"to\":\"%s\",\"reason\":\"%s\","
                      "\"session\":%u,\"cmd_age_ms\":%d}",
@@ -127,7 +136,8 @@ void evlog_event(evlog_t *e, const core_event_t *ev)
         return;
     if (e->events != NULL)
         fprintf(e->events, "%s\n", line);
-    if (ev->kind != EV_TIMING && ev->kind != EV_STICKS)   /* 10 per second: file only */
+    if (ev->kind != EV_TIMING && ev->kind != EV_STICKS &&
+        ev->kind != EV_CONTROL_RECEIVED && ev->kind != EV_CONTROL_SERIAL)
         fprintf(stderr, "crsf-core: %s\n", line);
 }
 

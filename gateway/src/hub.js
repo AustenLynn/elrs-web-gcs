@@ -23,12 +23,15 @@ const round1 = (v) => Math.round(v * 10) / 10;
 const GAP_LOG_MS = 250;   // a longer silence between the pilot's commands is worth a log line
 
 export class ControlHub {
-  constructor({ core, maxCommandAgeMs = 200, now = defaultNow, newSession = randomSession, log = () => {} }) {
+  constructor({ core, maxCommandAgeMs = 200, now = defaultNow, newSession = randomSession, log = () => {},
+    controlTrace = false, monoNow = () => process.hrtime.bigint() }) {
     this.core = core;
     this.maxCommandAgeMs = maxCommandAgeMs;
     this.now = now;
     this.newSession = newSession;
     this.log = log;              // called with plain objects (the connection log)
+    this.controlTrace = controlTrace;
+    this.monoNow = monoNow;
     this.clients = new Map();
     this.pilot = null;           // the active pilot's client
     this.queue = [];             // queued clients waiting for the seat, in join order
@@ -80,6 +83,8 @@ export class ControlHub {
   }
 
   handle(client, msg) {
+    const received = this.controlTrace && msg?.t === 'ctl'
+      ? { ns: this.monoNow().toString(), ms: this.now() } : null;
     const c = this.clients.get(client);
     if (!c || typeof msg !== 'object' || msg === null || !this.#allow(c)) return;
     if (c.role === null) {
@@ -107,7 +112,7 @@ export class ControlHub {
       return;
     }
     switch (msg.t) {
-      case 'ctl': this.#control(c, msg); break;
+      case 'ctl': this.#control(c, msg, received); break;
       case 'arm': this.core.arm(c.session); break;
       case 'disarm': this.core.disarm(c.session); break;
       case 'ack': this.core.ack(c.session); break;
@@ -290,7 +295,7 @@ export class ControlHub {
     return c.auth.user?.name ?? (c.auth.relay ? 'remoto' : null);
   }
 
-  #control(c, m) {
+  #control(c, m, received) {
     const optional = (v, hi) => v === undefined || isInt(v, 0, hi);   // older pages omit sp/tu
     const valid = isInt(m.seq, c.lastSeq + 1, 0xffffffff) && typeof m.ts === 'number' &&
       isInt(m.r, -1000, 1000) && isInt(m.p, -1000, 1000) && isInt(m.y, -1000, 1000) &&
@@ -300,16 +305,26 @@ export class ControlHub {
     // The gap counts the arrival of any valid-format command, stale or not: a stale one
     // still proves the link delivered something, and a gap of silence is what we look for.
     // Logging comes after the forwarding decision: it never sits in front of core.control.
-    const now = this.now();
+    const now = received?.ms ?? this.now();
     const gapMs = c.lastCmdAt === null ? 0 : now - c.lastCmdAt;
     c.lastCmdAt = now;
     const ageMs = c.clock.ready ? c.clock.age(m.ts, now) : 0;
     const stale = ageMs > this.maxCommandAgeMs;
+    let forwarded = null;
+    let outcome = stale ? 'stale' : 'core_down';
     if (stale) this.staleDropped++;
     else {
-      this.core.control(c.session, m.seq,
-        { roll: m.r, pitch: m.p, yaw: m.y, throttle: m.th, mode: m.m, speed: m.sp ?? 0, turtle: m.tu ?? 0 });
+      const sticks = { roll: m.r, pitch: m.p, yaw: m.y, throttle: m.th, mode: m.m, speed: m.sp ?? 0, turtle: m.tu ?? 0 };
+      const submission = this.controlTrace ? this.core.control(c.session, m.seq, sticks, true)
+        : this.core.control(c.session, m.seq, sticks);
+      forwarded = this.controlTrace ? submission.submittedNs : null;
+      outcome = submission === false || submission?.queued === false ? 'core_down' : 'forwarded';
     }
+    if (received) this.#log('control', c, { session: c.session, seq: m.seq, browser_ts_ms: m.ts,
+      recv_ns: received.ns, forward_ns: outcome === 'forwarded' ? forwarded : null, outcome,
+      network_ms: c.clock.ready ? ageMs : null,
+      sync_error_ms: c.clock.ready ? c.clock.rtt / 2 : null,
+      sync_age_ms: c.clock.ready ? c.clock.sampleAge(now) : null });
     if (gapMs > GAP_LOG_MS) this.#log('gap', c, { ms: round1(gapMs) });
     if (stale) this.#log('stale', c, { ageMs: round1(ageMs) });
   }

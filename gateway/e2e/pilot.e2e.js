@@ -1,14 +1,15 @@
 // End-to-end: the real pilot page in headless Firefox -> gateway -> crsf-core -> fake TX
 // module. Needs: core built (make -C core), python3, firefox.   Run: npm run e2e
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { after, test } from 'node:test';
 import { DEFAULTS } from '../src/config.js';
 import { startGateway } from '../src/server.js';
-import { firefox, login, makeUsers, start, tempDir, waitFor } from './helpers.js';
+import { firefox, login, makeUsers, sleep, start, tempDir, waitFor } from './helpers.js';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const tmp = tempDir('gcs-e2e-');
@@ -30,20 +31,24 @@ test('pilot page arms the aircraft, fails safe when the page loses control, and 
 
   // 2. crsf-core on that pty (no real-time settings needed for the test)
   const sock = path.join(tmp, 'core.sock');
-  writeFileSync(path.join(tmp, 'core.conf'), `serial_device = ${ptyPath}\nsocket_path = ${sock}\nrt_priority = 0\nrt_cpu = -1\n`);
+  const coreLog = path.join(tmp, 'core.jsonl');
+  const gatewayLog = path.join(tmp, 'gateway.jsonl');
+  writeFileSync(path.join(tmp, 'core.conf'), `serial_device = ${ptyPath}\nsocket_path = ${sock}\nrt_priority = 0\nrt_cpu = -1\n`
+    + `event_log = ${coreLog}\ncontrol_trace = true\n`);
   start(procs, path.join(repo, 'core/build/crsf-core'), ['-c', path.join(tmp, 'core.conf')]);
   await waitFor(() => channels !== null, 5000, 'RC frames from crsf-core');
 
   // 3. gateway serving the real web app
   const gw = await startGateway({ ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 }, coreSocket: sock, webRoot: path.join(repo, 'web'),
-    auth: { usersFile: await makeUsers(tmp, [{ name: 'ana', password: 'ana-password' }]) } });
+    auth: { usersFile: await makeUsers(tmp, [{ name: 'ana', password: 'ana-password' }]) },
+    eventLog: gatewayLog, controlTrace: true });
   after(() => gw.close());
   await waitFor(() => gw.core.connected, 5000, 'gateway -> core');
 
   // 4. headless Firefox
   const page = await firefox(procs, tmp);
   after(() => page.close());
-  await page.open(`http://127.0.0.1:${gw.port}/`);
+  await page.open(`http://127.0.0.1:${gw.port}/?measure`);
 
   // a spectator until it signs in with the form (a pilot account); then it is the pilot
   await waitFor(() => page.evaluate("document.getElementById('state').textContent === 'DESARMADO'"), 10000, 'DESARMADO on the page');
@@ -79,6 +84,9 @@ test('pilot page arms the aircraft, fails safe when the page loses control, and 
   await waitFor(() => channels[ARM] === HIGH, 3000, 'ARM channel high');
   assert.equal(channels[SENSITIVITY], LOW, 'sensitivity must stay at S');
   await waitFor(() => page.evaluate("document.getElementById('state').textContent === 'ARMADO'"), 3000, 'ARMADO on the page');
+  await sleep(300);
+  const manifest = await page.evaluate('JSON.stringify(window.controlLatency.stop())');
+  writeFileSync(path.join(tmp, 'sent.json'), manifest);
 
   // dead-man: the page loses focus -> it stops sending -> crsf-core fails safe, which on the
   // Aquila20 means ARM low (the drone disarms) while the link keeps running
@@ -119,5 +127,15 @@ test('pilot page arms the aircraft, fails safe when the page loses control, and 
   await waitFor(() => page.evaluate("document.getElementById('state').textContent === 'DESARMADO'"), 3000, 'DESARMADO after clearing');
   await waitFor(() => page.evaluate("getComputedStyle(document.getElementById('banner')).display === 'none'"), 1000, 'banner gone after clearing');
 
+  await sleep(1200);  // the core flushes the non-RT event log every second
+  const reportPath = path.join(tmp, 'report.json');
+  const result = spawnSync('python3', [path.join(repo, 'tools/analysis/control_latency_report.py'),
+    path.join(tmp, 'sent.json'), gatewayLog, coreLog, '--json', reportPath], { encoding: 'utf8' });
+  assert.equal(result.status, 1, result.stderr);  // this short fixture is not a 10,000-command campaign
+  const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+  assert.ok(report.complete >= 5, JSON.stringify(report));
+  assert.equal(report.outcomes.invalid_timing ?? 0, 0, 'Node and C share the Pi monotonic clock');
+  assert.equal(report.outcomes.timestamp_mismatch ?? 0, 0, 'browser sends the exported timestamp');
+  assert.ok(report.segments.total.p50 > 0);
   assert.deepEqual(page.errors, [], 'no JavaScript errors on the page');
 });

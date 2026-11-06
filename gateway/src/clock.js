@@ -13,7 +13,7 @@ export class ClockSync {
   add(s0, c1, s2) {
     const rtt = s2 - s0;
     if (!(rtt >= 0)) return; // reply to a ping we never sent, or a clock glitch
-    this.samples.push({ rtt, offset: c1 - (s0 + s2) / 2 });
+    this.samples.push({ rtt, offset: c1 - (s0 + s2) / 2, receivedAt: s2 });
     if (this.samples.length > this.window) this.samples.shift();
   }
 
@@ -32,6 +32,8 @@ export class ClockSync {
   get offset() {
     return this.#best().offset;
   }
+
+  sampleAge(now) { return now - this.#best().receivedAt; }
 
   /** Age in ms, on our clock, of a command the browser stamped with `ts`. */
   age(ts, now) {
