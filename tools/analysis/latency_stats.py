@@ -289,15 +289,19 @@ def main(argv=None):
         runs = [analyse_run(load(f), label, args.usl, args.subgroup) for f, label in zip(files, labels)]
         report = {'usl_ms': args.usl, 'subgroup': args.subgroup, 'runs': runs}
         if len(runs) >= 2:
-            a, b = runs[0], runs[1]
+            # Every later run against the first one (the baseline).
+            a = runs[0]
             ta = [float(r['total_ms']) for r in load(files[0]) if r['outcome'] == 'complete']
-            tb = [float(r['total_ms']) for r in load(files[1]) if r['outcome'] == 'complete']
-            report['comparison'] = {
-                'labels': [a['label'], b['label']],
-                'median_difference_ms': b['columns']['total_ms']['summary']['median'] - a['columns']['total_ms']['summary']['median'],
-                'mann_whitney': mann_whitney(ta, tb),
-                'within_estimate': two_proportions(a['attribute']['within_estimate'], a['sent'],
-                                                   b['attribute']['within_estimate'], b['sent'])}
+            report['comparisons'] = []
+            for path, b in zip(files[1:], runs[1:]):
+                tb = [float(r['total_ms']) for r in load(path) if r['outcome'] == 'complete']
+                report['comparisons'].append({
+                    'labels': [a['label'], b['label']],
+                    'median_difference_ms': b['columns']['total_ms']['summary']['median'] - a['columns']['total_ms']['summary']['median'],
+                    'mann_whitney': mann_whitney(ta, tb),
+                    'within_estimate': two_proportions(a['attribute']['within_estimate'], a['sent'],
+                                                       b['attribute']['within_estimate'], b['sent'])})
+            report['comparison'] = report['comparisons'][0]
     except (OSError, ValueError, KeyError) as err:
         print(f'latency_stats: {err}', file=sys.stderr)
         return 2
@@ -321,8 +325,7 @@ def main(argv=None):
               f"{len(t['xbar_r']['means'])} subgroups")
         print(f"Within {c['usl']:g} ms of all sent, with clock uncertainty: {a['fraction'] * 100:.2f}% "
               f"(95% CI {a['ci'][0] * 100:.2f}-{a['ci'][1] * 100:.2f}); estimate only {a['fraction_estimate'] * 100:.2f}%")
-    if 'comparison' in report:
-        cmp = report['comparison']
+    for cmp in report.get('comparisons', []):
         print(f"== {cmp['labels'][0]} vs {cmp['labels'][1]} ==")
         print(f"median difference {cmp['median_difference_ms']:.2f} ms; Mann-Whitney z {cmp['mann_whitney']['z']:.1f}, "
               f"p {fmt_p(cmp['mann_whitney']['p'])}; within-limit z {cmp['within_estimate']['z']:.1f}, "

@@ -79,3 +79,12 @@
   two-proportion z 16.8 (p < 0.005). Xbar-R: 195 / 174 subgroup points out of control (Wi-Fi bursts).
 - `tools/analysis/build_results_page.py` + `results_page.html` render the replay and charts from the
   stats JSON. Output: `~/ProyectoTerminal/results/control-latency-results.html`.
+
+## 2026-11-06 — video runs and goal evidence
+
+- Video run 1 (measure-20261106T184918Z): 93.48 % of all sent within 50 ms with uncertainty (pass); p99 26.1 ms; browser sent at 41.7 Hz under video decode load.
+- Video run 2 (measure-20261106T214018Z): 82.31 % of all sent (fail). Delivered commands: 99.47 % within 50 ms, p99 28.2 ms. The loss is the denominator: a 306 ms Wi-Fi stall at 21:44:09 tripped the 300 ms command timeout (LANDING, then FAILSAFE, operator re-armed), and 6.9 % of armed commands were replaced in the same 4 ms frame because Wi-Fi delivered them in bursts.
+- Same commands with "sent while armed" as the denominator: 98.35 / 96.25 / 92.61 % for no-video / video 1 / video 2.
+- C1 from 1 s after start, test window +-30 s: p99 48-52 us, max <= 290 us, 0 missed slots in all four runs.
+- Suspected cause of the bursts: the Pi hotspot (wlan1, RTL8822BU, IoT-05) runs on 2.4 GHz channel 1, beside the 1 W ELRS TX on 2.4 GHz. Proposed fix: move the AP to 5 GHz channel 36-48 (no DFS in MX). Not applied.
+- latency_stats.py now compares every run with the first (`comparisons`); the results page takes any number of runs and an optional goal-evidence JSON.

@@ -170,6 +170,24 @@ class EndToEndTest(unittest.TestCase):
         self.assertIn('local', text.getvalue())
         self.assertIn('Ppk', text.getvalue())
 
+    def test_every_later_run_is_compared_with_the_first(self):
+        with tempfile.TemporaryDirectory() as d:
+            a = self.write_csv(d, 'a.csv', self.rows(500, 2))
+            b = self.write_csv(d, 'b.csv', self.rows(500, 30))
+            c = self.write_csv(d, 'c.csv', self.rows(500, 6, failed=100))
+            out = os.path.join(d, 'stats.json')
+            with redirect_stdout(io.StringIO()) as text:
+                code = ls.main([a, '--label', 'base', b, '--label', 'slow', c, '--label', 'lossy', '--json', out])
+            with open(out) as f:
+                r = json.load(f)
+        self.assertEqual(code, 0)
+        self.assertEqual([x['labels'] for x in r['comparisons']], [['base', 'slow'], ['base', 'lossy']])
+        self.assertEqual(r['comparison'], r['comparisons'][0])     # old single-pair key is kept
+        lossy = r['comparisons'][1]
+        self.assertAlmostEqual(lossy['median_difference_ms'], 4.0)
+        self.assertAlmostEqual(lossy['within_estimate']['p2'], 0.8)
+        self.assertIn('base vs lossy', text.getvalue())
+
 
 if __name__ == '__main__':
     unittest.main()

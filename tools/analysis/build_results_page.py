@@ -1,14 +1,17 @@
 """Embed a trimmed latency_stats.py JSON into the results page template.
 
-    build_results_page.py stats.json tools/analysis/results_page.html out.html
+    build_results_page.py stats.json tools/analysis/results_page.html out.html [goals.json]
 
 The page replays 500 real commands per run and draws the Minitab-style summary,
-capability table, Xbar-R chart and local-vs-tunnel comparison. Open out.html in a browser.
+capability table, Xbar-R chart and each run against the first. The optional goals.json
+(per-run evidence for the other criteria) is shown as-is in the goal-evidence section.
+Open out.html in a browser.
 """
 import json
 import sys
 
 stats_path, template_path, out_path = sys.argv[1:4]
+goals = json.load(open(sys.argv[4])) if len(sys.argv) > 4 else None
 r = json.load(open(stats_path))
 
 
@@ -37,7 +40,8 @@ for run in r['runs']:
     runs.append({'label': run['label'], 'sent': run['sent'], 'complete': run['complete'],
                  'outcomes': run['outcomes'], 'attribute': run['attribute'], 'columns': cols,
                  'samples': run['samples']})
-data = rnd({'usl': r['usl_ms'], 'subgroup': r['subgroup'], 'runs': runs, 'comparison': r['comparison']})
+data = rnd({'usl': r['usl_ms'], 'subgroup': r['subgroup'], 'runs': runs,
+            'comparisons': r.get('comparisons', [r['comparison']] if 'comparison' in r else []), 'goals': goals})
 html = open(template_path).read().replace('/*__DATA__*/null', json.dumps(data, separators=(',', ':')))
 open(out_path, 'w').write(html)
 print(f'wrote {out_path}: {len(html) / 1024:.0f} KB')

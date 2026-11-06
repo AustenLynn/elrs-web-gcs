@@ -3,23 +3,23 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
-/* Layout: one column. A live replay of real commands opens the page, then the Minitab-style summary, capability, stability and the local-vs-tunnel comparison. Blue = local Wi-Fi, orange = Cloudflare tunnel (validated categorical slots 1 and 2); red only for the 50 ms limit. */
+/* Layout: one column. A live replay of real commands opens the page, then the Minitab-style summary, capability, stability, each run against the no-video baseline, and the goal evidence. Run colours are categorical slots 1-4 in fixed order (validated light and dark): blue = local no video, orange = tunnel, aqua = local + video 1, yellow = local + video 2. Red only for the 50 ms limit. */
 :root {
   --bg: #f2f4f8; --surface: #ffffff; --ink: #121925; --muted: #586477; --faint: #8a94a6; --line: #d8dee8; --grid: #e7ebf1;
-  --local: #2a78d6; --tunnel: #eb6834; --limit: #c03c35; --ok: #1d8549;
-  --local-soft: rgba(42,120,214,.12); --tunnel-soft: rgba(235,104,52,.13); --dim-soft: rgba(136,146,165,.16);
+  --local: #2a78d6; --tunnel: #eb6834; --video1: #1baf7a; --video2: #eda100; --limit: #c03c35; --ok: #1d8549;
+  --local-soft: rgba(42,120,214,.12); --tunnel-soft: rgba(235,104,52,.13); --video1-soft: rgba(27,175,122,.13); --video2-soft: rgba(237,161,0,.14); --dim-soft: rgba(136,146,165,.16);
   --f-display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
   --f-body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
   --f-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #0d121a; --surface: #151c27; --ink: #e5ebf3; --muted: #9aa6b9; --faint: #6c778a; --line: #283241; --grid: #1f2834;
-  --local: #3987e5; --tunnel: #d95926; --limit: #f06c62; --ok: #41c377;
-  --local-soft: rgba(57,135,229,.18); --tunnel-soft: rgba(217,89,38,.2); --dim-soft: rgba(108,119,138,.2); color-scheme: dark; } }
+  --local: #3987e5; --tunnel: #d95926; --video1: #199e70; --video2: #c98500; --limit: #f06c62; --ok: #41c377;
+  --local-soft: rgba(57,135,229,.18); --tunnel-soft: rgba(217,89,38,.2); --video1-soft: rgba(25,158,112,.2); --video2-soft: rgba(201,133,0,.2); --dim-soft: rgba(108,119,138,.2); color-scheme: dark; } }
 :root[data-theme="dark"] {
   --bg: #0d121a; --surface: #151c27; --ink: #e5ebf3; --muted: #9aa6b9; --faint: #6c778a; --line: #283241; --grid: #1f2834;
-  --local: #3987e5; --tunnel: #d95926; --limit: #f06c62; --ok: #41c377;
-  --local-soft: rgba(57,135,229,.18); --tunnel-soft: rgba(217,89,38,.2); --dim-soft: rgba(108,119,138,.2); color-scheme: dark; }
+  --local: #3987e5; --tunnel: #d95926; --video1: #199e70; --video2: #c98500; --limit: #f06c62; --ok: #41c377;
+  --local-soft: rgba(57,135,229,.18); --tunnel-soft: rgba(217,89,38,.2); --video1-soft: rgba(25,158,112,.2); --video2-soft: rgba(201,133,0,.2); --dim-soft: rgba(108,119,138,.2); color-scheme: dark; }
 
 body { background: var(--bg); color: var(--ink); font: 16px/1.6 var(--f-body);
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 64px; }
@@ -97,19 +97,21 @@ tr:last-child td { border-bottom: 0; }
 
 <main>
 <header>
-  <span class="eyebrow">elrs-web-gcs · bench campaigns 2026-11-05 · props off</span>
+  <span class="eyebrow">elrs-web-gcs · bench campaigns 2026-11-05 and 2026-11-06 · props off</span>
   <h1>Control latency results</h1>
-  <p class="lede">Two runs of about 19,560 commands each, flown from the same laptop: one on the local Wi-Fi, one through the Cloudflare tunnel. Every number here comes from the per-command logs of the browser, the gateway and crsf-core.</p>
+  <p class="lede">Four armed bench runs flown from the same laptop: local Wi-Fi without video, the Cloudflare tunnel without video, and two local runs with the FPV video playing on a laptop and a phone at the same time. Every number comes from the per-command logs of the browser, the gateway and crsf-core, and from the viewers' WebRTC statistics.</p>
   <div class="legend">
-    <span class="key"><i style="background:var(--local)"></i>Local Wi-Fi · <span class="num">https://192.168.100.65:8443</span></span>
-    <span class="key"><i style="background:var(--tunnel)"></i>Cloudflare tunnel</span>
+    <span class="key"><i style="background:var(--local)"></i>Local, no video</span>
+    <span class="key"><i style="background:var(--tunnel)"></i>Tunnel, no video</span>
+    <span class="key"><i style="background:var(--video1)"></i>Local + video, run 1</span>
+    <span class="key"><i style="background:var(--video2)"></i>Local + video, run 2</span>
     <span class="key"><i style="background:var(--limit);border-radius:1px;width:3px;height:12px"></i>50 ms limit</span>
   </div>
 </header>
 
 <section aria-labelledby="replay-h">
   <h2 id="replay-h">Replay of 500 real commands</h2>
-  <p>The same stretch of each run (commands 9,530 to 10,029, the middle of the run), replayed in slow motion. Each dot is one command; it moves through each segment for as long as that command really took there. Hollow dots never reached the radio: they were replaced by a newer command in the same 4 ms frame, or dropped as stale.</p>
+  <p>500 consecutive commands from the middle of each run, replayed in slow motion. Each dot is one command; it moves through each segment for as long as that command really took there. Hollow dots never reached the radio: they were replaced by a newer command in the same 4 ms frame, or dropped as stale.</p>
   <div class="panel">
     <div class="bar">
       <button id="play" type="button">Pause</button>
@@ -120,15 +122,15 @@ tr:last-child td { border-bottom: 0; }
       </span>
       <button id="restart" type="button">Restart</button>
     </div>
-    <div class="lanes scroll"><svg id="lanes" viewBox="0 0 1000 330" role="img" aria-label="Two lanes of commands moving from browser to serial write, local and tunnel"></svg></div>
+    <div class="lanes scroll"><svg id="lanes" viewBox="0 0 1000 650" role="img" aria-label="Four lanes of commands moving from browser to serial write, one per run"></svg></div>
     <div class="stats" id="lanestats"></div>
   </div>
 </section>
 
 <section aria-labelledby="head-h">
-  <h2 id="head-h">The two runs side by side</h2>
+  <h2 id="head-h">The four runs side by side</h2>
   <div class="tbl"><table id="headline"></table></div>
-  <p class="note">Total = network + gateway + core, from the browser's send to the full 26-byte serial write. "Within 50 ms" counts every command the browser sent, and adds the clock-sync uncertainty (RTT/2) before comparing. Through the tunnel RTT/2 is about 30 ms, so no command can be shown under 50 ms with that margin, even though the estimate puts 91 % there.</p>
+  <p class="note">Total = network + gateway + core, from the browser's send to the full 26-byte serial write. "Within 50 ms" counts every command the browser sent, and adds the clock-sync uncertainty (RTT/2) before comparing. Through the tunnel RTT/2 is about 30 ms, so no command can be shown under 50 ms with that margin, even though the estimate puts 91 % there. The goal-evidence section below repeats the percentage with two other denominators.</p>
 </section>
 
 <section aria-labelledby="gs-h">
@@ -166,16 +168,31 @@ tr:last-child td { border-bottom: 0; }
 </section>
 
 <section aria-labelledby="cmp-h">
-  <h2 id="cmp-h">Local against tunnel</h2>
-  <div class="panel scroll"><svg id="box" viewBox="0 0 1000 200" role="img" aria-label="Box plots of total latency, local and tunnel" style="min-width:640px;width:100%;height:auto;display:block"></svg></div>
+  <h2 id="cmp-h">Each run against the no-video baseline</h2>
+  <div class="panel scroll"><svg id="box" viewBox="0 0 1000 340" role="img" aria-label="Box plots of total latency, one per run" style="min-width:640px;width:100%;height:auto;display:block"></svg></div>
   <div class="tbl"><table id="cmpTable"></table></div>
-  <p class="note">Mann-Whitney compares the two distributions without assuming normality (the right test for this skewed data). Box = Q1 to Q3, line = median, whisker from the minimum to p99, dot or arrow = maximum.</p>
+  <p class="note">Mann-Whitney compares each run's distribution with the baseline without assuming normality (the right test for this skewed data). Box = Q1 to Q3, line = median, whisker from the minimum to p99, dot or arrow = maximum.</p>
+</section>
+
+<section aria-labelledby="goal-h" id="goals" hidden>
+  <h2 id="goal-h">Evidence for setting the goals</h2>
+  <p>The goals are frozen once declared, so each candidate below is checked against the worst run that respects its conditions. "Margin" is how far the worst run sits from the limit.</p>
+  <div class="tbl"><table id="goalTable"></table></div>
+  <h3>Control latency with three denominators</h3>
+  <p class="note">All figures include the clock-sync uncertainty (RTT/2). "All sent" counts commands sent before arming and after disarming. "Sent while armed" counts only commands the gateway received while crsf-core was ARMED. "Delivered" counts only commands that reached the serial write.</p>
+  <div class="tbl"><table id="ctlTable"></table></div>
+  <h3>C1 frame timing (from 1 s after core start, the test window ± 30 s)</h3>
+  <div class="tbl"><table id="c1Table"></table></div>
+  <h3>C4 video on two viewers at once</h3>
+  <div class="tbl"><table id="c4Table"></table></div>
+  <p class="note">Freeze time and dropped frames come from each browser's WebRTC statistics. The jitter buffer is the delay the viewer itself adds before showing a frame; it is part of the video latency that C2 will measure.</p>
 </section>
 
 <section aria-labelledby="read-h">
   <h2 id="read-h">How to read these results in the report</h2>
   <div class="two">
-    <div class="callout"><h3>Local Wi-Fi qualifies</h3><p>95.44 % of all 19,558 sent commands reached the serial port within 50 ms including clock uncertainty (95 % CI 95.14–95.72 %). The software adds about 2 ms (gateway 0.05 ms, core 2 ms); the rest and all the spread is Wi-Fi.</p></div>
+    <div class="callout"><h3>Video costs about 1 ms at the median, but widens the tail</h3><p>With two viewers playing, the median rises only from 4.6 to 5.7–5.8 ms, but p99 rises from 18.6 to 26–28 ms and the commands over 50 ms rise from 696 to 1,777–5,037 per million. The software still adds about 2 ms (gateway 0.05 ms, core 2 ms); the rest and all the spread is Wi-Fi.</p></div>
+    <div class="callout"><h3>Run 2 fails on the denominator, not on speed</h3><p>99.47 % of the commands that reached the radio did so within 50 ms. What fails is a 306 ms Wi-Fi stall at 21:44:09 that tripped the 300 ms command timeout (landing, then failsafe) and 6.9 % of armed commands replaced in the same 4 ms frame because Wi-Fi delivered them in bursts.</p></div>
     <div class="callout"><h3>The tunnel costs about 29 ms</h3><p>The median rises from 4.5 to 33.2 ms, almost all of it in the network segment. The tunnel run is a comparison, never a qualifying run: the criterion requires local routing, and its clock uncertainty (about ±30 ms) is too large to prove any command under 50 ms.</p></div>
     <div class="callout"><h3>Where it stops</h3><p>All figures end at the serial write on the Pi. The TX module, the radio and the drone are not included.</p></div>
   </div>
@@ -190,9 +207,9 @@ const DATA = /*__DATA__*/null;
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const runs = DATA.runs;
   const USL = DATA.usl;
-  const COLOR = { local: 'var(--local)', tunnel: 'var(--tunnel)' };
-  const SOFT = { local: 'var(--local-soft)', tunnel: 'var(--tunnel-soft)' };
-  const NAME = { local: 'Local Wi-Fi', tunnel: 'Tunnel' };
+  const COLOR = { local: 'var(--local)', tunnel: 'var(--tunnel)', video1: 'var(--video1)', video2: 'var(--video2)' };
+  const SOFT = { local: 'var(--local-soft)', tunnel: 'var(--tunnel-soft)', video1: 'var(--video1-soft)', video2: 'var(--video2-soft)' };
+  const NAME = { local: 'Local, no video', tunnel: 'Tunnel, no video', video1: 'Local + video 1', video2: 'Local + video 2' };
   const COLS = [['total_ms', 'Total'], ['network_ms', 'Network'], ['gateway_ms', 'Gateway'], ['core_ms', 'Core'], ['upper_ms', 'Total + uncertainty']];
   const f = (v, d = 2) => v == null ? 'n/a' : Number(v).toFixed(d);
   const int = (v) => Number(v).toLocaleString('en-US');
@@ -233,7 +250,7 @@ const DATA = /*__DATA__*/null;
       ['Clock uncertainty (median RTT/2)', (r) => f(r.columns.upper_ms.summary.median - r.columns.total_ms.summary.median) + ' ms'],
       ['Within 50 ms, estimate', (r) => pct(r.attribute.fraction_estimate)],
       ['Within 50 ms with uncertainty (criterion ≥ 90 %)', (r) => pct(r.attribute.fraction) + '  [' + pct(r.attribute.ci[0]) + ' – ' + pct(r.attribute.ci[1]) + ']'],
-      ['Result', (r) => r.label === 'local' && r.attribute.fraction >= 0.9 ? '<span class="pill pass">Pass</span>' : r.label === 'local' ? '<span class="pill fail">Fail</span>' : '<span class="pill na">Comparison only</span>'],
+      ['Result as currently written', (r) => r.label === 'tunnel' ? '<span class="pill na">Comparison only</span>' : r.attribute.fraction >= 0.9 ? '<span class="pill pass">Pass</span>' : '<span class="pill fail">Fail</span>'],
     ];
     t.innerHTML = '<thead><tr><th></th>' + runs.map((r) => `<th class="num"><span class="key"><i style="background:${COLOR[r.label]}"></i>${NAME[r.label]}</span></th>`).join('') + '</tr></thead><tbody>' +
       rows.map(([label, fn]) => `<tr><td>${label}</td>${runs.map((r) => `<td class="num">${fn(r)}</td>`).join('')}</tr>`).join('') + '</tbody>';
@@ -242,7 +259,8 @@ const DATA = /*__DATA__*/null;
   /* ---------------- replay ---------------- */
   const svg = document.getElementById('lanes');
   const X = { browser: 70, gateway: 430, core: 560, serial: 930 };
-  const LANE_Y = [70, 230];
+  const LANE_Y = runs.map((_, i) => 70 + i * 160);
+  svg.setAttribute('viewBox', `0 0 1000 ${runs.length * 160 + 10}`);
   let speed = 50;
   const lanes = runs.map((run, i) => {
     const y = LANE_Y[i];
@@ -458,8 +476,8 @@ const DATA = /*__DATA__*/null;
         <td class="num">${int(Math.round(cp.observed_ppm))}</td><td class="num">${f(cp.normal.ppm, 1)}</td><td class="num">${cp.lognormal ? f(cp.lognormal.ppm, 1) : 'n/a'}</td></tr>`);
     }));
     t.innerHTML = `<thead><tr><th>Run</th><th>Segment</th><th class="num">Ppk normal</th><th class="num">Cpk normal</th><th class="num">Ppk percentile (ISO)</th><th class="num">Ppk lognormal</th><th class="num">PPM observed</th><th class="num">PPM expected normal</th><th class="num">PPM expected lognormal</th></tr></thead><tbody>${lines.join('')}</tbody>`;
-    const l = runs.find((r) => r.label === 'local').columns.total_ms.capability, tu = runs.find((r) => r.label === 'tunnel').columns.total_ms.capability;
-    document.getElementById('capSay').textContent = `Local total: Ppk ${f(l.percentile.ppk)} by the percentile method, above 1.33, with ${int(Math.round(l.observed_ppm))} commands per million over 50 ms. Tunnel total: Ppk ${f(tu.percentile.ppk)}, not capable, with ${int(Math.round(tu.observed_ppm))} per million over the limit. The lognormal fit is also rejected by its own A² test, so its Ppk is shown for completeness only. The gateway segment is left out: it has no meaningful spread against a 50 ms limit.`;
+    const said = runs.map((r) => { const c = r.columns.total_ms.capability; return `${NAME[r.label]}: Ppk ${f(c.percentile.ppk)}, ${int(Math.round(c.observed_ppm))} per million over 50 ms`; });
+    document.getElementById('capSay').textContent = `Total latency by the percentile method. ${said.join('. ')}. Only the no-video run is capable (≥ 1.33). With video the 99.865th percentile lands past 50 ms, so a capability goal of 1.33 is not reachable today; an observed-PPM or percentage goal is. The lognormal fit is also rejected by its own A² test, so its Ppk is shown for completeness only. The gateway segment is left out: it has no meaningful spread against a 50 ms limit.`;
   })();
 
   /* ---------------- Xbar-R ---------------- */
@@ -511,11 +529,12 @@ const DATA = /*__DATA__*/null;
   /* ---------------- comparison ---------------- */
   (() => {
     const s = document.getElementById('box');
-    const L = 150, R = 960, hi = 60;
+    const L = 150, R = 960, hi = 60, H = 40 + runs.length * 70;
+    s.setAttribute('viewBox', `0 0 1000 ${H + 40}`);
     const xs = (v) => L + (Math.min(v, hi) / hi) * (R - L);
-    for (let v = 0; v <= hi; v += 10) { el(s, 'line', { x1: xs(v), x2: xs(v), y1: 20, y2: 160, stroke: 'var(--grid)' }); el(s, 'text', { x: xs(v), y: 178, 'text-anchor': 'middle' }, v); }
-    el(s, 'text', { x: R, y: 196, 'text-anchor': 'end', class: 'sub' }, 'total latency, milliseconds');
-    el(s, 'line', { x1: xs(USL), x2: xs(USL), y1: 14, y2: 164, stroke: 'var(--limit)', 'stroke-width': 2 });
+    for (let v = 0; v <= hi; v += 10) { el(s, 'line', { x1: xs(v), x2: xs(v), y1: 20, y2: H, stroke: 'var(--grid)' }); el(s, 'text', { x: xs(v), y: H + 18, 'text-anchor': 'middle' }, v); }
+    el(s, 'text', { x: R, y: H + 36, 'text-anchor': 'end', class: 'sub' }, 'total latency, milliseconds');
+    el(s, 'line', { x1: xs(USL), x2: xs(USL), y1: 14, y2: H + 4, stroke: 'var(--limit)', 'stroke-width': 2 });
     runs.forEach((r, i) => {
       const st = r.columns.total_ms.summary, y = 55 + i * 70;
       el(s, 'text', { x: L - 12, y: y + 4, 'text-anchor': 'end', class: 'lbl' }, NAME[r.label]);
@@ -527,11 +546,50 @@ const DATA = /*__DATA__*/null;
       if (st.max > hi) el(s, 'text', { x: R + 4, y: y + 4 }, '→ ' + f(st.max, 0));
       else el(s, 'circle', { cx: xs(st.max), cy: y, r: 4, fill: 'var(--ink)' });
     });
-    const c = DATA.comparison;
-    document.getElementById('cmpTable').innerHTML = `<thead><tr><th>Test</th><th class="num">Statistic</th><th class="num">p-value</th><th>Reading</th></tr></thead><tbody>
-      <tr><td>Difference of medians (tunnel − local)</td><td class="num">${f(c.median_difference_ms)} ms</td><td class="num"></td><td>The tunnel adds about ${f(c.median_difference_ms, 0)} ms</td></tr>
-      <tr><td>Mann-Whitney U</td><td class="num">z = ${f(c.mann_whitney.z, 1)}</td><td class="num">${pval(c.mann_whitney.p)}</td><td>A local command is faster than a tunnel command ${pct(c.mann_whitney.prob_a_less, 1)} of the time</td></tr>
-      <tr><td>Two proportions, within 50 ms (estimate)</td><td class="num">z = ${f(c.within_estimate.z, 1)}</td><td class="num">${pval(c.within_estimate.p)}</td><td>${pct(c.within_estimate.p1)} local against ${pct(c.within_estimate.p2)} tunnel</td></tr></tbody>`;
+    const key = (l) => `<span class="key"><i style="background:${COLOR[l]}"></i>${NAME[l]}</span>`;
+    document.getElementById('cmpTable').innerHTML = `<thead><tr><th>Run against ${NAME[runs[0].label]}</th><th>Test</th><th class="num">Statistic</th><th class="num">p-value</th><th>Reading</th></tr></thead><tbody>` +
+      DATA.comparisons.map((c) => { const b = c.labels[1]; return `
+      <tr><td>${key(b)}</td><td>Difference of medians</td><td class="num">${c.median_difference_ms >= 0 ? '+' : ''}${f(c.median_difference_ms)} ms</td><td class="num"></td><td>Adds about ${f(c.median_difference_ms, 1)} ms at the median</td></tr>
+      <tr><td></td><td>Mann-Whitney U</td><td class="num">z = ${f(c.mann_whitney.z, 1)}</td><td class="num">${pval(c.mann_whitney.p)}</td><td>A baseline command is faster ${pct(c.mann_whitney.prob_a_less, 1)} of the time</td></tr>
+      <tr><td></td><td>Two proportions, within 50 ms of all sent</td><td class="num">z = ${f(c.within_estimate.z, 1)}</td><td class="num">${pval(c.within_estimate.p)}</td><td>${pct(c.within_estimate.p1)} against ${pct(c.within_estimate.p2)}</td></tr>`; }).join('') + '</tbody>';
+  })();
+  /* ---------------- goal evidence ---------------- */
+  (() => {
+    const G = DATA.goals; if (!G) return;
+    document.getElementById('goals').hidden = false;
+    const key = (l) => `<span class="key"><i style="background:${COLOR[l]}"></i>${NAME[l]}</span>`;
+    const by = Object.fromEntries(G.runs.map((r) => [r.label, r]));
+    const local = G.runs.filter((r) => r.label !== 'tunnel');
+    const pill = (ok) => ok ? '<span class="pill pass">Met</span>' : '<span class="pill fail">Not met</span>';
+    const head = (cols) => '<thead><tr>' + cols.map((c, i) => `<th${i ? ' class="num"' : ''}>${c}</th>`).join('') + '</tr></thead>';
+    // control table
+    document.getElementById('ctlTable').innerHTML = head(['Run', 'All sent ≤ 50 ms', 'Sent while armed ≤ 50 ms', 'Delivered ≤ 50 ms', 'p99 delivered', 'Replaced while armed', 'Stalls > 250 ms', 'Failsafe entries', 'Send rate']) + '<tbody>' +
+      G.runs.map((r) => { const c = r.control, st = runs.find((x) => x.label === r.label).columns.total_ms.summary; return `<tr><td>${key(r.label)}</td>
+        <td class="num">${f(c.all_sent_pct)} %</td><td class="num">${f(c.armed_pct)} %</td><td class="num">${f(c.delivered_pct)} %</td><td class="num">${f(st.p99)} ms</td>
+        <td class="num">${f(c.replaced_armed_pct)} %</td><td class="num">${c.gaps_250}</td><td class="num">${c.failsafes}</td><td class="num">${f(c.send_hz, 1)} Hz</td></tr>`; }).join('') + '</tbody>';
+    // C1
+    document.getElementById('c1Table').innerHTML = head(['Run', 'Frames', 'Seconds', 'p99 lateness', 'Max lateness', 'Missed slots', 'Spec P6']) + '<tbody>' +
+      G.runs.map((r) => { const c = r.c1; return `<tr><td>${key(r.label)}</td><td class="num">${int(c.frames)}</td><td class="num">${f(c.seconds, 0)}</td>
+        <td class="num">${f(c.p99_us, 1)} µs</td><td class="num">${f(c.max_us, 1)} µs</td><td class="num">${c.missed}</td><td class="num">${pill(c.pass)}</td></tr>`; }).join('') + '</tbody>';
+    // C4
+    const c4rows = [];
+    G.runs.filter((r) => r.c4).forEach((r) => r.c4.viewers.forEach((v, i) => c4rows.push(`<tr><td>${i ? '' : key(r.label)}</td><td>${v.device}</td>
+      <td class="num">${f(v.dur_s, 0)} s</td><td class="num">${f(v.fps)}</td><td class="num">${f(v.dropped_pct)} %</td><td class="num">${v.freezes} · ${f(v.freeze_s, 1)} s</td><td class="num">${f(v.freeze_pct)} %</td>
+      <td class="num">${int(v.lost)}</td><td class="num">${f(v.gap_s, 1)} s</td><td class="num">${f(v.jb_p50, 0)} ms</td><td class="num">${i ? '' : f(r.c4.overlap_s, 0) + ' s (start gap ' + f(r.c4.offset_s, 1) + ' s)'}</td></tr>`)));
+    document.getElementById('c4Table').innerHTML = head(['Run', 'Viewer', 'Recorded', 'Mean fps', 'Dropped', 'Freezes', 'Freeze time', 'Packets lost', 'Longest sample gap', 'Jitter buffer p50', 'Overlap']) + '<tbody>' + c4rows.join('') + '</tbody>';
+    // candidate goals
+    const worst = (arr, fn, dir) => arr.reduce((w, r) => { const v = fn(r); return w == null || (dir < 0 ? v < w.v : v > w.v) ? { v, r } : w; }, null);
+    const viewers = G.runs.filter((r) => r.c4).flatMap((r) => r.c4.viewers.map((v) => ({ ...v, label: r.label })));
+    const goals = [
+      ['Control: ≥ 90 % of commands sent while armed reach the serial write within 50 ms (local, video on)', worst(local, (r) => r.control.armed_pct, -1), (v) => v >= 90, (v) => f(v) + ' %', (v) => '+' + f(v - 90) + ' points'],
+      ['Control: ≥ 90 % of all sent commands within 50 ms (current wording)', worst(local, (r) => r.control.all_sent_pct, -1), (v) => v >= 90, (v) => f(v) + ' %', (v) => (v >= 90 ? '+' : '') + f(v - 90) + ' points'],
+      ['Control: p99 of delivered commands ≤ 50 ms', worst(local.map((r) => ({ ...r, p99: runs.find((x) => x.label === r.label).columns.total_ms.summary.p99 })), (r) => r.p99, 1), (v) => v <= 50, (v) => f(v) + ' ms', (v) => f(50 - v) + ' ms spare'],
+      ['C1: p99 ≤ 250 µs, max ≤ 1 ms, no missed slot (from 1 s after start)', worst(G.runs, (r) => r.c1.max_us, 1), (v, w) => G.runs.every((r) => r.c1.pass), (v) => 'max ' + f(v, 0) + ' µs', (v) => f(1000 - v, 0) + ' µs spare'],
+      ['C4: each viewer ≥ 25 fps mean', worst(viewers, (v) => v.fps, -1), (v) => v >= 25, (v) => f(v) + ' fps', (v) => '+' + f(v - 25) + ' fps'],
+      ['C4: each viewer total freeze ≤ 5 % of the time', worst(viewers, (v) => v.freeze_pct, 1), (v) => v <= 5, (v) => f(v) + ' %', (v) => (v <= 5 ? '' : '+') + f(v - 5) + ' points'],
+    ];
+    document.getElementById('goalTable').innerHTML = head(['Candidate goal', 'Worst run', 'Value', 'Margin', 'Status']) + '<tbody>' +
+      goals.map(([name, w, ok, fmtv, fmtm]) => `<tr><td style="white-space:normal;min-width:260px">${name}</td><td>${key(w.r.label)}${w.r.device ? ' · ' + w.r.device : ''}</td><td class="num">${fmtv(w.v)}</td><td class="num">${fmtm(w.v)}</td><td class="num">${pill(ok(w.v))}</td></tr>`).join('') + '</tbody>';
   })();
 })();
 </script>
