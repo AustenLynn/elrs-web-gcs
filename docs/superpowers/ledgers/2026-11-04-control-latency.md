@@ -96,3 +96,15 @@
 - C4: both viewers 30.0 fps, 0 dropped, laptop 0.2 s frozen, phone 0; jitter buffer 24 / 33 ms (was 102 / 171); overlap 309.7 s.
 - Still two command timeouts (22:29:41, 22:31:04): browser pause 143 ms plus ~270 ms network in the first, commands steadily ~220 ms old in the second (TCP queue behind a lost frame). All-sent 89.16 % and whole-session 92.77 % are lowered by these and by ~110 s of pre-arm sending.
 - C1 test window: p99 47 us, max 215 us, 0 missed.
+
+## 2026-11-07 — C2 video latency and frozen goals
+
+- C2 glass to glass (drone camera films clock.html on the laptop; watch.html on the same screen), disarmed, air unit in standby, ELRS TX off (not needed for video). Local: n 23, mean 704 ms (95 % CI 671-737), SD 77, max 808. Page via tunnel: n 21, mean 865, SD 59, max 959. Tunnel adds 140 ms at the median (Mann-Whitney p < 0.001).
+- Ruling: the video digits are motion-blurred past the tenths, so each video time is the tenth + 0.05 s (reading error +-50 ms, uniform, unbiased).
+- Ruling: G3 cannot be 300 ms; the chain (air unit, goggles, HDMI capture, H.264 encode, WebRTC, browser) costs ~0.7 s. Set at 1000 ms local, 1200 ms via tunnel.
+- Ruling: every percentage goal uses the Wilson 95 % one-sided lower bound (z 1.645). With 23 samples even 23/23 gives 89.5 %, so the final C2 takes 50 samples and allows 1 over (91.5 %).
+- Tunnel control (no video) with a 100 ms limit: 96.44 % of commands sent while armed (lower 96.21 %), basis of G1t.
+- Goals approved by the operator on 2026-11-07 and frozen: `docs/goals/2026-11-07-frozen-goals.md`. Final runs on 5 GHz with two viewers.
+- Results page now opens with the frozen goals table, has a C2 replay (clock pair per screenshot, strip plot against the limits) and a 2.4 GHz vs 5 GHz dumbbell chart and table.
+- Control + C4 through the tunnel was not run: no battery for the TX module that day.
+- e2e: one failure on the first run, 10/10 on the rerun (gcs-video live on the same Pi).
