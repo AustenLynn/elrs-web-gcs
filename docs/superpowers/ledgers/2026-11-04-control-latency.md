@@ -108,3 +108,12 @@
 - Results page now opens with the frozen goals table, has a C2 replay (clock pair per screenshot, strip plot against the limits) and a 2.4 GHz vs 5 GHz dumbbell chart and table.
 - Control + C4 through the tunnel was not run: no battery for the TX module that day.
 - e2e: one failure on the first run, 10/10 on the rerun (gcs-video live on the same Pi).
+
+## 2026-11-07 — three presentation goals (replace the eight-goal list)
+
+- Ruling: the operator reduced the goals to three for the presentation and froze them; the presentation shows the bench results already measured, with no new test afterwards.
+- Goal 1, commands (C1): p99 <= 250 us, max <= 1 ms, missed <= 0.01 %. All 5 runs: p99 52 us worst, max 289 us, 0 missed of 500,172 frames.
+- Goal 2, control latency through the Cloudflare tunnel: >= 90 % of commands sent while armed <= 150 ms with clock uncertainty. Tunnel run: 96.74 % of 18,582 (Wilson one-sided lower 96.5 %). Ruling: 150 ms because losses are replaced commands (3.13 %), not slow ones (100 ms 96.44 %, 200 ms 96.86 %), and it stays under the 200 ms stale filter. Measured without video viewers.
+- Goal 3, video latency (C2): >= 90 % <= 999 ms. Both sessions pooled: 44/44, mean 781 ms, SD 106, max 959 ms, Wilson lower 94.2 %. Ruling: pooled because neither session alone can prove 90 % (23/23 gives 89.5 %).
+- Ruling: video was never relayed. In both C2 sessions the WebRTC media crossed the local Wi-Fi; the tunnel carries only HTTP/WebSocket and there is no STUN/TURN. Viewers on other networks get no video (the Pi has a global IPv6, so some IPv6 networks might, unverified). /video/whep has no sign-in. A TURN relay with sign-in is the next step.
+- Former G1, G1b, G4, G4b stay as supporting results (S1-S4). Former G1t (100 ms), G3 (1000 ms) and G3t (1200 ms) are withdrawn.

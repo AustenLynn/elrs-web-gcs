@@ -1,23 +1,42 @@
 # Frozen goals — approved 2026-11-07, not to be changed
 
-Test conditions for every final run: props off, hotspot IoT-05 on **5 GHz (ch 36)**, video on 2 viewers
-(laptop + phone), each control run ≥ 5 min armed. "Upper bound" = latency plus clock-sync uncertainty.
-Pass/fail for percentages uses the Wilson 95 % one-sided lower bound (z = 1.645), not the raw percentage.
+The presentation states three goals and shows the bench results already measured (2026-11-05 to
+2026-11-07). There is no new test after the presentation. Every percentage passes on the
+**Wilson 95 % one-sided lower bound** (z = 1.645), not on the raw rate. Props off in every run.
 
-| Goal | Target | Bench evidence (worst run in the target condition) | Margin |
-|---|---|---|---|
-| **G1** control latency, local | ≥ 90 % of commands sent while armed ≤ 50 ms (upper bound) | 5 GHz + video: 99.63 % (lower 99.52 %). Worst ever with video (2.4 GHz): lower 92.16 % | +9.5 pts (5 GHz), +2.2 pts even on 2.4 GHz |
-| **G1b** control tail, local | p99 of delivered commands ≤ 50 ms | 10.9 ms (5 GHz); worst 28.4 ms | ≥ 21 ms |
-| **G1t** control latency, tunnel | ≥ 90 % of commands sent while armed ≤ 100 ms (upper bound) | ≈ 96 % (tunnel, no video); p99 delivered 49.6 ms | ≈ +6 pts (video over tunnel not yet measured) |
-| **G2** command timing (C1) | p99 frame jitter ≤ 250 µs, max ≤ 1 ms, missed ≤ 0.01 %, from 1 s after start | 5 runs: p99 47–52 µs, max ≤ 289 µs, 0 missed | ≈ 5× (p99), 3.5× (max) |
-| **G3** video latency (C2), local | ≥ 90 % of samples ≤ 1000 ms glass-to-glass; **≥ 50 samples, ≤ 1 over** | n = 23: mean 704 ms, max 808 ms, mean + 3 SD 935 ms | ≈ 190 ms on the max |
-| **G3t** video latency (C2), page via tunnel | ≥ 90 % of samples ≤ 1200 ms; ≥ 50 samples, ≤ 1 over | n = 21: mean 865 ms, max 959 ms, mean + 3 SD 1040 ms | ≈ 240 ms on the max |
-| **G4** video quality (C4) | 2 viewers, ≥ 5 min, ≥ 25 fps, ≤ 5 % frozen, no reconnection | 5 GHz: 30 fps both, 0.2 s frozen, 0 reconnections | 5 fps, ≈ 4.9 pts |
+## The three goals
 
-Notes
-- G3t: WebRTC media still goes straight to the Pi (no TURN server), so a viewer on mobile data may get no
-  video. G3t applies to a viewer on the same network who loads the page through the tunnel.
-- G3 was measured with the air unit in Standby (disarmed). Record the same condition in the final test.
-- 2.4 GHz failed G4 once (phone froze ≈ 33 s of 300 s), so the 5 GHz hotspot is a required condition.
-- Sample size: with 50 samples and at most 1 over the limit, the Wilson lower bound is 91.5 % (passes 90 %).
-- Raw C2 readings: `~/ProyectoTerminal/results/c2-video-latency-20261107/` (c2-local.csv, c2-tunnel.csv, readings.py, stats.py). Results page: `tools/analysis/results_page.html` built with `build_results_page.py`.
+| # | Goal | Target | Bench result | Margin | Status |
+|---|---|---|---|---|---|
+| 1 | **Commands** (C1) | The 250 Hz CRSF stream from crsf-core: p99 frame lateness ≤ 250 µs, max ≤ 1 ms, missed slots ≤ 0.01 %, from 1 s after start | 5 runs (local, tunnel, and 3 with the pilot + 2 video viewers): p99 47–52 µs, max 289 µs, 0 missed | ≈ 4.9× (p99), 3.5× (max) | **Met** |
+| 2 | **Control latency** | ≥ 90 % of the pilot's commands sent while armed reach the serial write ≤ 150 ms, clock uncertainty included, **pilot connected through the Cloudflare tunnel** | 96.74 % of 18,582 commands (Wilson lower 96.5 %); median 33 ms, p99 50 ms (63 / 79 ms with uncertainty) | +6.5 pts | **Met** |
+| 3 | **Video latency** (C2) | ≥ 90 % of samples ≤ 999 ms glass to glass (camera to viewer's screen) | 44 / 44 samples ≤ 999 ms (Wilson lower 94.2 %); mean 781 ms (SD 106), max 959 ms | +4.2 pts, 40 ms on the max | **Met** |
+
+### What each result does and does not cover (say it if asked)
+
+- **Commands:** the core runs at real-time priority, apart from the gateway and the video service.
+  Video viewers and the tunnel made no measurable difference.
+- **Control latency:** the tunnel run was made from the lab (laptop → internet → Cloudflare Querétaro →
+  tunnel → Pi), **without video viewers**. A pilot who is really far away adds their own internet
+  delay. Losses are replaced commands (3.1 %), not slow ones: raising the limit to 200 ms only gives
+  96.86 %. Locally, with the pilot + 2 viewers on 5 GHz, 99.6 % arrive within 50 ms.
+- **Video latency:** two sessions, 23 samples local and 21 with the page served through the tunnel.
+  In both, the video stream itself travelled over the local Wi-Fi: WebRTC media does not pass through
+  the Cloudflare tunnel (no TURN relay). A viewer on another network does not get video today. A TURN relay
+  (e.g. Cloudflare Realtime TURN) is the next step and was not validated.
+  The sessions differ by 160 ms (704 vs 865 ms mean) for reasons not identified (air unit
+  temperature, bitrate). Measured disarmed, air unit in standby. Each video time is read to the
+  tenth of a second (±50 ms reading error, averages out).
+
+## Supporting results (evidence, not headline goals)
+
+| Item | Target | Result |
+|---|---|---|
+| Control, local, pilot + 2 viewers, 5 GHz | ≥ 90 % ≤ 50 ms | 99.63 % (lower 99.53 %) |
+| Control tail, local | p99 delivered ≤ 50 ms | 10.9 ms (5 GHz); worst 28.4 ms (2.4 GHz) |
+| Video frame rate (C4) | 2 viewers, ≥ 5 min, ≥ 25 fps | 30 fps both (5 GHz) |
+| Video freezes (C4) | ≤ 5 % frozen, no reconnection | 0.06 % (5 GHz); 11.1 % on 2.4 GHz — why the hotspot is on 5 GHz |
+
+Data: `~/ProyectoTerminal/results/` on the Pi (control-latency-*, c2-video-latency-20261107/,
+goal-evidence.json, latency-stats-5runs.json). Page: `tools/analysis/results_page.html` built with
+`build_results_page.py`. Artifact: https://claude.ai/artifact/29FbTo9q2QxSu1zqs4fNLn

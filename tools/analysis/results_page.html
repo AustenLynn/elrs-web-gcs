@@ -92,6 +92,20 @@ tr:last-child td { border-bottom: 0; }
 .callout { border-left: 3px solid var(--line); padding: 2px 0 2px 14px; display: grid; gap: 6px; }
 .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
 
+/* three goals */
+.goals3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+.g3 { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.g3 .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.g3 h3 { font-size: 1.35rem; }
+.g3 .target { font-size: .92rem; }
+.g3 .big { font: 600 clamp(1.7rem, 4vw, 2.2rem)/1.1 var(--f-mono); font-variant-numeric: tabular-nums; }
+.g3 .big small { font: 500 .85rem var(--f-body); color: var(--muted); }
+.g3 .meter { height: 10px; border-radius: 5px; background: var(--grid); position: relative; }
+.g3 .meter i { position: absolute; inset: 0 auto 0 0; border-radius: 5px; background: var(--ok); }
+.g3 .meter u { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--limit); }
+.g3 .scale { display: flex; justify-content: space-between; font: .72rem var(--f-mono); color: var(--muted); }
+.g3 .cover { font-size: .82rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 8px; }
+
 /* C2 clocks */
 .clocks { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
 .clock { border-left: 3px solid var(--c); padding: 4px 0 4px 12px; display: grid; gap: 6px; min-width: 0; }
@@ -110,7 +124,7 @@ tr:last-child td { border-bottom: 0; }
 <main>
 <header>
   <span class="eyebrow">elrs-web-gcs · bench campaigns 2026-11-05 to 2026-11-07 · props off</span>
-  <h1>Bench results and frozen goals</h1>
+  <h1>Bench results and the three goals</h1>
   <p class="lede">Five armed bench runs flown from the same laptop: local Wi-Fi without video, the Cloudflare tunnel without video, two local runs with the FPV video playing on a laptop and a phone at the same time, and the same video run after moving the Pi's hotspot from 2.4 GHz (shared with the ELRS radio) to 5 GHz. On 2026-11-07 the video latency (C2) was measured glass to glass, locally and through the tunnel. Every number comes from the per-command logs of the browser, the gateway and crsf-core, the viewers' WebRTC statistics and the C2 screenshots.</p>
   <div class="legend">
     <span class="key"><i style="background:var(--local)"></i>Local, no video</span>
@@ -123,10 +137,12 @@ tr:last-child td { border-bottom: 0; }
 </header>
 
 <section aria-labelledby="frozen-h" id="frozen" hidden>
-  <h2 id="frozen-h">The frozen goals</h2>
-  <p id="frozenLede">Approved on 2026-11-07 and not to be changed. Every final run uses the same conditions: props off, hotspot IoT-05 on <strong>5 GHz (channel 36)</strong>, video playing on two viewers (laptop and phone), each control run at least 5 minutes armed. A percentage passes only if its <strong>Wilson 95 % one-sided lower bound</strong> clears the target, so the sample size counts, not just the raw rate.</p>
+  <h2 id="frozen-h">The three goals</h2>
+  <p>Frozen on 2026-11-07 and presented with the bench results already measured. A percentage passes only if its <strong>Wilson 95 % one-sided lower bound</strong> clears the target, so the sample size counts, not just the raw rate.</p>
+  <div class="goals3" id="goals3"></div>
+  <h3>Supporting results</h3>
+  <p class="note">The detailed checks behind the three goals, each in its own condition. "Worst bench run" is the worst run of any condition, to show what happens outside it (for example the 2.4 GHz hotspot).</p>
   <div class="tbl"><table id="goalTable"></table></div>
-  <p class="note">"Bench result" is the run in the goal's own condition. "Margin" is the room for failure: how far that result sits from the limit. "Worst bench run" is the worst run of any condition, to show what happens outside the agreed conditions.</p>
 </section>
 
 <section aria-labelledby="replay-h">
@@ -237,8 +253,8 @@ tr:last-child td { border-bottom: 0; }
     <div class="callout"><h3>Moving the hotspot to 5 GHz removed the video penalty</h3><p>On 2.4 GHz channel 1 the hotspot shared the band with the 1 W ELRS transmitter. On 5 GHz, with the same two viewers playing, the median (4.64 ms) is no different from the no-video run (Mann-Whitney p = 0.34), p99 drops from 28 to 11 ms, replaced commands from 6.9 % to 0.1 % of armed commands, and both viewers hold 30 fps with no dropped frames.</p></div>
     <div class="callout"><h3>What 5 GHz did not fix</h3><p>Two command timeouts (22:29:41 and 22:31:04) still sent the drone to landing. In the first the laptop's browser itself paused 143 ms and the network added about 270 ms more; in the second commands arrived steadily but about 220 ms old, the pattern of a WebSocket (TCP) queue held behind a lost Wi-Fi frame. These are rare events (2 in 5 minutes), not a slow link.</p></div>
     <div class="callout"><h3>The tunnel costs about 29 ms</h3><p>The median rises from 4.5 to 33.2 ms, almost all of it in the network segment. The tunnel run is a comparison, never a qualifying run: the criterion requires local routing, and its clock uncertainty (about ±30 ms) is too large to prove any command under 50 ms.</p></div>
-    <div class="callout"><h3>Video lags about 0.7 s, and the old 300 ms idea was out of reach</h3><p>Locally the video arrives 704 ms after the event (mean, 23 screenshots, max 808 ms); with the page through the tunnel, 865 ms (max 959 ms). Only about 30 ms of that is the viewer's jitter buffer; the rest is the capture, encoding and goggle chain. The goal was set at 1 s (1.2 s via tunnel) from these numbers. The video only shows what the drone sees; commands do not wait for it.</p></div>
-    <div class="callout"><h3>The tunnel video goal has a condition</h3><p>There is no TURN relay, so WebRTC media goes straight to the Pi's addresses even when the page comes through the tunnel. The tunnel C2 was measured from a viewer on the same Wi-Fi; a viewer on mobile data may get no video at all. That is written into goal G3t.</p></div>
+    <div class="callout"><h3>Video lags about 0.7 s, and the old 300 ms idea was out of reach</h3><p>Locally the video arrives 704 ms after the event (mean, 23 screenshots, max 808 ms); with the page through the tunnel, 865 ms (max 959 ms). Only about 30 ms of that is the viewer's jitter buffer; the rest is the capture, encoding and goggle chain. Goal 3 (999 ms) is met by all 44 samples, with 40 ms to spare on the slowest. The video only shows what the drone sees; commands do not wait for it.</p></div>
+    <div class="callout"><h3>Video for a viewer on another network</h3><p>There is no TURN relay, so WebRTC media goes straight to the Pi's addresses even when the page comes through the tunnel. The tunnel C2 was measured from a viewer on the same Wi-Fi; a viewer on mobile data may get no video at all. Remote video needs a TURN relay; that is the next step and was not validated.</p></div>
     <div class="callout"><h3>Where it stops</h3><p>All figures end at the serial write on the Pi. The TX module, the radio and the drone are not included.</p></div>
   </div>
 </section>
@@ -624,7 +640,7 @@ const DATA = /*__DATA__*/null;
     document.getElementById('c4Table').innerHTML = head(['Run', 'Viewer', 'Recorded', 'Mean fps', 'Dropped', 'Freezes', 'Freeze time', 'Packets lost', 'Longest sample gap', 'Jitter buffer p50', 'Overlap']) + '<tbody>' + c4rows.join('') + '</tbody>';
     // frozen goals
     document.getElementById('frozen').hidden = false;
-    if (G.frozen) document.getElementById('frozen-h').textContent = `The frozen goals (approved ${G.frozen})`;
+    if (G.frozen) document.getElementById('frozen-h').textContent = `The three goals (frozen ${G.frozen})`;
     const Z = 1.645;   // Wilson, 95 % one-sided
     const wilk = (k, n) => { const p = k / n, c = p + Z * Z / (2 * n), a = Z * Math.sqrt(p * (1 - p) / n + Z * Z / (4 * n * n)); return 100 * (c - a) / (1 + Z * Z / n); };
     const wil = (pc, n) => wilk(pc / 100 * n, n);
@@ -640,21 +656,37 @@ const DATA = /*__DATA__*/null;
     const okSpan = (ok) => ok ? '' : ' style="color:var(--limit)"';
     const rows = [];
     { const w = minBy(withVideo, (r) => wil(r.control.armed_pct, r.control.armed_n)), lo = wil(W5.control.armed_pct, W5.control.armed_n), wl = wil(w.control.armed_pct, w.control.armed_n);
-      rows.push(['G1', 'Control latency, local', '≥ 90 % of commands sent while armed reach the serial write ≤ 50 ms, clock uncertainty included', W5.label, `${f(W5.control.armed_pct)} % (lower ${f(lo)} %)`, `+${f(lo - 90, 1)} pts`, lo >= 90, w.label, `lower ${f(wl)} %`, wl >= 90]); }
+      rows.push(['S1', 'Control latency, local, pilot + 2 viewers', '≥ 90 % of commands sent while armed reach the serial write ≤ 50 ms, clock uncertainty included', W5.label, `${f(W5.control.armed_pct)} % (lower ${f(lo)} %)`, `+${f(lo - 90, 1)} pts`, lo >= 90, w.label, `lower ${f(wl)} %`, wl >= 90]); }
     { const w = maxBy(local, (r) => p99(r.label));
-      rows.push(['G1b', 'Control tail, local', 'p99 of delivered commands ≤ 50 ms', W5.label, `${f(p99('wifi5'), 1)} ms`, `${f(50 - p99('wifi5'), 1)} ms`, p99('wifi5') <= 50, w.label, `${f(p99(w.label), 1)} ms`, p99(w.label) <= 50]); }
-    { const lo = wil(T.control.armed100_pct, T.control.armed_n);
-      rows.push(['G1t', 'Control latency, tunnel', '≥ 90 % of commands sent while armed ≤ 100 ms, clock uncertainty included', 'tunnel', `${f(T.control.armed100_pct)} % (lower ${f(lo)} %)`, `+${f(lo - 90, 1)} pts`, lo >= 90, 'tunnel', 'measured without video', null]); }
-    { const p = Math.max(...G.runs.map((r) => r.c1.p99_us)), m = Math.max(...G.runs.map((r) => r.c1.max_us)), miss = G.runs.reduce((s, r) => s + r.c1.missed, 0);
-      rows.push(['G2', 'Command timing (C1)', 'p99 frame lateness ≤ 250 µs, max ≤ 1 ms, missed slots ≤ 0.01 %, from 1 s after start', 'all', `p99 ${f(p, 0)} µs · max ${f(m, 0)} µs · ${miss} missed`, `${f(250 / p, 1)}× · ${f(1000 / m, 1)}×`, p <= 250 && m <= 1000 && miss === 0, 'all', 'same 5 runs', true]); }
-    if (C2.local.length) { const a = C2.local, k = a.filter((x) => x <= 1000).length, mx = Math.max(...a);
-      rows.push(['G3', 'Video latency, local (C2)', '≥ 90 % of samples ≤ 1000 ms glass to glass; final test ≥ 50 samples, at most 1 over', 'c2l', `max ${mx} ms · mean ${f(mean(a), 0)} · ${k}/${a.length} under`, `${1000 - mx} ms`, mx <= 1000, 'c2l', `mean + 3 SD ${f(mean(a) + 3 * sd(a), 0)} ms`, mean(a) + 3 * sd(a) <= 1000]); }
-    if (C2.tunnel.length) { const a = C2.tunnel, k = a.filter((x) => x <= 1200).length, mx = Math.max(...a);
-      rows.push(['G3t', 'Video latency, page via tunnel (C2)', '≥ 90 % of samples ≤ 1200 ms, viewer on the same network; ≥ 50 samples, at most 1 over', 'c2t', `max ${mx} ms · mean ${f(mean(a), 0)} · ${k}/${a.length} under`, `${1200 - mx} ms`, mx <= 1200, 'c2t', `mean + 3 SD ${f(mean(a) + 3 * sd(a), 0)} ms`, mean(a) + 3 * sd(a) <= 1200]); }
+      rows.push(['S2', 'Control tail, local', 'p99 of delivered commands ≤ 50 ms', W5.label, `${f(p99('wifi5'), 1)} ms`, `${f(50 - p99('wifi5'), 1)} ms`, p99('wifi5') <= 50, w.label, `${f(p99(w.label), 1)} ms`, p99(w.label) <= 50]); }
     { const v = minBy(vw5, (x) => x.fps), w = minBy(viewers, (x) => x.fps);
-      rows.push(['G4', 'Video frame rate (C4)', '2 viewers together ≥ 5 min, each ≥ 25 fps mean', W5.label, `${f(v.fps, 1)} fps (${v.device})`, `+${f(v.fps - 25, 1)} fps`, v.fps >= 25, w.label, `${f(w.fps, 1)} fps (${w.device})`, w.fps >= 25]); }
+      rows.push(['S3', 'Video frame rate (C4)', '2 viewers together ≥ 5 min, each ≥ 25 fps mean', W5.label, `${f(v.fps, 1)} fps (${v.device})`, `+${f(v.fps - 25, 1)} fps`, v.fps >= 25, w.label, `${f(w.fps, 1)} fps (${w.device})`, w.fps >= 25]); }
     { const v = maxBy(vw5, (x) => x.freeze_pct), w = maxBy(viewers, (x) => x.freeze_pct);
-      rows.push(['G4b', 'Video freezes (C4)', 'each viewer frozen ≤ 5 % of the time, no reconnection', W5.label, `${f(v.freeze_pct)} % (${v.device})`, `${f(5 - v.freeze_pct, 1)} pts`, v.freeze_pct <= 5, w.label, `${f(w.freeze_pct, 1)} % (${w.device})`, w.freeze_pct <= 5]); }
+      rows.push(['S4', 'Video freezes (C4)', 'each viewer frozen ≤ 5 % of the time, no reconnection', W5.label, `${f(v.freeze_pct)} % (${v.device})`, `${f(5 - v.freeze_pct, 1)} pts`, v.freeze_pct <= 5, w.label, `${f(w.freeze_pct, 1)} % (${w.device})`, w.freeze_pct <= 5]); }
+    // the three headline goals
+    {
+      const c1p = Math.max(...G.runs.map((r) => r.c1.p99_us)), c1m = Math.max(...G.runs.map((r) => r.c1.max_us)), c1miss = G.runs.reduce((s2, r) => s2 + r.c1.missed, 0), c1fr = G.runs.reduce((s2, r) => s2 + r.c1.frames, 0);
+      const tl = wil(T.control.armed150_pct, T.control.armed_n), tsum = runs.find((x) => x.label === 'tunnel').columns.total_ms.summary;
+      const v = [...(C2.local || []), ...(C2.tunnel || [])], vk = v.filter((x) => x <= 999).length, vl = wilk(vk, v.length), vmax = Math.max(...v);
+      const card = (o) => `<article class="g3"><div class="top"><span class="eyebrow">Goal ${o.n}</span>${pill(o.ok)}</div><h3>${o.name}</h3><p class="target">${o.target}</p>
+        <div class="big">${o.big} <small>${o.bigNote}</small></div>
+        <div class="meter" role="img" aria-label="${o.aria}"><i style="width:${Math.min(100, o.fill)}%"></i><u style="left:${o.mark}%"></u></div><div class="scale"><span>${o.s0}</span><span>${o.s1}</span></div>
+        <p class="note">${o.detail}</p><p class="cover">${o.cover}</p></article>`;
+      document.getElementById('goals3').innerHTML = [
+        { n: 1, name: 'Commands', ok: c1p <= 250 && c1m <= 1000 && c1miss / c1fr <= 1e-4, target: 'The 250 Hz command stream to the radio: p99 frame lateness ≤ 250 µs, max ≤ 1 ms, missed slots ≤ 0.01 %.',
+          big: f(c1p, 0) + ' µs', bigNote: 'worst p99 · limit 250 µs', fill: c1p / 300 * 100, mark: 250 / 300 * 100, s0: '0', s1: '300 µs', aria: `worst p99 ${f(c1p, 0)} microseconds against a 250 microsecond limit`,
+          detail: `Max ${f(c1m, 0)} µs, ${c1miss} missed of ${int(c1fr)} frames, ${G.runs.length} runs. Margin ≈ ${f(250 / c1p, 1)}×.`,
+          cover: 'Covers local, tunnel, and the pilot with 2 video viewers: none of them changed the timing.' },
+        { n: 2, name: 'Control latency', ok: tl >= 90, target: '≥ 90 % of the pilot’s commands sent while armed reach the radio within 150 ms, clock uncertainty included, pilot through the Cloudflare tunnel.',
+          big: f(T.control.armed150_pct, 1) + ' %', bigNote: `lower bound ${f(tl, 1)} % · target 90 %`, fill: T.control.armed150_pct, mark: 90, s0: '0 %', s1: '100 %', aria: `${f(T.control.armed150_pct, 1)} percent against a 90 percent target`,
+          detail: `${int(T.control.armed_n)} commands. Median ${f(tsum.median, 0)} ms, p99 ${f(tsum.p99, 0)} ms. Margin +${f(tl - 90, 1)} points. The losses are replaced commands, not slow ones.`,
+          cover: 'Measured from the lab through Cloudflare, without video viewers. A pilot far away adds their own internet delay. Locally with 2 viewers: 99.6 % within 50 ms.' },
+        { n: 3, name: 'Video latency', ok: vl >= 90, target: '≥ 90 % of samples on screen ≤ 999 ms after the camera sees them (glass to glass).',
+          big: `${vk} / ${v.length}`, bigNote: `under 999 ms · lower bound ${f(vl, 1)} %`, fill: vmax / 1200 * 100, mark: 999 / 1200 * 100, s0: '0', s1: '1200 ms', aria: `maximum ${vmax} milliseconds against a 999 millisecond limit`,
+          detail: `Mean ${f(v.reduce((a2, b2) => a2 + b2, 0) / v.length, 0)} ms, max ${vmax} ms (bar). Margin +${f(vl - 90, 1)} points, ${999 - vmax} ms on the max.`,
+          cover: 'Two sessions, page local and through the tunnel; in both the video stream itself crossed the local Wi-Fi. Video for a viewer on another network needs a TURN relay, the next step.' },
+      ].map(card).join('');
+    }
     const KEYX = { c2l: ['var(--local)', 'C2 local'], c2t: ['var(--tunnel)', 'C2 via tunnel'], all: ['var(--muted)', 'All 5 runs'] };
     const key2 = (l) => KEYX[l] ? `<span class="key"><i style="background:${KEYX[l][0]}"></i>${KEYX[l][1]}</span>` : key(l);
     document.getElementById('goalTable').innerHTML = '<thead><tr><th>Goal</th><th>Target</th><th>Bench result</th><th class="num">Value</th><th class="num">Margin</th><th>Status</th><th>Worst bench run</th><th class="num">Value</th></tr></thead><tbody>' +
@@ -665,8 +697,8 @@ const DATA = /*__DATA__*/null;
     const G = DATA.goals; if (!G || !G.c2) return;
     document.getElementById('c2').hidden = false;
     const LANES = [
-      { id: 'local', name: 'Local (192.168.100.65)', color: 'var(--local)', soft: 'var(--local-soft)', limit: 1000, goal: 'G3' },
-      { id: 'tunnel', name: 'Page via tunnel', color: 'var(--tunnel)', soft: 'var(--tunnel-soft)', limit: 1200, goal: 'G3t' }];
+      { id: 'local', name: 'Local (192.168.100.65)', color: 'var(--local)', soft: 'var(--local-soft)', limit: 999, goal: 'Goal 3' },
+      { id: 'tunnel', name: 'Page via tunnel', color: 'var(--tunnel)', soft: 'var(--tunnel-soft)', limit: 999, goal: 'Goal 3' }];
     const mean = (a) => a.reduce((s, x) => s + x, 0) / a.length;
     const sd = (a) => { const m = mean(a); return Math.sqrt(a.reduce((s, x) => s + (x - m) ** 2, 0) / (a.length - 1)); };
     const q = (a, p) => { const s = [...a].sort((x, y) => x - y), h = (s.length + 1) * p - 1, lo = Math.max(0, Math.min(s.length - 1, Math.floor(h))), hi = Math.min(s.length - 1, lo + 1); return s[lo] + (h - lo) * (s[hi] - s[lo]); };
@@ -684,7 +716,7 @@ const DATA = /*__DATA__*/null;
     const A = G.c2.local, B = G.c2.tunnel, all = [...A.map((v) => [v, 0]), ...B.map((v) => [v, 1])].sort((x, y) => x[0] - y[0]);
     let ra = 0; for (let i = 0; i < all.length;) { let j = i; while (j < all.length && all[j][0] === all[i][0]) j++; for (let k = i; k < j; k++) if (!all[k][1]) ra += (i + j + 1) / 2; i = j; }
     const n1 = A.length, n2 = B.length, U = ra - n1 * (n1 + 1) / 2, zz = (Math.abs(U - n1 * n2 / 2) - 0.5) / Math.sqrt(n1 * n2 * (n1 + n2 + 1) / 12);
-    document.getElementById('c2Note').textContent = `The tunnel page adds ${f(q(B, 0.5) - q(A, 0.5), 0)} ms at the median (Mann-Whitney U = ${U}, z = ${f(zz, 1)}, p < 0.001). The video clock's last two digits are motion-blurred in the screenshots, so each video time is read to the tenth and taken at its midpoint: every sample carries ±50 ms of reading error, which averages out. With ${n1} samples, even 100 % under the limit gives a Wilson lower bound of ${f(wilk(n1, n1), 1)} %, just short of 90 %; that is why the final test takes 50 samples (1 over still gives 91.5 %). Measured disarmed, air unit in standby.`;
+    document.getElementById('c2Note').textContent = `The tunnel page adds ${f(q(B, 0.5) - q(A, 0.5), 0)} ms at the median (Mann-Whitney U = ${U}, z = ${f(zz, 1)}, p < 0.001). The video clock's last two digits are motion-blurred in the screenshots, so each video time is read to the tenth and taken at its midpoint: every sample carries ±50 ms of reading error, which averages out. One session alone (${n1} samples) cannot prove 90 % even at 100 % under the limit (Wilson lower bound ${f(wilk(n1, n1), 1)} %); both sessions together (${n1 + n2} samples) give ${f(wilk(n1 + n2, n1 + n2), 1)} %. In both sessions the video stream itself crossed the local Wi-Fi; only the page came through the tunnel. Measured disarmed, air unit in standby.`;
     // live clocks
     const box = document.getElementById('clocks');
     const UI = LANES.map((L) => { const d = document.createElement('div'); d.className = 'clock'; d.style.setProperty('--c', L.color);
