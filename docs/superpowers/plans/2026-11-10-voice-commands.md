@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Execution status:** Six software tasks implemented and reviewed on `feat/voice-commands`; final fix `1b1b75e`. See [execution ledger](../ledgers/2026-11-10-voice-commands.md). Live microphone/API and real aircraft campaigns remain deferred; no deployment, push or merge performed.
+
 **Goal:** Demonstrate Spanish and English push-to-talk commands as bounded timed drone movements, executing after recognition without confirmation.
 
 **Architecture:** An authenticated HTTP upload passes a bounded recording through transcription and Decisions. A pure browser scheduler overlays one maneuver on the existing manual command, while the existing 50 Hz WebSocket path and crsf-core retain control and safety responsibilities. Begin with dry-run output; enable actual maneuver output only through server configuration and calibrated presets.
