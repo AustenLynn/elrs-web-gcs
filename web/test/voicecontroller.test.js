@@ -15,3 +15,21 @@ test('capability rotation aborts old response',async()=>{const s=setup();const {
 test('repeated release and repeated apply never start twice',async()=>{const s=setup();const {p}=await submitted(s);await s.c.release();s.reply();await p;s.c.apply(manual,context);s.c.apply(manual,context);assert.equal(s.starts,1);});
 test('hidden state cancels pending recognition',async()=>{const s=setup();const {p}=await submitted(s);s.c.apply(manual,{...context,visible:false});assert.equal(s.request.signal.aborted,true);s.reply();await p;s.c.apply(manual,context);assert.equal(s.starts,0);});
 test('invalid choice never reaches maneuver',async()=>{const s=setup();const {p}=await submitted(s);s.reply({choice:'arm'});await p;s.c.apply(manual,context);assert.equal(s.starts,0);assert.equal(s.states.at(-1).error,'invalid_result');});
+
+test('default browser fetch retains global receiver', async t => {
+  t.mock.method(globalThis, 'fetch', async function(url, options) {
+    assert.equal(this, globalThis, 'native Window.fetch requires its global receiver');
+    return {ok:true,json:async()=>({session:1,requestId:options.headers['X-Voice-Request'],choice:'forward_short',transcript:'adelante'})};
+  });
+  const states=[];
+  const c=new VoiceController({
+    capture:{press:async()=>{},release:async()=>({audio:new Blob(['a']),mime:'audio/webm;codecs=opus'}),cancel(){}},
+    maneuver:{busy:false,configure(){},cancel(){}},onState:s=>states.push(s),
+  });
+  c.configure({execution:'dry-run',shortMs:250,mediumMs:500,strength:50});
+  c.setSession({session:1,capability:'capability'});
+  await c.press();await c.release();
+  assert.equal(states.at(-1).phase,'ready');
+  assert.equal(states.at(-1).error,null);
+  c.cancel('cleanup');
+});

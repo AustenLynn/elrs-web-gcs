@@ -9,12 +9,15 @@ import { canSwitchInput, channelsCommand, enteringFailsafe, inputsLocked, loadIn
 import { KEY_ACTIONS, KeyboardModel, MODE_KEYS } from './keyboard.js';
 import { RATE_HZ, closeAction, connectionTarget, controlMessage, eventReaction, shouldReclaimPilotSeat, tsyncReply } from './protocol.js';
 import { StepModel, capChangeAllowed } from './stepper.js';
-import { Switches } from './switches.js';
+import { Switches, SPEED_KEYS } from './switches.js';
 import { fullscreenTip, takeControlSteps } from './fullscreen.js';
 import { StickModel, bindStick, layoutAction, orientationLock, padsMoved, sticksToCommand } from './sticks.js';
 import { LinkTracker, failsafeAlert, formatBattery, formatCmdAge, formatFlightMode, formatLink, formatMs, holdBanner, pilotLine, queueText, recoverySteps, reportsTurtle, segments, stateLabel } from './view.js';
 import { keepPlaying } from './whep.js';
 import { ControlTrace } from './controltrace.js';
+import { VoiceCapture } from './voicecapture.js';
+import { VoiceController } from './voicecontroller.js';
+import { VoiceManeuver } from './voicemaneuver.js';
 
 // Add ?measure to opt in. Export after a props-off bench run with controlLatency.download().
 const controlTrace = new URLSearchParams(location.search).has('measure') ? new ControlTrace() : null;
@@ -60,6 +63,51 @@ let inputMode = 'touch';
 let lastTick = performance.now();
 let lastCmd = sticksToCommand(left, right, mode);
 
+// Voice never sends commands from a recognition callback: apply runs only in the control tick.
+const voiceLocal = wantRole === 'pilot' && !new URLSearchParams(location.search).has('room');
+let voiceConfig = null;
+let voicePrepared = false;
+let voiceLoad = 0;
+let statusAt = -Infinity;
+let flightModeAt = -Infinity;
+const heldFlightKeys = new Set();
+const heldFlightPointers = new Set();
+let voicePreviousPhase = 'idle';
+const capture = new VoiceCapture();
+const voice = new VoiceController({ capture, maneuver: new VoiceManeuver(), onState: state => {
+  const messages = {idle:'Lista',recording:'Escuchando… suelta para enviar',processing:'Interpretando…',ready:'Interpretado',executing:'Movimiento temporizado'};
+  $('voice-state').dataset.phase = state.phase;
+  $('voice-state').textContent = state.error ? `Sin acción: ${state.error}` : state.dryRun ? 'Simulación: sin movimiento' : state.phase === 'idle' && voicePreviousPhase === 'executing' ? 'Movimiento terminado' : messages[state.phase];
+  $('voice-transcript').textContent = state.transcript;
+  const directions = {forward:'Adelante',backward:'Atrás',left:'Izquierda',right:'Derecha',turn_left:'Giro izquierda',turn_right:'Giro derecha'};
+  const tier = state.choice.endsWith('_medium') ? 'medium' : 'short';
+  const direction = state.choice.replace(/_(short|medium)$/, '');
+  $('voice-action').textContent = state.choice === 'none' ? 'Sin acción' : `${state.choice === 'repeat_short' ? 'Repetir' : directions[direction]} · ${tier === 'medium' ? 'medio' : 'corto'} · ${voiceConfig?.[`${tier}Ms`] ?? '—'} ms`;
+  voicePreviousPhase = state.phase;
+}});
+function cancelVoice(reason) {
+  const wasBusy = voice.busy;
+  voice.cancel(reason);
+  if (wasBusy) $('voice-state').textContent = 'Voz cancelada';
+}
+async function loadVoice() {
+  const generation = ++voiceLoad;
+  voiceConfig = null;
+  voice.configure(null);
+  if (!voiceLocal || role !== 'pilot') return;
+  try {
+    const response = await fetch('/voice/config');
+    const config = response.ok ? await response.json() : null;
+    if (generation !== voiceLoad || role !== 'pilot') return;
+    voice.configure(config);
+    voiceConfig = config;
+  } catch { if (generation === voiceLoad) voice.configure(null); }
+}
+function voicePress() {
+  if (!voiceLocal || !voicePrepared || !voiceConfig || role !== 'pilot' || !deadman.engaged || !wsOpen() || !document.hasFocus() || document.visibilityState !== 'visible') return;
+  voice.press();
+}
+
 const storage = () => { try { return window.localStorage; } catch { return null; } };
 
 const wsOpen = () => ws?.readyState === WebSocket.OPEN;
@@ -92,6 +140,9 @@ function connect() {
     const next = closeAction(ev.code, target.room);
     if (next.clearToken) sessionStorage.removeItem(tokenKey(target.room));   // asked again after a reload
     if (next.text) toast(next.text, next.retryMs === null);
+    voice.setSession(null);
+    ++voiceLoad;
+    voiceConfig = null;
     role = null;
     welcome = null;
     queued = null;
@@ -109,6 +160,8 @@ function handle(msg) {
     case 'status': {
       const prevState = status?.state;
       status = msg;
+      statusAt = performance.now();
+      if (prevState !== status.state) cancelVoice('state');
       if (enteringFailsafe(prevState, status.state)) startAgainAfterFailsafe();
       links.update(status, performance.now());
       if (shouldReclaimPilotSeat(wantRole, welcome, status)) ws.close();   // reconnects with hello pilot
@@ -119,7 +172,14 @@ function handle(msg) {
       }
       break;
     }
+    case 'voice_ready':
+      if (voiceLocal && role === 'pilot' && msg.session === welcome?.session) voice.setSession(msg);
+      break;
     case 'telem':
+      if (typeof msg.flightMode === 'string') {
+        if (telem.flightMode !== msg.flightMode) cancelVoice('flight_mode');
+        flightModeAt = performance.now();
+      }
       if (msg.link) telem.linkAt = performance.now();
       Object.assign(telem, msg);
       delete telem.t;
@@ -148,8 +208,10 @@ function onEvent(msg) {
 }
 
 function onWelcome(msg) {
+  voice.setSession(null);
   welcome = msg;
   role = msg.role;
+  loadVoice();
   // A pilot welcome (new connection, the core came back, or a takeover) starts a new session
   // in the hub with sequence 0: restart ours too.
   if (role === 'pilot') seq = 0;
@@ -188,6 +250,7 @@ function takeOver(last) {
 
 /** Every way of losing control goes through here. */
 function disengage(reason) {
+  cancelVoice(reason);
   deadman.disengage(reason);
 }
 
@@ -206,6 +269,7 @@ function currentCommand(dtMs) {
 
 /** Every input back to neutral with the throttle at zero, no finger or key held. */
 function resetInputs() {
+  cancelVoice('reset');
   left.reset();
   right.reset();
   keyboard.reset();
@@ -237,6 +301,13 @@ setInterval(() => {
     focused: document.hasFocus(),
     wsOpen: wsOpen(),
   });
+  const overlay = voice.apply(lastCmd, {
+    role, engaged, visible: document.visibilityState === 'visible', focused: document.hasFocus(), connected: wsOpen(),
+    armed: !locked && status?.state === 'ARMED',
+    mode: mode === 0 && !switches.turtle && /^[SMF]-NORMAL$/.test(telem.flightMode ?? '') && now - flightModeAt >= 0 && now - flightModeAt < 500 ? 'Normal' : null,
+    statusAt, heldManual: heldFlightKeys.size > 0 || heldFlightPointers.size > 0,
+  });
+  lastCmd = locked ? lockedCommand(mode) : overlay;
   if (engaged && role === 'pilot') send(controlMessage(++seq, performance.now(), lastCmd, switches.wire(locked)));
 }, 1000 / RATE_HZ);
 
@@ -256,6 +327,7 @@ function setInputMode(next, { save = true } = {}) {
 }
 
 function setFlightMode(n) {
+  cancelVoice('mode');
   mode = n;
   for (const o of document.querySelectorAll('[data-mode]')) o.classList.toggle('on', Number(o.dataset.mode) === n);
 }
@@ -364,6 +436,15 @@ function renderRecovery(steps) {
 function render() {
   const now = performance.now();
   renderInput(now);
+  $('voice-panel').hidden = voiceLocal && !voiceConfig;
+  for (const id of ['btn-voice-prepare','btn-voice-ptt','btn-voice-cancel','voice-state','voice-transcript','voice-action']) $(id).hidden = !voiceLocal;
+  $('voice-badge').hidden = !voiceConfig;
+  $('voice-badge').textContent = voiceConfig?.execution === 'enabled' ? 'Movimiento temporizado' : 'SIMULACIÓN';
+  $('btn-voice-prepare').disabled = !voiceLocal || role !== 'pilot' || !voiceConfig || status?.state !== 'DISARMED' || voice.busy;
+  $('btn-voice-ptt').disabled = !voiceLocal || role !== 'pilot' || !voiceConfig || !voicePrepared;
+  $('btn-voice-cancel').disabled = !voiceLocal;
+  $('voice-unavailable').hidden = voiceLocal && !!voiceConfig;
+  $('voice-unavailable').textContent = voiceLocal ? 'Voz no disponible en esta conexión' : 'Voz no disponible mediante relay u observador';
   const seg = segments({ wsOpen: wsOpen(), lastMsgAt, status, links, telem, now });
   for (const [name, health] of Object.entries(seg)) $(`seg-${name}`).dataset.health = health;
   $('state').textContent = stateLabel(status, wsOpen(), seg.core === 'ok' || !status?.core);
@@ -470,6 +551,37 @@ if (signInShown) {
   loadMe();
 }
 
+$('btn-voice-prepare').addEventListener('click', async () => {
+  if (!voiceConfig || role !== 'pilot' || status?.state !== 'DISARMED') return;
+  try { await capture.prepare(); voicePrepared = true; $('voice-state').textContent = 'Micrófono listo: mantén V para hablar'; }
+  catch { voicePrepared = false; $('voice-state').textContent = 'Micrófono no disponible o formato no compatible'; }
+});
+$('btn-voice-cancel').addEventListener('click', () => { cancelVoice('local'); $('voice-state').textContent = 'Cancelado'; });
+const ptt = $('btn-voice-ptt');
+ptt.addEventListener('pointerdown', ev => { if (ev.button !== 0) return; ev.preventDefault(); ptt.setPointerCapture(ev.pointerId); voicePress(); });
+ptt.addEventListener('pointerup', ev => { ev.preventDefault(); voice.release(); });
+for (const type of ['pointercancel','lostpointercapture']) ptt.addEventListener(type, () => {
+  if (voice.phase === 'recording') cancelVoice('pointer_discard');
+});
+// Capture deliberate intent before any flight listener changes its model or starts a ramp.
+const flightSelector = '#stick-left, #stick-right, #btn-arm, #btn-ack, #btn-take, #btn-hold-take, #btn-disarm, #btn-failsafe, #btn-hold-land, #btn-neutral, #btn-turtle, [data-mode], [data-speed], [data-input], [data-step], [data-intensity], [data-cap], [data-key-cap], #panel-step .axis';
+for (const type of ['pointerdown','click','input','change']) document.addEventListener(type, ev => {
+  if (!(ev.target instanceof Element) || !ev.target.closest(flightSelector)) return;
+  cancelVoice('manual');
+  if (type === 'pointerdown') heldFlightPointers.add(ev.pointerId);
+}, true);
+for (const type of ['pointerup','pointercancel','lostpointercapture']) document.addEventListener(type, ev => heldFlightPointers.delete(ev.pointerId), true);
+const flightCodes = new Set(['KeyW','KeyS','KeyA','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyT', ...Object.keys(SPEED_KEYS), ...Object.keys(KEY_ACTIONS), ...Object.keys(MODE_KEYS)]);
+document.addEventListener('keydown', ev => {
+  if (typing(ev) || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  if (ev.code === 'KeyC') { ev.preventDefault(); cancelVoice('local'); $('voice-state').textContent = 'Cancelado'; return; }
+  if (ev.code === 'KeyV') { if (ev.shiftKey) return; ev.preventDefault(); if (!ev.repeat) voicePress(); return; }
+  if (role === 'pilot' && flightCodes.has(ev.code)) { heldFlightKeys.add(ev.code); cancelVoice('manual'); }
+}, true);
+document.addEventListener('keyup', ev => {
+  heldFlightKeys.delete(ev.code);
+  if (ev.code === 'KeyV') voice.release();
+}, true);
 bindStick($('stick-left'), left);
 bindStick($('stick-right'), right);
 const armHold = bindHold($('btn-arm'), 1000, () => send({ t: 'arm' }));
@@ -523,7 +635,7 @@ for (const row of document.querySelectorAll('#panel-step .axis')) {
 // Keyboard: flight keys in the keyboard mode (held) and the step mode (one step per press); action keys (disarm, failsafe, arm, release,
 // flight mode) in every mode. Never while typing a value.
 const armKey = new HoldGesture(1000, () => send({ t: 'arm' }));
-const typing = (ev) => ev.target instanceof Element && ev.target.matches('input, textarea, select');
+const typing = (ev) => ev.target instanceof Element && (ev.target.matches('input, textarea, select') || ev.target.isContentEditable);
 document.addEventListener('keydown', (ev) => {
   if (role !== 'pilot' || typing(ev) || ev.ctrlKey || ev.metaKey || ev.altKey) return;
   if ((inputMode === 'keyboard' && keyboard.keyDown(ev.code, ev.repeat))
@@ -552,6 +664,8 @@ document.addEventListener('keyup', (ev) => {
   if (ev.code === 'Space' && !typing(ev)) ev.preventDefault();
 });
 const releaseKeys = () => {
+  heldFlightKeys.clear();
+  heldFlightPointers.clear();
   keyboard.releaseAll();
   armKey.release();
 };

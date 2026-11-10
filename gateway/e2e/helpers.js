@@ -122,3 +122,21 @@ export async function login(page, name, password) {
     && (!document.body.classList.contains('observer') || document.body.classList.contains('queued'))`),
   10000, `${name} signed in as pilot or queued`);
 }
+
+/** Browser media substitute only: real gateway HTTP, cookies and WebSocket remain intact. */
+export async function fakeVoiceMedia(page) {
+  await page.call('script.addPreloadScript', {functionDeclaration: `() => {
+    class Recorder {
+      static isTypeSupported(type) { return type === 'audio/webm;codecs=opus'; }
+      constructor() { this.state = 'inactive'; }
+      start() { this.state = 'recording'; }
+      stop() {
+        this.state = 'inactive';
+        this.ondataavailable?.({data:new Blob(['browser-fixture-audio'], {type:'audio/webm;codecs=opus'})});
+        this.onstop?.();
+      }
+    }
+    window.MediaRecorder = Recorder;
+    Object.defineProperty(navigator, 'mediaDevices', {value:{getUserMedia:async () => ({getTracks:() => [{stop(){}}]})}});
+  }`});
+}

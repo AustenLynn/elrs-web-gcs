@@ -198,6 +198,15 @@
   <!-- Promoted on a handover: the drone keeps flying on this page's sticks from now on. -->
   <div id="takeover" class="takeover" hidden role="alert">TIENES EL CONTROL</div>
 
+  <aside id="voice-panel" hidden aria-label="Comandos de voz">
+    <strong>Voz ES / EN</strong> <span id="voice-badge">SIMULACIÓN</span>
+    <button id="btn-voice-prepare">Preparar micrófono (desarmado)</button>
+    <button id="btn-voice-ptt" disabled>Mantén para hablar · V</button>
+    <button id="btn-voice-cancel">Cancelar voz · C</button>
+    <span id="voice-unavailable">Voz no disponible en esta conexión</span>
+    <span id="voice-state" data-phase="idle" role="status">Lista</span>
+    <span id="voice-transcript"></span><span id="voice-action">Sin acción</span>
+  </aside>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>

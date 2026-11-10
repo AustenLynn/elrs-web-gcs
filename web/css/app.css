@@ -280,3 +280,15 @@ body.admin h2 { font-size: 15px; color: var(--muted); }
 .check { display: flex; align-items: center; gap: 8px; color: var(--muted); }
 .admin-msg { margin: 0; min-height: 1.3em; color: #ffd59a; }
 body.admin button { padding: 10px 12px; }
+
+/* Compact feedback stays outside the flight pads and never intercepts their gestures. */
+#voice-panel { display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; padding:.5rem; font-size:.8rem; }
+#voice-panel button { touch-action:none; }
+#voice-badge { color:#ffce63; font-weight:bold; }
+#voice-transcript { overflow-wrap:anywhere; max-width:28rem; }
+#voice-action { color:#9adac9; }
+#voice-panel { flex-shrink:0; background:var(--bar); border-top:1px solid var(--line); }
+#voice-panel button { padding:6px 10px; }
+#voice-transcript { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+#voice-panel[hidden], #voice-panel [hidden] { display:none; }

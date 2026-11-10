@@ -3,7 +3,7 @@ const LIMITS = Object.freeze({recordingMs:5000,uploadBytes:524288,uploadMs:6000,
 const neutral = manual => ['roll','pitch','yaw'].every(axis => manual[axis] === 0);
 
 export class VoiceController {
-  constructor({capture,maneuver,fetchImpl=globalThis.fetch,now=()=>performance.now(),onState=()=>{}}) {
+  constructor({capture,maneuver,fetchImpl=(...args)=>globalThis.fetch(...args),now=()=>performance.now(),onState=()=>{}}) {
     Object.assign(this,{capture,maneuver,fetchImpl,now,onState});
     this.generation=0;
     this.phase='idle';
