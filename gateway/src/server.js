@@ -10,6 +10,8 @@ import { CoreClient } from './ipc.js';
 import { RelayClient } from './relayClient.js';
 import { staticHandler } from './static.js';
 import { UserStore } from './users.js';
+import { voiceRoutes } from './voice.js';
+import { createVoiceProvider } from './voiceprovider.js';
 import { whepProxy } from './whep.js';
 
 /** Request path, or null when the request line is not a parsable URL (never throw here:
@@ -52,9 +54,9 @@ export function heartbeatSweep(sockets, { now, pilot, holdMs }) {
   }
 }
 
-export async function startGateway(cfg, { core = new CoreClient(cfg.coreSocket) } = {}) {
+export async function startGateway(cfg, { core = new CoreClient(cfg.coreSocket), voiceProvider } = {}) {
   const connlog = openConnLog(cfg.eventLog ?? null);
-  const hub = new ControlHub({ core, maxCommandAgeMs: cfg.maxCommandAgeMs, log: connlog.write,
+  const hub = new ControlHub({ core, voice: !!cfg.voice, maxCommandAgeMs: cfg.maxCommandAgeMs, log: connlog.write,
     controlTrace: cfg.controlTrace ?? false });
   core.on('status', (s) => hub.onCoreStatus(s));
   core.on('down', () => hub.onCoreDown());
@@ -68,11 +70,17 @@ export async function startGateway(cfg, { core = new CoreClient(cfg.coreSocket) 
   const sessions = new Sessions();
   const auth = authRoutes({ users, sessions, limiter: new LoginLimiter(), secure: !!cfg.tls, hub });
 
+  let provider = voiceProvider;
+  if (cfg.voice && !provider) {
+    try { provider = createVoiceProvider({ apiKey: process.env.OPENAI_API_KEY }); } catch { /* route reports unconfigured */ }
+  }
+  const voice = voiceRoutes({ cfg, hub, sessions, provider });
   const files = staticHandler(cfg.webRoot);
   const video = cfg.video ? whepProxy(cfg.video.whep) : null;
   const handler = async (req, res) => {
     try {
       if (await auth(req, res)) return;
+      if (await voice(req, res)) return;
       if (video && (await video(req, res))) return;
       files(req, res);
     } catch (err) {
@@ -157,6 +165,7 @@ export async function startGateway(cfg, { core = new CoreClient(cfg.coreSocket) 
     server,
     port: server.address().port,
     async close() {
+      voice.close();
       clearInterval(heartbeat);
       clearInterval(tsync);
       relay?.stop();

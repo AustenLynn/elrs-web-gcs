@@ -11,7 +11,7 @@
 //    connection as "pilot lost".
 //  - Control messages are validated, de-duplicated and dropped when older than
 //    maxCommandAgeMs (age estimated with ClockSync).
-import { randomInt } from 'node:crypto';
+import { randomBytes, randomInt } from 'node:crypto';
 import { ClockSync } from './clock.js';
 
 const MAX_MSGS_PER_SEC = 120; // the pilot page sends 50 control messages per second
@@ -24,8 +24,12 @@ const GAP_LOG_MS = 250;   // a longer silence between the pilot's commands is wo
 
 export class ControlHub {
   constructor({ core, maxCommandAgeMs = 200, now = defaultNow, newSession = randomSession, log = () => {},
-    controlTrace = false, monoNow = () => process.hrtime.bigint() }) {
+    voice = false, controlTrace = false, monoNow = () => process.hrtime.bigint() }) {
     this.core = core;
+    this.voice = voice;
+    this.voiceInvalidators = new Set();
+    this.lastStatusAt = -Infinity;
+    this.flightModeAt = -Infinity;
     this.maxCommandAgeMs = maxCommandAgeMs;
     this.now = now;
     this.newSession = newSession;
@@ -55,6 +59,7 @@ export class ControlHub {
     const c = this.clients.get(client);
     if (!c) return;
     this.#log('leave', c, { role: c.role, connectedS: round1((this.now() - c.joinedAt) / 1000) });
+    this.#invalidateVoice(c);
     this.clients.delete(client);
     if (this.pilot === client) {
       this.pilot = null;
@@ -66,6 +71,37 @@ export class ControlHub {
       return;
     }
     this.#changed();
+  }
+
+  #invalidateVoice(c) {
+    if (!c.voiceCapability) return;
+    c.voiceCapability = null;
+    for (const fn of this.voiceInvalidators) fn(c);
+  }
+
+  #readyVoice(client, c) {
+    this.#invalidateVoice(c);
+    if (!this.voice || !c.auth.user || c.auth.relay) return;
+    c.voiceCapability = randomBytes(32).toString('hex');
+    client.send({ t: 'voice_ready', session: c.session, capability: c.voiceCapability });
+  }
+
+  renewVoice(client) {
+    if (client === this.pilot) this.#readyVoice(client, this.clients.get(client));
+  }
+
+  authorizeVoice({ user, session, capability }) {
+    const c = this.clients.get(this.pilot);
+    return c && c.role === 'pilot' && !c.auth.relay && user?.name === c.auth.user?.name &&
+      c.session === session && typeof capability === 'string' && capability === c.voiceCapability
+      ? this.pilot : null;
+  }
+
+  voiceLiveReady(session) {
+    const s = this.lastStatus;
+    return s?.session === session && s.state === 'ARMED' && s.out?.mode === 0 && s.out?.turtle === 0 &&
+      this.now() - this.lastStatusAt <= 500 && this.now() - this.flightModeAt <= 500 &&
+      /^[SMF]-NORMAL$/.test(this.telemetry.flightMode ?? '');
   }
 
   /** Name of the active pilot, or null. */
@@ -131,6 +167,7 @@ export class ControlHub {
 
   onCoreStatus(status) {
     this.lastStatus = status;
+    this.lastStatusAt = this.now();
     if (this.awaitingCore && status.session === 0) {   // nobody was taken: the seat is free
       this.awaitingCore = false;
       this.#seatHead();
@@ -142,6 +179,8 @@ export class ControlHub {
 
   onCoreDown() {
     this.lastStatus = null;
+    this.flightModeAt = -Infinity;
+    for (const c of this.clients.values()) this.#invalidateVoice(c);
     this.#broadcast(this.#statusMsg());
   }
 
@@ -159,12 +198,14 @@ export class ControlHub {
       c.lastSeq = 0;
       this.core.sessionStart(c.session);
       this.pilot.send({ t: 'welcome', role: 'pilot', session: c.session });
+      this.#readyVoice(this.pilot, c);
     }
     this.#syncStandby();           // only after the SESSION, which clears the core's standby
   }
 
   onCoreTelemetry(kind, value) {
     this.telemetry[kind] = value;
+    if (kind === 'flightMode') this.flightModeAt = this.now();
     this.#broadcast({ t: 'telem', [kind]: value });
   }
 
@@ -197,6 +238,7 @@ export class ControlHub {
     if (next) this.queue.splice(this.queue.indexOf(next), 1);
     if (old) {                     // its page is still open; it goes to the back
       const oc = this.clients.get(old);
+      this.#invalidateVoice(oc);
       this.queue.push(old);
       // Alone in the queue it is the head, hence the new standby: say so in the same message.
       Object.assign(oc, { role: 'queued', standby: this.queue[0] === old, position: this.queue.length });
@@ -213,6 +255,7 @@ export class ControlHub {
       const o = this.lastStatus?.out;   // the sticks on the air: the taker's page starts from them
       const takeover = o ? { r: o.roll, p: o.pitch, y: o.yaw, th: o.throttle, m: o.mode, sp: o.speed, tu: o.turtle } : null;
       next.send({ t: 'welcome', role: 'pilot', session, ...(takeover ? { takeover } : {}) });
+      this.#readyVoice(next, nc);
       next.send({ t: 'tsync', s0: this.now() });
     } else {
       // Nobody here owns that session (its page just left): free the core's seat, so the
@@ -251,6 +294,7 @@ export class ControlHub {
     this.core.sessionStart(c.session);
     this.sentStandby = 0;          // SESSION clears the core's standby
     client.send({ t: 'welcome', role: 'pilot', session: c.session });
+    this.#readyVoice(client, c);
     client.send({ t: 'tsync', s0: this.now() });
   }
 

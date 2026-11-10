@@ -523,3 +523,15 @@ test('after taken the status names the taker', () => {
   hub.onCoreEvent({ what: 'taken', reason: 'pilot_lost', session: 43 });
   assert.equal(q.last('status').pilotName, 'luis');
 });
+
+test('voice capability is private and rotates on reconnect and takeover',()=>{
+ const {core}=setup();let session=100;
+ const hub=new ControlHub({core,voice:true,newSession:()=>++session});
+ const a=fakeClient(),b=fakeClient();hub.attach(a,ANA);hub.attach(b,ANA);
+ hub.handle(a,{t:'hello',role:'pilot'});hub.handle(b,{t:'hello',role:'pilot'});
+ const first=a.last('voice_ready');assert.ok(first.capability);assert.equal(b.last('voice_ready'),undefined);
+ hub.onCoreUp();assert.notEqual(a.last('voice_ready').capability,first.capability);
+ const prior=a.last('voice_ready');hub.onCoreEvent({what:'taken',session:hub.clients.get(b).session});
+ assert.ok(b.last('voice_ready').capability);assert.equal(hub.authorizeVoice({user:ANA.user,session:prior.session,capability:prior.capability}),null);
+ hub.onCoreDown();assert.equal(hub.authorizeVoice({user:ANA.user,...b.last('voice_ready')}),null);
+});

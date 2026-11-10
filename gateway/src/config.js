@@ -1,4 +1,5 @@
 // Gateway settings: a JSON file merged over these defaults.
+import { validatePresets } from '../../web/js/voicemaneuver.js';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +12,7 @@ export const DEFAULTS = Object.freeze({
   coreSocket: '/run/crsf-core/core.sock',
   webRoot: path.resolve(here, '../../web'),
   maxCommandAgeMs: 200,
+  voice: null,
   video: null, // { whep: 'http://127.0.0.1:8889/fpv/whep' }; null = no video
   auth: { usersFile: '/var/lib/gcs/users.json' },
   eventLog: null, // connection log file (JSON lines); null = stdout (journal)
@@ -20,6 +22,15 @@ export const DEFAULTS = Object.freeze({
 
 export function validateConfig(cfg) {
   const problems = [];
+  if (cfg.voice != null) {
+    try {
+      if (typeof cfg.voice !== 'object' || Array.isArray(cfg.voice)) throw Error();
+      const voice = { execution: 'dry-run', shortMs: 250, mediumMs: 500, strength: 50, ...cfg.voice };
+      if (!['dry-run', 'enabled'].includes(voice.execution) || Object.keys(voice).some(k => !['execution','shortMs','mediumMs','strength'].includes(k))) throw Error();
+      validatePresets(voice);
+      cfg.voice = voice;
+    } catch { problems.push('voice must contain valid execution and bounded presets'); }
+  }
   if (!Number.isInteger(cfg.listen?.port) || cfg.listen.port < 0 || cfg.listen.port > 65535) problems.push('listen.port must be 0..65535');
   if (typeof cfg.listen?.host !== 'string') problems.push('listen.host must be a string');
   if (cfg.tls !== null && (typeof cfg.tls?.cert !== 'string' || typeof cfg.tls?.key !== 'string')) problems.push('tls must be null or { cert, key }');

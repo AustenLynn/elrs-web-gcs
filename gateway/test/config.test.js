@@ -49,3 +49,10 @@ test('eventLog is null or a path', () => {
   assert.equal(validateConfig({ ...DEFAULTS, eventLog: '/tmp/e.jsonl' }).eventLog, '/tmp/e.jsonl');
   assert.throws(() => validateConfig({ ...DEFAULTS, eventLog: 5 }), /eventLog/);
 });
+
+test('voice defaults to disabled and enabling defaults to bounded dry-run',()=>{
+  assert.equal(DEFAULTS.voice,null);
+  const cfg=validateConfig({...DEFAULTS,voice:{}});
+  assert.deepEqual(cfg.voice,{execution:'dry-run',shortMs:250,mediumMs:500,strength:50});
+  for(const voice of [{strength:101},{shortMs:501,mediumMs:500},{execution:'auto'},{apiKey:'secret'},{shortMs:NaN},[]])assert.throws(()=>validateConfig({...DEFAULTS,voice}),/voice/);
+});

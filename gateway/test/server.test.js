@@ -28,7 +28,7 @@ async function fakeCore(dir) {
   return fake;
 }
 
-async function setup(t, { tls = false, webRoot = null } = {}) {
+async function setup(t, { tls = false, webRoot = null, voice = null, voiceProvider }  = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), 'gcs-gw-'));
   writeFileSync(path.join(dir, 'index.html'), '<h1>pilot</h1>');
   mkdirSync(path.join(dir, 'fonts'));
@@ -45,8 +45,8 @@ async function setup(t, { tls = false, webRoot = null } = {}) {
   await store.load();
   await store.add('ana', 'correcthorse', true);
   const cfg = { ...DEFAULTS, listen: { host: '127.0.0.1', port: 0 }, tls: tlsCfg, coreSocket: core.path, webRoot: webRoot ?? dir,
-    auth: { usersFile } };
-  const gw = await startGateway(cfg);
+    auth: { usersFile }, voice };
+  const gw = await startGateway(cfg, { voiceProvider });
   t.after(async () => { await gw.close(); await core.close(); });
   await waitFor(() => core.conn !== null);
   const base = `${tls ? 'https' : 'http'}://127.0.0.1:${gw.port}`;
@@ -372,4 +372,15 @@ test('heartbeat: a pong keeps the socket and restarts the pilot\'s grace', () =>
   assert.ok(!s.gone);
   heartbeatSweep([s], { now: 5000, pilot, holdMs: 1000 });
   assert.ok(s.gone);                                      // 2500 ms after the last pong
+});
+
+test('voice HTTP routes precede static fallback and use injected provider',async t=>{
+ let calls=0;
+ const {base,login,wsUrl}=await setup(t,{voice:{execution:'dry-run',shortMs:250,mediumMs:500,strength:50},voiceProvider:{recognize:async()=>{calls++;return {choice:'left_short',transcript:'izquierda',timing:{transcriptionMs:1,decisionMs:2}};}}});
+ const cookie=await login();const tab=await connect(wsUrl,{headers:{Cookie:cookie}});t.after(()=>tab.ws.terminate());tab.send({t:'hello',role:'pilot'});
+ await waitFor(()=>tab.msgs.some(m=>m.t==='voice_ready'));
+ const ready=tab.msgs.find(m=>m.t==='voice_ready');
+ const config=await fetch(`${base}/voice/config`,{headers:{cookie}});assert.equal(config.status,200);assert.equal((await config.json()).execution,'dry-run');
+ const res=await fetch(`${base}/voice/command`,{method:'POST',headers:{cookie,Origin:base,'Content-Type':'audio/mp4','X-Voice-Session':String(ready.session),'X-Voice-Capability':ready.capability,'X-Voice-Request':'00000000-0000-4000-8000-000000000001'},body:Buffer.from('audio')});
+ assert.equal(res.status,200);assert.equal((await res.json()).choice,'left_short');assert.equal(calls,1);
 });
