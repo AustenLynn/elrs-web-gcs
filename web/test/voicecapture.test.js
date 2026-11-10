@@ -12,3 +12,33 @@ test('oversized chunks are discarded and tracks stopped',async()=>{const s=setup
 test('late recorder stop cannot replace a new capture',async()=>{const s=setup({delayedStop:true});await s.capture.press();const old=s.capture.release();s.capture.cancel();assert.equal(await old,null);await s.capture.press();s.recorders[0].onstop();const fresh=s.capture.release();s.recorders[1].onstop();assert.ok(await fresh);assert.equal(s.stopped,2);});
 
 test('recorder stop failure releases tracks and discards recording',async()=>{const s=setup({stopThrows:true});await s.capture.press();assert.equal(await s.capture.release(),null);assert.equal(s.stopped,1);});
+
+test('queued error from canceled recorder cannot cancel a newer recording', async () => {
+  const s = setup();
+  await s.capture.press();
+  const oldRecorder = s.recorders[0];
+  s.capture.cancel();
+  await s.capture.press();
+  oldRecorder.onerror();
+  assert.equal(s.stopped, 1, 'stale error must leave new microphone tracks running');
+  assert.equal(s.recorders[1].state, 'recording');
+  assert.ok(await s.capture.release());
+  assert.equal(s.stopped, 2);
+});
+
+test('queued timeout from canceled press cannot cancel a newer recording', async (t) => {
+  const callbacks = [];
+  t.mock.method(globalThis, 'setTimeout', callback => {
+    callbacks.push(callback);
+    return 0;
+  });
+  const s = setup();
+  await s.capture.press();
+  s.capture.cancel();
+  await s.capture.press();
+  callbacks[0]();
+  assert.equal(s.stopped, 1, 'stale timeout must leave new microphone tracks running');
+  assert.equal(s.recorders[1].state, 'recording');
+  assert.ok(await s.capture.release());
+  assert.equal(s.stopped, 2);
+});

@@ -33,10 +33,13 @@ export class VoiceCapture {
         if (state.size > 524288) { state.invalid = true; state.chunks = []; }
         else if (!state.invalid) state.chunks.push(data);
       };
-      state.recorder.onerror = () => this.cancel();
+      const cancelCurrent = () => {
+        if (this.current === state && state.generation === this.generation) this.cancel();
+      };
+      state.recorder.onerror = cancelCurrent;
       state.startedAt = this.now();
       state.recorder.start();
-      state.timer = setTimeout(() => this.cancel(), 5000);
+      state.timer = setTimeout(cancelCurrent, 5000);
       this.onState({phase:'recording', error:null});
     } catch (error) {
       if (this.current === state) this.cancel();
