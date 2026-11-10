@@ -281,14 +281,20 @@ body.admin h2 { font-size: 15px; color: var(--muted); }
 .admin-msg { margin: 0; min-height: 1.3em; color: #ffd59a; }
 body.admin button { padding: 10px 12px; }
 
-/* Compact feedback stays outside the flight pads and never intercepts their gestures. */
-#voice-panel { display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; padding:.5rem; font-size:.8rem; }
-#voice-panel button { touch-action:none; }
+/* One bounded strip: recognition feedback cannot resize the cockpit under held fingers. */
+#voice-panel { display:flex; flex-shrink:0; gap:8px; align-items:center; height:34px;
+  padding:2px 6px; font-size:12px; background:var(--bar); border-top:1px solid var(--line); }
+.voice-buttons { display:flex; flex-shrink:0; gap:4px; }
+#voice-panel button { touch-action:none; padding:4px 8px; height:28px; white-space:nowrap; }
+.voice-feedback { display:grid; flex:1; min-width:0; grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+  grid-template-rows:14px 14px; column-gap:8px; line-height:14px; }
+.voice-feedback > span { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 #voice-badge { color:#ffce63; font-weight:bold; }
-#voice-transcript { overflow-wrap:anywhere; max-width:28rem; }
-#voice-action { color:#9adac9; }
-#voice-panel { flex-shrink:0; background:var(--bar); border-top:1px solid var(--line); }
-#voice-panel button { padding:6px 10px; }
-#voice-transcript { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-
+#voice-state { grid-column:2; grid-row:1; }
+#voice-transcript { grid-column:1; grid-row:2; }
+#voice-action { grid-column:2; grid-row:2; color:#9adac9; }
+#voice-unavailable { grid-column:1 / -1; grid-row:2; }
+@media (max-height:450px) {
+  body[data-input="touch"]:has(#voice-panel:not([hidden])) .cockpit { padding-top:10px; padding-bottom:10px; }
+}
 #voice-panel[hidden], #voice-panel [hidden] { display:none; }

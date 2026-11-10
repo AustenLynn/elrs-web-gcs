@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { VoiceCapture } from '../js/voicecapture.js';
+import { VoiceManeuver } from '../js/voicemaneuver.js';
 import { VoiceController } from '../js/voicecontroller.js';
 const context={role:'pilot',engaged:true,visible:true,focused:true,connected:true,armed:true,mode:'Normal',statusAt:0,heldManual:false};
 function setup(execution='enabled',trace=null){let t=0,starts=0,presses=0,canceled=0,request,resolve;const states=[];const maneuver={busy:false,configure(){},start(){starts++;this.busy=true;return true;},apply:m=>({...m,pitch:50}),cancel(){this.busy=false;},reset(){this.busy=false;}};const capture={press:async()=>{presses++;},release:async()=>({audio:new Blob(['a']),mime:'audio/webm;codecs=opus'}),cancel:()=>canceled++};const c=new VoiceController({capture,maneuver,trace,now:()=>t,onState:s=>states.push(s),fetchImpl:async(url,options)=>{request=options;return new Promise(r=>resolve=r);}});c.configure({execution,shortMs:250,mediumMs:500,strength:50});c.setSession({session:'s',capability:'c'});return {c,states,time:v=>t=v,get starts(){return starts;},get presses(){return presses;},get request(){return request;},reply(data={},ok=true){resolve({ok,json:async()=>({session:'s',requestId:request.headers['X-Voice-Request'],choice:'forward_short',transcript:'adelante',...data})});}};}
@@ -43,4 +45,54 @@ test('optional trace records release, recognition stages, start/end/cancel witho
  assert.deepEqual(events.map(e=>e.event),['release','recognition_start','transcription','decision','recognition_end','maneuver_start','maneuver_end','cancel']);
  assert.equal(JSON.stringify(events).includes('secret'),false);
  assert.equal(JSON.stringify(events).includes('adelante'),false);
+});
+
+// The real capture/controller boundary must recover without a release gesture.
+for (const failure of ['error', 'timeout']) {
+  test(`current recorder ${failure} returns controller to idle and stale callbacks spare a fresh press`, async t => {
+    const timers = [], recorders = [], states = [];
+    let stopped = 0, uploads = 0;
+    t.mock.method(globalThis, 'setTimeout', callback => { timers.push(callback); return timers.length; });
+    t.mock.method(globalThis, 'clearTimeout', () => {});
+    class Recorder {
+      static isTypeSupported() { return true; }
+      constructor() { this.state = 'inactive'; recorders.push(this); }
+      start() { this.state = 'recording'; }
+      stop() { this.state = 'inactive'; this.onstop?.(); }
+    }
+    const capture = new VoiceCapture({mediaDevices:{getUserMedia:async()=>({getTracks:()=>[{stop(){stopped++;}}]})}, MediaRecorderClass:Recorder});
+    const controller = new VoiceController({capture, maneuver:new VoiceManeuver(), onState:state=>states.push(state), fetchImpl:async()=>{uploads++;throw new Error('unexpected upload');}});
+    controller.configure({execution:'enabled',shortMs:250,mediumMs:500,strength:50});
+    controller.setSession({session:'s',capability:'c'});
+    await controller.press();
+    const fail = failure === 'error' ? () => recorders[0].onerror({message:'unsafe recorder detail'}) : timers[0];
+    fail();
+    assert.equal(controller.busy, false);
+    assert.equal(states.at(-1).phase, 'idle');
+    assert.equal(states.at(-1).error, failure === 'error' ? 'capture_failed' : 'recording_timeout');
+    assert.equal(stopped, 1);
+    await controller.release();
+    assert.equal(uploads, 0);
+    await controller.press();
+    assert.equal(controller.phase, 'recording', 'another press works immediately');
+    fail();
+    assert.equal(controller.phase, 'recording', 'queued old failure cannot cancel the new press');
+    assert.equal(stopped, 1);
+    controller.cancel('cleanup');
+    assert.equal(stopped, 2);
+  });
+}
+
+test('valid responses at and beyond the lifetime boundary report stale_result', async () => {
+  for (const age of [6000, 6001]) {
+    const s = setup();
+    const {p} = await submitted(s);
+    s.time(age);
+    s.reply();
+    await p;
+    assert.equal(s.states.at(-1).error, 'stale_result');
+    assert.equal(s.c.busy, false);
+    s.c.apply(manual, {...context,statusAt:age});
+    assert.equal(s.starts, 0);
+  }
 });

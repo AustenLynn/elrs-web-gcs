@@ -294,6 +294,7 @@ function startAgainAfterFailsafe() {
 // input is held at neutral, throttle 0, whatever the pilot does.
 setInterval(() => {
   const now = performance.now();
+  checkPadLayout();
   const locked = inputsLocked(status);
   if (locked) resetInputs();
   lastCmd = locked ? lockedCommand(mode) : currentCommand(now - lastTick);
@@ -688,17 +689,16 @@ window.addEventListener('blur', () => {
 document.addEventListener('fullscreenchange', () => {
   if (!document.fullscreenElement && inputMode !== 'touch') disengage('released');
 });
-for (const type of ['resize', 'orientationchange', 'fullscreenchange']) {
-  window.addEventListener(type, () => {
-    // Only the touch sticks sit under the pilot's fingers; other modes do not care where the pads are.
-    if (!padsAtEngage || inputMode !== 'touch') return;
-    const boxes = padBoxes();
-    const action = layoutAction({ engaged: deadman.engaged, msSinceEngage: performance.now() - engagedAt,
-      moved: padsMoved(padsAtEngage, boxes) });
-    if (action === 'resnapshot') padsAtEngage = boxes;
-    else if (action === 'disengage') disengage('layout');
-  });
+// Check on each control tick too: content/font changes can move pads without a window event.
+function checkPadLayout() {
+  if (!padsAtEngage || inputMode !== 'touch' || !deadman.engaged) return;
+  const boxes = padBoxes();
+  const action = layoutAction({ engaged: deadman.engaged, msSinceEngage: performance.now() - engagedAt,
+    moved: padsMoved(padsAtEngage, boxes) });
+  if (action === 'resnapshot') padsAtEngage = boxes;
+  else if (action === 'disengage') disengage('layout');
 }
+for (const type of ['resize', 'orientationchange', 'fullscreenchange']) window.addEventListener(type, checkPadLayout);
 
 setInputMode(loadInputMode(storage(), matchMedia('(pointer: coarse)').matches), { save: false });
 connect();

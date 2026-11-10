@@ -9,7 +9,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { firefox, tempDir, waitFor, sleep, start, login, makeUsers, openWithInputMode, fakeVoiceMedia } from './helpers.js';
 
-test('voice PTT runs on control ticks, dry-run and manual safety lifecycle', {timeout:60000}, async t => {
+async function voiceFixture(t, inputMode='keyboard') {
   const procs=[];
   const root=path.resolve(import.meta.dirname,'../../web');
   const server=createServer(async(req,res)=>{
@@ -23,9 +23,9 @@ test('voice PTT runs on control ticks, dry-run and manual safety lifecycle', {ti
   t.after(()=>page.close());
   await page.call('script.addPreloadScript',{functionDeclaration:`() => {
     document.hasFocus=()=>true;
-    window.fixture={sent:[],requests:0,delay:0,choice:'forward_short',execution:'dry-run',state:'DISARMED',flightMode:'S-NORMAL',clock:0};
+    window.fixture={sent:[],requests:0,delay:0,choice:'forward_short',execution:'dry-run',state:'DISARMED',flightMode:'S-NORMAL',modeTelemetry:true,clock:0,transcript:'adelante <b>hola</b>',error:null};
     const realNow=performance.now.bind(performance);performance.now=()=>fixture.freeze ?? (realNow()+fixture.clock);
-    class Recorder {static isTypeSupported(){return true;} constructor(){this.state='inactive';} start(){this.state='recording';} stop(){this.state='inactive';this.ondataavailable?.({data:new Blob(['fake-audio'],{type:'audio/webm;codecs=opus'})});this.onstop?.();}}
+    class Recorder {static isTypeSupported(){return true;} constructor(){this.state='inactive';fixture.recorder=this;} start(){this.state='recording';} stop(){this.state='inactive';this.ondataavailable?.({data:new Blob(['fake-audio'],{type:'audio/webm;codecs=opus'})});this.onstop?.();}}
     window.MediaRecorder=Recorder;
     window.RTCPeerConnection=class {constructor(){throw new Error('video unavailable in voice fixture');}};
     Object.defineProperty(navigator,'mediaDevices',{value:{getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})}});
@@ -33,14 +33,19 @@ test('voice PTT runs on control ticks, dry-run and manual safety lifecycle', {ti
       const answer=data=>({ok:true,json:async()=>data});
       if(url==='/me')return answer({name:'ana',admin:false});
       if(url==='/voice/config')return answer({execution:fixture.execution,shortMs:250,mediumMs:500,strength:50});
-      if(url==='/voice/command'){fixture.requests++;await new Promise(r=>setTimeout(r,fixture.delay));return answer({requestId:opts.headers['X-Voice-Request'],session:opts.headers['X-Voice-Session'],choice:fixture.choice,transcript:'adelante <b>hola</b>'});}
+      if(url==='/voice/command'){fixture.requests++;await new Promise(r=>setTimeout(r,fixture.delay));if(fixture.error)return {ok:false,json:async()=>({error:fixture.error})};return answer({requestId:opts.headers['X-Voice-Request'],session:opts.headers['X-Voice-Session'],choice:fixture.choice,transcript:fixture.transcript});}
       return {ok:false,json:async()=>({})};
     };
-    class Socket {static OPEN=1; constructor(){this.readyState=1;fixture.socket=this;setTimeout(()=>this.onopen?.(),0);} send(raw){const m=JSON.parse(raw);fixture.sent.push(m);if(m.t==='hello'){this.emit({t:'welcome',role:'pilot',session:1});this.emit({t:'voice_ready',session:1,capability:'fake-capability'});this.timer=setInterval(()=>{this.emit({t:'status',state:fixture.state});this.emit({t:'telem',flightMode:fixture.flightMode});},50);}} emit(m){this.onmessage?.({data:JSON.stringify(m)});} close(){clearInterval(this.timer);this.readyState=3;this.onclose?.({code:1000});}}
+    class Socket {static OPEN=1; constructor(){this.readyState=1;fixture.socket=this;setTimeout(()=>this.onopen?.(),0);} send(raw){const m=JSON.parse(raw);fixture.sent.push(m);if(m.t==='hello'){this.emit({t:'welcome',role:'pilot',session:1});this.emit({t:'voice_ready',session:1,capability:'fake-capability'});this.timer=setInterval(()=>{this.emit({t:'status',state:fixture.state});if(fixture.modeTelemetry)this.emit({t:'telem',flightMode:fixture.flightMode});},50);}} emit(m){this.onmessage?.({data:JSON.stringify(m)});} close(){clearInterval(this.timer);this.readyState=3;this.onclose?.({code:1000});}}
     window.WebSocket=Socket;
-    try {localStorage.setItem('gcs-input-mode','keyboard');sessionStorage.setItem('gcs-token-demo','fake');} catch {}
+    try {localStorage.setItem('gcs-input-mode','${inputMode}');sessionStorage.setItem('gcs-token-demo','fake');} catch {}
   }`});
   const url=`http://127.0.0.1:${server.address().port}/`;
+  return {page,url};
+}
+
+test('voice PTT runs on control ticks, dry-run and manual safety lifecycle', {timeout:60000}, async t => {
+  const {page,url}=await voiceFixture(t);
   await page.open(url+'?measure');
   assert.equal(await page.evaluate("!!document.getElementById('btn-voice-ptt')"),true,'voice controls exist');
   await waitFor(()=>page.evaluate("!document.getElementById('btn-voice-prepare').disabled"),3000,'preflight ready');
@@ -138,6 +143,14 @@ test('voice PTT runs on control ticks, dry-run and manual safety lifecycle', {ti
   await utterance();await sleep(350);
   assert.equal(await page.evaluate("fixture.sent.filter(m=>m.t==='ctl').every(m=>m.p===0)"),true,'held intent blocks a still-zero keyboard ramp');
   await page.evaluate("document.dispatchEvent(new KeyboardEvent('keyup',{code:'ArrowUp',bubbles:true}));fixture.freeze=null");
+  // Status stays fresh while actual Normal telemetry ages out independently.
+  await page.evaluate("fixture.modeTelemetry=false;fixture.sent=[];fixture.choice='forward_short'");
+  await sleep(650);
+  await utterance();await sleep(350);
+  assert.ok(await page.evaluate("fixture.sent.filter(m=>m.t==='ctl').length")>=10,'fresh status and manual ticks continue while mode telemetry is stale');
+  assert.equal(await page.evaluate("fixture.sent.filter(m=>m.t==='ctl').every(m=>m.p===0&&m.r===0&&m.y===0)"),true,'stale actual-mode telemetry blocks a valid voice result');
+  assert.equal(await page.evaluate("document.getElementById('voice-state').dataset.phase"),'idle');
+  await page.evaluate("fixture.modeTelemetry=true");
   // Relay origin never loads or exposes voice permission, capture or upload.
   await page.open(url+'?room=demo');
   assert.equal(await page.evaluate("typeof window.voiceLatency"),'undefined','trace absent without opt-in');
@@ -147,6 +160,87 @@ test('voice PTT runs on control ticks, dry-run and manual safety lifecycle', {ti
   assert.deepEqual(page.errors,[]);
 });
 
+
+test('voice-enabled touch pads stay usable and stable across feedback and held-stick PTT', {timeout:90000}, async t => {
+  const {page,url}=await voiceFixture(t,'touch');
+  const metrics=async()=>JSON.parse(await page.evaluate(`JSON.stringify((()=>{
+    const box=el=>el.getBoundingClientRect().toJSON();
+    return {width:innerWidth,height:innerHeight,cockpit:box(document.querySelector('.cockpit')),
+      pads:['stick-left','stick-right'].map(id=>box(document.getElementById(id))),
+      buttons:[...document.querySelectorAll('.controls button, #voice-panel button')].filter(el=>!el.hidden).map(el=>({id:el.id,...box(el)})),
+      panel:box(document.getElementById('voice-panel'))};
+  })())`));
+  const phase=()=>page.evaluate("document.getElementById('voice-state').dataset.phase");
+  const press=()=>page.evaluate("document.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyV',bubbles:true}))");
+  const release=()=>page.evaluate("document.dispatchEvent(new KeyboardEvent('keyup',{code:'KeyV',bubbles:true}))");
+  for(const width of [640,740,800,1024]) {
+    await page.call('browsingContext.setViewport',{context:page.context,viewport:{width,height:360}});
+    await page.open(url+'?measure');
+    await waitFor(()=>page.evaluate("!document.getElementById('btn-voice-prepare').disabled"),3000,'preflight ready');
+    await page.evaluate("document.getElementById('btn-voice-prepare').click();document.getElementById('btn-take').click();fixture.execution='enabled';fixture.state='ARMED';fixture.socket.emit({t:'welcome',role:'pilot',session:2});fixture.socket.emit({t:'voice_ready',session:2,capability:'next'})");
+    await waitFor(()=>page.evaluate("!document.getElementById('btn-voice-ptt').disabled && document.getElementById('voice-badge').textContent==='Movimiento temporizado'"),3000,'enabled and prepared');
+    await sleep(100);
+    await page.evaluate('fixture.clock+=2000'); // past the established full-screen settling period
+    await sleep(60);
+    const baseline=await metrics();
+    const stable=async label=>{
+      const m=await metrics();
+      for(let i=0;i<2;i++) {
+        const p=m.pads[i],b=baseline.pads[i];
+        assert.ok(p.height>=100 && p.width>=100,`${width}x360 ${label}: pad ${p.width}x${p.height}, voice footer ${m.panel.height}`);
+        assert.ok(p.top>=m.cockpit.top-1 && p.bottom<=m.cockpit.bottom+1,`${width} ${label}: pad fits cockpit`);
+        for(const key of ['left','top','width','height'])assert.ok(Math.abs(p[key]-b[key])<1,`${width} ${label}: pad ${i} ${key} moved (${b[key]} -> ${p[key]})`);
+      }
+      for(const b of m.buttons) {
+        assert.ok(b.top>=m.cockpit.bottom-1 && b.bottom<=360 && b.left>=0 && b.right<=width,`${width} ${label}: ${b.id} outside visible footer`);
+      }
+      assert.equal(await page.evaluate("document.getElementById('deadman').textContent"),'',`${width} ${label}: stable feedback keeps engagement`);
+    };
+    await stable('prepared');
+    for(const transcript of ['adelante','palabra '.repeat(125)]) {
+      await page.evaluate(`fixture.transcript=${JSON.stringify(transcript)};fixture.delay=160;fixture.choice='forward_medium';fixture.sent=[]`);
+      await press();await sleep(40);await stable('recording');await release();
+      await waitFor(async()=>await phase()==='processing',1000,'processing');await stable('processing');
+      await waitFor(async()=>await phase()==='executing',2000,'executing');
+      assert.equal(await page.evaluate("document.getElementById('voice-transcript').textContent"),transcript);
+      await stable('execution transcript '+transcript.length);
+      await waitFor(async()=>await phase()==='idle',2000,'completion');await stable('completion');
+    }
+    await page.evaluate("fixture.error='provider_timeout'");await press();await sleep(40);await release();
+    await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent==='Sin acción: provider_timeout'"),2000,'provider error');
+    await stable('provider error');
+    await page.evaluate('fixture.error=null');await press();await sleep(40);
+    await page.evaluate('fixture.recorder.onerror()');
+    await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent==='Sin acción: capture_failed'"),1000,'capture error reaches UI');
+    await stable('capture error');await release();
+    await press();await sleep(40);await page.evaluate("document.getElementById('btn-voice-cancel').click()");
+    await stable('cancellation');await release();
+    // Keep one real touch on the throttle/yaw pad and attempt PTT with another finger.
+    const left=baseline.pads[0], x=Math.round(left.x+left.width*.6),y=Math.round(left.y+left.height*.4);
+    const ptt=JSON.parse(await page.evaluate("JSON.stringify(document.getElementById('btn-voice-ptt').getBoundingClientRect().toJSON())"));
+    const touch=(id,actions)=>({type:'pointer',id,parameters:{pointerType:'touch'},actions});
+    await page.call('input.performActions',{context:page.context,actions:[touch('stick',[
+      {type:'pointerMove',x:Math.round(left.x+left.width/2),y:Math.round(left.y+left.height/2)},
+      {type:'pointerDown',button:0},{type:'pointerMove',x,y},{type:'pause',duration:100}])]});
+    const output=async()=>JSON.parse(await page.evaluate("JSON.stringify((({p,r,y,th,m,sp,tu})=>({p,r,y,th,m,sp,tu}))(fixture.sent.filter(m=>m.t==='ctl').at(-1)))"));
+    const before=await output();assert.ok(before.y>0&&before.th>0,'held pad has deliberate manual output');
+    await page.evaluate('fixture.sent=[]');
+    await page.call('input.performActions',{context:page.context,actions:[touch('ptt',[
+      {type:'pointerMove',x:Math.round(ptt.x+ptt.width/2),y:Math.round(ptt.y+ptt.height/2)},
+      {type:'pointerDown',button:0},{type:'pause',duration:120},{type:'pointerUp',button:0}]),
+      touch('stick',[{type:'pause',duration:100},{type:'pointerMove',x,y},{type:'pause',duration:120}])]});
+    await sleep(150);await stable('held stick + PTT');
+    const sent=JSON.parse(await page.evaluate("JSON.stringify(fixture.sent.filter(m=>m.t==='ctl').map(({p,r,y,th,m,sp,tu})=>({p,r,y,th,m,sp,tu})))"));
+    assert.ok(sent.length>=5,'manual control ticks continue');
+    for(const command of sent)assert.deepEqual(command,before,`${width}: PTT and feedback preserve held manual output`);
+    await page.call('input.releaseActions',{context:page.context});
+    // A deliberate content resize without any window event must use the same disengagement rule.
+    await page.evaluate("document.getElementById('voice-panel').style.height='110px'");
+    await waitFor(()=>page.evaluate("document.getElementById('deadman').textContent.includes('pantalla')"),2000,'content-driven geometry change disengages');
+    t.diagnostic(`${width}x360: pads ${baseline.pads[0].width.toFixed(1)}px; voice footer ${baseline.panel.height.toFixed(1)}px`);
+  }
+  assert.deepEqual(page.errors,[]);
+});
 
 test('real gateway cookie, pilot voice_ready capability and audio HTTP upload with injected provider', {timeout:60000}, async t => {
   const repo=path.resolve(import.meta.dirname,'../..');

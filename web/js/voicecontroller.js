@@ -10,6 +10,14 @@ export class VoiceController {
     this.config=null;
     this.session=null;
     this.pending=null;
+    const captureState = capture.onState;
+    capture.onState = state => {
+      captureState?.call(capture, state);
+      if (state.error && ['recording','processing'].includes(this.phase)) {
+        this.cancel('capture');
+        this.emit('idle', state.error);
+      }
+    };
   }
   emit(phase,error=null,extra={}) { this.phase=phase; this.onState({phase,error,transcript:this.transcript||'',choice:this.choice||'none',...extra}); }
   configure(config) {
@@ -54,7 +62,8 @@ export class VoiceController {
       const data=await response.json();
       if (generation!==this.generation || session.session!==this.session?.session || session.capability!==this.session?.capability) return;
       if (!response.ok) {this.emit('idle',typeof data.error==='string' && /^[a-z_]{1,64}$/.test(data.error)?data.error:'request_failed');return;}
-      if (this.now()-releasedAt>=LIMITS.resultMs || data.requestId!==requestId || data.session!==session.session || !CHOICES.includes(data.choice) || typeof data.transcript!=='string' || data.transcript.length>1000) {this.emit('idle','invalid_result');return;}
+      if (this.now()-releasedAt>=LIMITS.resultMs) {this.emit('idle','stale_result');return;}
+      if (data.requestId!==requestId || data.session!==session.session || !CHOICES.includes(data.choice) || typeof data.transcript!=='string' || data.transcript.length>1000) {this.emit('idle','invalid_result');return;}
       this.trace?.record('transcription',{durationMs:data.timing?.transcriptionMs});
       this.trace?.record('decision',{durationMs:data.timing?.decisionMs});
       this.trace?.record('recognition_end');

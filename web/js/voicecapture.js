@@ -33,13 +33,13 @@ export class VoiceCapture {
         if (state.size > 524288) { state.invalid = true; state.chunks = []; }
         else if (!state.invalid) state.chunks.push(data);
       };
-      const cancelCurrent = () => {
-        if (this.current === state && state.generation === this.generation) this.cancel();
+      const cancelCurrent = error => {
+        if (this.current === state && state.generation === this.generation) this.cancel(error);
       };
-      state.recorder.onerror = cancelCurrent;
+      state.recorder.onerror = () => cancelCurrent('capture_failed');
       state.startedAt = this.now();
       state.recorder.start();
-      state.timer = setTimeout(cancelCurrent, 5000);
+      state.timer = setTimeout(() => cancelCurrent('recording_timeout'), 5000);
       this.onState({phase:'recording', error:null});
     } catch (error) {
       if (this.current === state) this.cancel();
@@ -75,7 +75,7 @@ export class VoiceCapture {
       }
     });
   }
-  cancel() {
+  cancel(error = null) {
     const state=this.current;
     this.current=null;
     ++this.generation;
@@ -90,7 +90,7 @@ export class VoiceCapture {
     stopTracks(state.stream);
     state.stream=null;
     state.resolve?.(null);
-    this.onState({phase:'idle',error:null});
+    this.onState({phase:'idle',error});
   }
   dispose() { this.cancel(); }
 }
