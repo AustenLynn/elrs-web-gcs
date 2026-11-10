@@ -3,8 +3,8 @@ const LIMITS = Object.freeze({recordingMs:5000,uploadBytes:524288,uploadMs:6000,
 const neutral = manual => ['roll','pitch','yaw'].every(axis => manual[axis] === 0);
 
 export class VoiceController {
-  constructor({capture,maneuver,fetchImpl=(...args)=>globalThis.fetch(...args),now=()=>performance.now(),onState=()=>{}}) {
-    Object.assign(this,{capture,maneuver,fetchImpl,now,onState});
+  constructor({capture,maneuver,fetchImpl=(...args)=>globalThis.fetch(...args),now=()=>performance.now(),onState=()=>{},trace=null}) {
+    Object.assign(this,{capture,maneuver,fetchImpl,now,onState,trace});
     this.generation=0;
     this.phase='idle';
     this.config=null;
@@ -39,6 +39,7 @@ export class VoiceController {
   async release() {
     if (this.phase!=='recording') return;
     const generation=this.generation, session={...this.session}, releasedAt=this.now();
+    this.trace?.record('release');
     this.emit('processing');
     let timer;
     try {
@@ -48,11 +49,15 @@ export class VoiceController {
       const requestId=crypto.randomUUID();
       const abort=new AbortController(); this.abort=abort;
       timer=setTimeout(()=>{if(generation===this.generation){this.cancel('timeout');this.emit('idle','timeout');}},LIMITS.resultMs);
+      this.trace?.record('recognition_start');
       const response=await this.fetchImpl('/voice/command',{method:'POST',headers:{'Content-Type':recording.mime,'X-Voice-Request':requestId,'X-Voice-Session':session.session,'X-Voice-Capability':session.capability},body:recording.audio,signal:abort.signal});
       const data=await response.json();
       if (generation!==this.generation || session.session!==this.session?.session || session.capability!==this.session?.capability) return;
       if (!response.ok) {this.emit('idle',typeof data.error==='string' && /^[a-z_]{1,64}$/.test(data.error)?data.error:'request_failed');return;}
       if (this.now()-releasedAt>=LIMITS.resultMs || data.requestId!==requestId || data.session!==session.session || !CHOICES.includes(data.choice) || typeof data.transcript!=='string' || data.transcript.length>1000) {this.emit('idle','invalid_result');return;}
+      this.trace?.record('transcription',{durationMs:data.timing?.transcriptionMs});
+      this.trace?.record('decision',{durationMs:data.timing?.decisionMs});
+      this.trace?.record('recognition_end');
       this.choice=data.choice;this.transcript=data.transcript;
       this.pending={choice:data.choice,releasedAt,generation};
       this.emit('ready');
@@ -60,6 +65,7 @@ export class VoiceController {
     finally {clearTimeout(timer);if(generation===this.generation)this.abort=null;}
   }
   cancel(reason,{clearRepeat=true}={}) {
+    if(this.phase!=='idle')this.trace?.record('cancel');
     ++this.generation;
     this.abort?.abort();this.abort=null;
     this.capture.cancel();this.pending=null;
@@ -79,10 +85,11 @@ export class VoiceController {
       if(this.config?.execution==='dry-run'){this.emit('idle',null,{dryRun:true});return {...manual};}
       if(!liveSafe){this.cancel('context');return {...manual};}
       if(pending.choice==='none' || !this.maneuver.start(pending.choice)){this.emit('idle');return {...manual};}
+      this.trace?.record('maneuver_start');
       this.emit('executing');
     }
     if(this.maneuver.busy && !liveSafe){this.cancel('context');return {...manual};}
-    if(this.phase==='executing'&&!this.maneuver.busy)this.emit('idle');
+    if(this.phase==='executing'&&!this.maneuver.busy){this.trace?.record('maneuver_end');this.emit('idle');}
     return this.maneuver.busy ? this.maneuver.apply(manual) : {...manual};
   }
 }

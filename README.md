@@ -25,6 +25,13 @@ Architecture overview: `docs/ARCHITECTURE.md`. How we work: `docs/DEVELOPMENT-PR
 Design: `docs/superpowers/specs/2026-10-05-elrs-web-gcs-design.md`.
 Plans, one per milestone: `docs/superpowers/plans/`.
 
+## Voice demo
+
+Optional Spanish/English push-to-talk commands use bounded timed horizontal/yaw inputs.
+Voice ships disabled; enable simulation first using [voice setup](docs/setup/voice.md).
+[Real microphone evaluation and aircraft calibration](docs/procedures/voice-demo.md) remain
+operator work. Manual throttle, arming and safety controls remain in charge. Relay voice is unavailable.
+
 ## Tests
 
 ```bash

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { VoiceController } from '../js/voicecontroller.js';
 const context={role:'pilot',engaged:true,visible:true,focused:true,connected:true,armed:true,mode:'Normal',statusAt:0,heldManual:false};
-function setup(execution='enabled'){let t=0,starts=0,presses=0,canceled=0,request,resolve;const states=[];const maneuver={busy:false,configure(){},start(){starts++;this.busy=true;return true;},apply:m=>({...m,pitch:50}),cancel(){this.busy=false;},reset(){this.busy=false;}};const capture={press:async()=>{presses++;},release:async()=>({audio:new Blob(['a']),mime:'audio/webm;codecs=opus'}),cancel:()=>canceled++};const c=new VoiceController({capture,maneuver,now:()=>t,onState:s=>states.push(s),fetchImpl:async(url,options)=>{request=options;return new Promise(r=>resolve=r);}});c.configure({execution,shortMs:250,mediumMs:500,strength:50});c.setSession({session:'s',capability:'c'});return {c,states,time:v=>t=v,get starts(){return starts;},get presses(){return presses;},get request(){return request;},reply(data={},ok=true){resolve({ok,json:async()=>({session:'s',requestId:request.headers['X-Voice-Request'],choice:'forward_short',transcript:'adelante',...data})});}};}
+function setup(execution='enabled',trace=null){let t=0,starts=0,presses=0,canceled=0,request,resolve;const states=[];const maneuver={busy:false,configure(){},start(){starts++;this.busy=true;return true;},apply:m=>({...m,pitch:50}),cancel(){this.busy=false;},reset(){this.busy=false;}};const capture={press:async()=>{presses++;},release:async()=>({audio:new Blob(['a']),mime:'audio/webm;codecs=opus'}),cancel:()=>canceled++};const c=new VoiceController({capture,maneuver,trace,now:()=>t,onState:s=>states.push(s),fetchImpl:async(url,options)=>{request=options;return new Promise(r=>resolve=r);}});c.configure({execution,shortMs:250,mediumMs:500,strength:50});c.setSession({session:'s',capability:'c'});return {c,states,time:v=>t=v,get starts(){return starts;},get presses(){return presses;},get request(){return request;},reply(data={},ok=true){resolve({ok,json:async()=>({session:'s',requestId:request.headers['X-Voice-Request'],choice:'forward_short',transcript:'adelante',...data})});}};}
 const manual={roll:0,pitch:0,yaw:0,throttle:0,mode:0};
 async function submitted(s){await s.c.press();const p=s.c.release();await new Promise(r=>setImmediate(r));return {p};}
 test('result starts only inside apply with current context',async()=>{const s=setup();const {p}=await submitted(s);s.reply();await p;assert.equal(s.starts,0);s.c.apply(manual,context);assert.equal(s.starts,1);});
@@ -32,4 +32,15 @@ test('default browser fetch retains global receiver', async t => {
   assert.equal(states.at(-1).phase,'ready');
   assert.equal(states.at(-1).error,null);
   c.cancel('cleanup');
+});
+
+
+test('optional trace records release, recognition stages, start/end/cancel without speech or identity',async()=>{
+ const events=[];const s=setup('enabled',{record:(event,data)=>events.push({event,...data})});
+ const {p}=await submitted(s);s.reply({timing:{transcriptionMs:12,decisionMs:8}});await p;
+ s.c.apply(manual,context);s.c.maneuver.busy=false;s.c.apply(manual,context);
+ await s.c.press();s.c.cancel('manual_secret');
+ assert.deepEqual(events.map(e=>e.event),['release','recognition_start','transcription','decision','recognition_end','maneuver_start','maneuver_end','cancel']);
+ assert.equal(JSON.stringify(events).includes('secret'),false);
+ assert.equal(JSON.stringify(events).includes('adelante'),false);
 });

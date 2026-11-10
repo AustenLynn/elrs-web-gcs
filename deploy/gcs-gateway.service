@@ -8,6 +8,7 @@ Type=simple
 User=gcs
 Group=gcs
 WorkingDirectory=/opt/gcs/gateway
+EnvironmentFile=-/etc/gcs/openai.env
 ExecStart=/usr/bin/node /opt/gcs/gateway/src/main.js /etc/gcs/gateway.json
 # Safe to restart: while the gateway is down the core sees "gateway lost" and fails safe;
 # the pilot reconnects with a new session and must clear the failsafe and re-arm.

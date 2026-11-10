@@ -20,3 +20,10 @@ test('video runs as its own user, never as the gcs user that owns crsf-core and 
   assert.match(unit, /^Group=gcs-video$/m);
   assert.match(read('install.sh'), /useradd .*gcs-video/);
 });
+
+
+test('shipped gateway explicitly disables voice and loads optional external credentials', () => {
+  assert.equal(JSON.parse(read('gateway.json')).voice, null);
+  assert.match(read('gcs-gateway.service'), /^EnvironmentFile=-\/etc\/gcs\/openai\.env$/m);
+  assert.doesNotMatch(read('gateway.json'), /OPENAI_API_KEY|apiKey|sk-/);
+});

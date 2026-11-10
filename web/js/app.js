@@ -16,12 +16,15 @@ import { LinkTracker, failsafeAlert, formatBattery, formatCmdAge, formatFlightMo
 import { keepPlaying } from './whep.js';
 import { ControlTrace } from './controltrace.js';
 import { VoiceCapture } from './voicecapture.js';
+import { VoiceTrace } from './voicetrace.js';
 import { VoiceController } from './voicecontroller.js';
 import { VoiceManeuver } from './voicemaneuver.js';
 
 // Add ?measure to opt in. Export after a props-off bench run with controlLatency.download().
 const controlTrace = new URLSearchParams(location.search).has('measure') ? new ControlTrace() : null;
 if (controlTrace) window.controlLatency = controlTrace;
+const voiceTrace = controlTrace ? new VoiceTrace() : null;
+if (voiceTrace) window.voiceLatency = voiceTrace;
 
 const $ = (id) => document.getElementById(id);
 const wantRole = new URLSearchParams(location.search).has('observe') ? 'observer' : 'pilot';
@@ -74,7 +77,7 @@ const heldFlightKeys = new Set();
 const heldFlightPointers = new Set();
 let voicePreviousPhase = 'idle';
 const capture = new VoiceCapture();
-const voice = new VoiceController({ capture, maneuver: new VoiceManeuver(), onState: state => {
+const voice = new VoiceController({ trace: voiceTrace, capture, maneuver: new VoiceManeuver(), onState: state => {
   const messages = {idle:'Lista',recording:'Escuchando… suelta para enviar',processing:'Interpretando…',ready:'Interpretado',executing:'Movimiento temporizado'};
   $('voice-state').dataset.phase = state.phase;
   $('voice-state').textContent = state.error ? `Sin acción: ${state.error}` : state.dryRun ? 'Simulación: sin movimiento' : state.phase === 'idle' && voicePreviousPhase === 'executing' ? 'Movimiento terminado' : messages[state.phase];

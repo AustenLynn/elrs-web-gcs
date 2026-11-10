@@ -820,3 +820,33 @@ restart signs everyone out.
 | **FAILSAFE (latched)** | The safe state entered on any link loss; it lasts until explicitly cleared |
 | **WHEP** | WebRTC-HTTP Egress Protocol, used by browsers to start WebRTC playback |
 | **VLOS / BVLOS** | Visual line of sight / beyond visual line of sight |
+
+
+## 16. Optional gateway-origin voice
+
+Voice ships as `voice: null`. When configured, authenticated `GET /voice/config` exposes
+only bounded presets/execution/limits. Raw `POST /voice/command` audio requires the
+signed-in username plus the exact active WebSocket pilot's session and private capability,
+rechecked on completion. Tokens rotate on ownership changes; requests are bounded and
+canceled/consumed IDs cannot be replayed during a capability lifetime. Relay clients are excluded.
+
+`gateway/src/voiceprovider.js` transcribes a bounded recording then classifies into a finite
+bilingual direction/tier catalog. No numeric movement comes from the model. The API key
+is server environment only; optional `/etc/gcs/openai.env` is root-managed outside the
+repository. No application audio persistence or raw provider-error logging is added.
+Missing credentials fail voice requests without preventing gateway/manual control.
+
+`voicecapture.js` owns permission, codec checks and discard/cancel lifecycle;
+`voicecontroller.js` validates identity, freshness and readiness; `voicemaneuver.js` owns
+a pure monotonic deadline scheduler. Recognition only stages a result. The existing 50 Hz
+app control interval applies an overlay after dead-man checks, preserving throttle and the
+existing core safety authority. Physical manual intent cancels before ramp advancement.
+Normal flight telemetry, armed/fresh status and focused/visible engaged ownership gate live
+output. Simulation never starts an overlay; suspension cannot extend a deadline.
+
+`?measure` additionally exposes bounded memory-only `voiceLatency` timing snapshots,
+with finite event names/timestamps/durations and no media, speech or identity. Stage
+durations are server measurements reported at response arrival, not synchronized stage
+boundary timestamps. See [setup and trace semantics](setup/voice.md) and the
+[deferred real-device/aircraft calibration procedure](procedures/voice-demo.md).
+Timed input does not promise distance, stopping or position hold.

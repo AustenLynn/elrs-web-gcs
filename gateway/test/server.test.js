@@ -384,3 +384,19 @@ test('voice HTTP routes precede static fallback and use injected provider',async
  const res=await fetch(`${base}/voice/command`,{method:'POST',headers:{cookie,Origin:base,'Content-Type':'audio/mp4','X-Voice-Session':String(ready.session),'X-Voice-Capability':ready.capability,'X-Voice-Request':'00000000-0000-4000-8000-000000000001'},body:Buffer.from('audio')});
  assert.equal(res.status,200);assert.equal((await res.json()).choice,'left_short');assert.equal(calls,1);
 });
+
+test('missing voice credentials preserve startup and manual WebSocket control; config is public-only',async t=>{
+ const previousEnv=process.env;
+ process.env={...process.env,OPENAI_API_KEY:''};
+ t.after(()=>{process.env=previousEnv;});
+ const {base,login,wsUrl,core}=await setup(t,{voice:{execution:'dry-run',shortMs:250,mediumMs:500,strength:50}});
+ const cookie=await login();const tab=await connect(wsUrl,{headers:{Cookie:cookie}});t.after(()=>tab.ws.terminate());tab.send({t:'hello',role:'pilot'});
+ await waitFor(()=>tab.msgs.some(m=>m.t==='voice_ready'));
+ const ready=tab.msgs.find(m=>m.t==='voice_ready');
+ const config=await fetch(`${base}/voice/config`,{headers:{cookie}});
+ assert.deepEqual(Object.keys(await config.json()).sort(),['execution','limits','mediumMs','shortMs','strength']);
+ const res=await fetch(`${base}/voice/command`,{method:'POST',headers:{cookie,Origin:base,'Content-Type':'audio/webm','X-Voice-Session':String(ready.session),'X-Voice-Capability':ready.capability,'X-Voice-Request':'00000000-0000-4000-8000-000000000002'},body:Buffer.from('audio')});
+ assert.equal(res.status,503);assert.deepEqual(await res.json(),{error:'provider_unconfigured'});
+ tab.send({t:'ctl',seq:1,ts:Date.now(),r:0,p:0,y:0,th:0,m:0});
+ await waitFor(()=>core.received.some(m=>m.type===MSG.CONTROL));
+});

@@ -41,7 +41,7 @@ test('voice PTT runs on control ticks, dry-run and manual safety lifecycle', {ti
     try {localStorage.setItem('gcs-input-mode','keyboard');sessionStorage.setItem('gcs-token-demo','fake');} catch {}
   }`});
   const url=`http://127.0.0.1:${server.address().port}/`;
-  await page.open(url);
+  await page.open(url+'?measure');
   assert.equal(await page.evaluate("!!document.getElementById('btn-voice-ptt')"),true,'voice controls exist');
   await waitFor(()=>page.evaluate("!document.getElementById('btn-voice-prepare').disabled"),3000,'preflight ready');
   await page.evaluate("document.getElementById('btn-take').click();document.getElementById('btn-voice-prepare').click()");
@@ -63,6 +63,9 @@ test('voice PTT runs on control ticks, dry-run and manual safety lifecycle', {ti
   await waitFor(()=>page.evaluate("fixture.sent.some(m=>m.t==='ctl'&&m.p===50)"),2000,'immediate timed output');
   await sleep(350);
   assert.equal(await page.evaluate("fixture.sent.filter(m=>m.t==='ctl').at(-1).p"),0,'duration completes');
+  const trace=JSON.parse(await page.evaluate('JSON.stringify(window.voiceLatency.snapshot())'));
+  for(const event of ['release','recognition_start','transcription','decision','recognition_end','maneuver_start','maneuver_end'])assert.ok(trace.some(row=>row.event===event),`trace ${event}`);
+  assert.ok(trace.every(row=>Object.keys(row).every(key=>['event','atMs','durationMs'].includes(key))),'trace contains timing only');
   await page.evaluate("fixture.delay=500;fixture.sent=[]");
   await press();await sleep(50);await release();await sleep(150);
   assert.ok(await page.evaluate("fixture.sent.filter(m=>m.t==='ctl').length")>=4,'normal ctl continues during provider delay');
@@ -137,6 +140,7 @@ test('voice PTT runs on control ticks, dry-run and manual safety lifecycle', {ti
   await page.evaluate("document.dispatchEvent(new KeyboardEvent('keyup',{code:'ArrowUp',bubbles:true}));fixture.freeze=null");
   // Relay origin never loads or exposes voice permission, capture or upload.
   await page.open(url+'?room=demo');
+  assert.equal(await page.evaluate("typeof window.voiceLatency"),'undefined','trace absent without opt-in');
   await sleep(100);
   assert.equal(await page.evaluate("document.getElementById('btn-voice-ptt').disabled"),true);
   assert.match(await page.evaluate("document.getElementById('voice-unavailable').textContent"),/relay/);
