@@ -81,4 +81,10 @@ export class VoiceManeuver {
   reset() {
     this.cancel();
   }
+
+  configure(presets) {
+    const validated = validatePresets(presets);
+    this.reset();
+    this.#presets = validated;
+  }
 }

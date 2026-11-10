@@ -121,3 +121,15 @@ test('catalog_directions_and_medium_duration', () => {
     }
   }
 });
+
+test('configure validates before replacing presets and clears repeat', () => {
+  let t=0;
+  const maneuver = new VoiceManeuver({now:()=>t});
+  maneuver.start('forward_short');t=250;
+  assert.equal(maneuver.lastCompletedDirection,'forward');
+  maneuver.configure({shortMs:100,mediumMs:200,strength:20});
+  assert.equal(maneuver.lastCompletedDirection,null);
+  assert.throws(()=>maneuver.configure({shortMs:100,mediumMs:200,strength:101}));
+  maneuver.start('left_short');
+  assert.equal(maneuver.apply({roll:0,pitch:0,yaw:0}).roll,-20);
+});
