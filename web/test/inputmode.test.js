@@ -1,7 +1,7 @@
 import { setLanguage } from '../js/i18n.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { INPUT_MODES, canSwitchInput, channelsCommand, defaultInputMode, enteringFailsafe, inputsLocked, loadInputMode, lockedCommand, padPositions, readouts, saveInputMode, seedInputs } from '../js/inputmode.js';
+import { INPUT_MODES, canSwitchInput, channelsCommand, defaultInputMode, enteringFailsafe, inputsLocked,  isTypingTarget, loadInputMode, lockedCommand, padPositions, readouts, saveInputMode, seedInputs } from '../js/inputmode.js';
 import { KeyboardModel } from '../js/keyboard.js';
 import { StepModel } from '../js/stepper.js';
 import { StickModel, sticksToCommand } from '../js/sticks.js';
@@ -95,4 +95,14 @@ test('the drone\'s channels read back as the command that produced them (CH1-4 =
   assert.deepEqual(channelsCommand([172, 1811, 172, 1811], 2), { roll: -1000, pitch: 1000, yaw: 1000, throttle: 0, mode: 2 });
   assert.equal(channelsCommand(undefined, 0), null);
   assert.equal(channelsCommand([992], 0), null);
+});
+
+test('typing target: the language selector never swallows flight keys, other fields still do', () => {
+  const target = (selectors, editable = false) => ({ isContentEditable: editable, matches: (q) => selectors.includes(q) });
+  const fields = 'input, textarea, select';
+  assert.equal(isTypingTarget(target([fields, '[data-language-select]'])), false);
+  assert.equal(isTypingTarget(target([fields])), true);
+  assert.equal(isTypingTarget(target([], true)), true);
+  assert.equal(isTypingTarget(target([])), false);
+  assert.equal(isTypingTarget(null), false);
 });

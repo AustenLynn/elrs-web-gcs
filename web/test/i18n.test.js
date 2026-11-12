@@ -61,11 +61,12 @@ test('marked labels and accessibility attributes update while user content stays
   const label={dataset:{i18n:'pilotLine'},textContent:''};
   const user={textContent:'<b>ana</b>'};
   const attributes={'data-i18n-aria-label':'language','aria-label':''};
-  const control={value:'',events:{},getAttribute:key=>attributes[key],setAttribute:(key,value)=>{attributes[key]=value;},addEventListener:(name,handler)=>{control.events[name]=handler;}};
+  const control={value:'',blurred:0,blur(){control.blurred++;},events:{},getAttribute:key=>attributes[key],setAttribute:(key,value)=>{attributes[key]=value;},addEventListener:(name,handler)=>{control.events[name]=handler;}};
   const doc={documentElement:{lang:''},querySelectorAll:selector=>selector==='[data-i18n]'?[label]:selector==='[data-i18n-aria-label]'||selector==='[data-language-select]'?[control]:[]};
   i18n.setLanguage('es'); i18n.initLanguageUI(doc);
   assert.equal(doc.documentElement.lang,'es'); assert.equal(attributes['aria-label'],'Idioma');
   control.value='en';control.events.change();
+  assert.equal(control.blurred,1); // focus returns to the page so flight keys are not captured
   assert.equal(doc.documentElement.lang,'en'); assert.equal(attributes['aria-label'],'Language');
   assert.equal(label.textContent,'Pilot: {pilot} · Standby: {standby}');
   assert.equal(user.textContent,'<b>ana</b>');

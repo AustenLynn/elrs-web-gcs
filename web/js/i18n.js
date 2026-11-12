@@ -602,7 +602,7 @@ export function initLanguageUI(doc) {
     }
     for (const select of doc.querySelectorAll('[data-language-select]')) select.value = language;
   };
-  for (const select of doc.querySelectorAll('[data-language-select]')) select.addEventListener('change', () => setLanguage(select.value));
+  for (const select of doc.querySelectorAll('[data-language-select]')) select.addEventListener('change', () => { setLanguage(select.value); select.blur(); });
   onLanguageChange(apply);
   apply();
 }

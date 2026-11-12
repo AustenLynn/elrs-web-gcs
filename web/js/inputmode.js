@@ -81,3 +81,10 @@ export function readouts(cmd) {
     right: t('pitch.pitch.roll.roll', { pitch: signed(cmd.pitch), roll: signed(cmd.roll) }),
   };
 }
+
+/** True while a key press belongs to a text/number field. The language selector is excluded: it keeps
+ *  focus after a mouse pick and must never disable the pilot's flight and safety keys. */
+export function isTypingTarget(el) {
+  if (!el || el.matches('[data-language-select]')) return false;
+  return el.matches('input, textarea, select') || el.isContentEditable === true;
+}

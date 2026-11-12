@@ -6,7 +6,7 @@ import { t, onLanguageChange, initLanguageUI } from './i18n.js';
 // drone's last command) or «Aterrizar»; the core decides, the page only asks.
 import { Deadman, DEADMAN_TEXT } from './deadman.js';
 import { HoldGesture, bindHold } from './hold.js';
-import { canSwitchInput, channelsCommand, enteringFailsafe, inputsLocked, loadInputMode, lockedCommand, padPositions, readouts, saveInputMode, seedInputs } from './inputmode.js';
+import { canSwitchInput, channelsCommand, enteringFailsafe, inputsLocked, isTypingTarget, loadInputMode, lockedCommand, padPositions, readouts, saveInputMode, seedInputs } from './inputmode.js';
 import { KEY_ACTIONS, KeyboardModel, MODE_KEYS } from './keyboard.js';
 import { RATE_HZ, closeAction, connectionTarget, controlMessage, eventReaction, shouldReclaimPilotSeat, tsyncReply } from './protocol.js';
 import { StepModel, capChangeAllowed } from './stepper.js';
@@ -671,7 +671,7 @@ for (const row of document.querySelectorAll('#panel-step .axis')) {
 // Keyboard: flight keys in the keyboard mode (held) and the step mode (one step per press); action keys (disarm, failsafe, arm, release,
 // flight mode) in every mode. Never while typing a value.
 const armKey = new HoldGesture(1000, () => send({ t: 'arm' }));
-const typing = (ev) => ev.target instanceof Element && (ev.target.matches('input, textarea, select') || ev.target.isContentEditable);
+const typing = (ev) => ev.target instanceof Element && isTypingTarget(ev.target);
 document.addEventListener('keydown', (ev) => {
   if (role !== 'pilot' || typing(ev) || ev.ctrlKey || ev.metaKey || ev.altKey) return;
   if ((inputMode === 'keyboard' && keyboard.keyDown(ev.code, ev.repeat))
