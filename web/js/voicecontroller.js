@@ -1,5 +1,6 @@
 import { CHOICES, validatePresets } from './voicemaneuver.js';
 const LIMITS = Object.freeze({recordingMs:5000,uploadBytes:524288,uploadMs:6000,processingMs:5000,resultMs:6000,statusMs:500});
+const REASONS = new Set(['ready','core_stale','pilot_mismatch','not_armed','unsafe_state','not_normal','turtle_active','link_stale','link_lost','normal_unconfirmed']);
 const neutral = manual => ['roll','pitch','yaw'].every(axis => manual[axis] === 0);
 
 export class VoiceController {
@@ -19,7 +20,13 @@ export class VoiceController {
       }
     };
   }
-  emit(phase,error=null,extra={}) { this.phase=phase; this.onState({phase,error,transcript:this.transcript||'',choice:this.choice||'none',...extra}); }
+  emit(phase,error=null,extra={}) { this.phase=phase;this.error=error;this.reason=extra.reason??null; this.onState({phase,error,transcript:this.transcript||'',choice:this.choice||'none',...extra}); }
+  onReadiness(readiness) {
+    if (this.phase!=='idle' || this.error!=='not_ready') return;
+    if (readiness?.ready===true) {this.emit('idle');return;}
+    const reason=REASONS.has(readiness?.reason) && readiness.reason!=='ready' ? readiness.reason : null;
+    if (reason!==this.reason) this.emit('idle','not_ready',{reason});
+  }
   configure(config) {
     if (config !== null) {
       validatePresets(config);
@@ -61,7 +68,7 @@ export class VoiceController {
       const response=await this.fetchImpl('/voice/command',{method:'POST',headers:{'Content-Type':recording.mime,'X-Voice-Request':requestId,'X-Voice-Session':session.session,'X-Voice-Capability':session.capability},body:recording.audio,signal:abort.signal});
       const data=await response.json();
       if (generation!==this.generation || session.session!==this.session?.session || session.capability!==this.session?.capability) return;
-      if (!response.ok) {this.emit('idle',typeof data.error==='string' && /^[a-z_]{1,64}$/.test(data.error)?data.error:'request_failed');return;}
+      if (!response.ok) {this.emit('idle',typeof data.error==='string' && /^[a-z_]{1,64}$/.test(data.error)?data.error:'request_failed',{reason:REASONS.has(data.reason)?data.reason:null});return;}
       if (this.now()-releasedAt>=LIMITS.resultMs) {this.emit('idle','stale_result');return;}
       if (data.requestId!==requestId || data.session!==session.session || !CHOICES.includes(data.choice) || typeof data.transcript!=='string' || data.transcript.length>1000) {this.emit('idle','invalid_result');return;}
       this.trace?.record('transcription',{durationMs:data.timing?.transcriptionMs});
@@ -73,19 +80,20 @@ export class VoiceController {
     } catch { if(generation===this.generation) this.emit('idle','request_failed'); }
     finally {clearTimeout(timer);if(generation===this.generation)this.abort=null;}
   }
-  cancel(reason,{clearRepeat=true}={}) {
+  cancel(reason,{clearRepeat=true,preserveReadiness=false}={}) {
+    const readiness=preserveReadiness && this.phase==='idle' && this.error==='not_ready' ? {reason:this.reason} : null;
     if(this.phase!=='idle')this.trace?.record('cancel');
     ++this.generation;
     this.abort?.abort();this.abort=null;
     this.capture.cancel();this.pending=null;
     this.maneuver.cancel({clearRepeat});
-    this.emit('idle');
+    this.emit('idle',readiness?'not_ready':null,readiness??{});
   }
   reset() {this.cancel('reset');this.session=null;this.transcript='';this.choice='none';this.maneuver.reset();this.emit('idle');}
   apply(manual,context={}) {
     const baseSafe=context.role==='pilot' && context.engaged===true && context.visible===true && context.focused===true && context.connected===true && context.heldManual===false && neutral(manual);
     const age=this.now()-context.statusAt;
-    const liveSafe=baseSafe && context.armed===true && context.mode==='Normal' && age>=0 && age<LIMITS.statusMs;
+    const liveSafe=baseSafe && context.voiceReady===true && context.armed===true && context.mode==='Normal' && age>=0 && age<LIMITS.statusMs;
     if ((this.phase!=='idle'||this.maneuver.busy) && !baseSafe) {this.cancel('context');return {...manual};}
     const pending=this.pending;
     if(pending){

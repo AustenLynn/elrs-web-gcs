@@ -4,8 +4,8 @@ import { CHOICES } from '../../web/js/voicemaneuver.js';
 export const VOICE_LIMITS = Object.freeze({ recordingMs:5000, uploadBytes:512*1024, uploadMs:6000, processingMs:5000, resultMs:6000, statusMs:500 });
 const MIME = new Set(['audio/webm','audio/webm;codecs=opus','audio/mp4','audio/mp4;codecs=mp4a.40.2']);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-class RouteError extends Error { constructor(status, code) { super(code); this.status=status; this.code=code; } }
-const fail = (status, code) => new RouteError(status, code);
+class RouteError extends Error { constructor(status, code, reason) { super(code); this.status=status; this.code=code; this.reason=reason; } }
+const fail = (status, code, reason) => new RouteError(status, code, reason);
 function send(res, status, body) {
   res.writeHead(status, { 'Content-Type':'application/json', 'Cache-Control':'no-store', ...([408,413].includes(status)?{Connection:'close'}:{}) });
   res.end(JSON.stringify(body));
@@ -70,7 +70,7 @@ export function voiceRoutes({cfg,hub,sessions,provider,now=()=>performance.now()
       const length=req.headers['content-length'];
       if(length!==undefined&&(typeof length!=='string'||!/^\d{1,10}$/.test(length)))throw fail(400,'invalid_length');
       if(length!==undefined&&Number(length)>VOICE_LIMITS.uploadBytes)throw fail(413,'audio_too_large');
-      if(cfg.voice.execution==='enabled'&&!hub.voiceLiveReady(session))throw fail(409,'not_ready');
+      if(cfg.voice.execution==='enabled'){const readiness=hub.voiceReadiness(session);if(!readiness.ready)throw fail(409,'not_ready',readiness.reason);}
       state=states.get(capability);
       if(!state){state={ids:new Set(),last:-Infinity,busy:false,record:hub.clients.get(client)};states.set(capability,state);}
       if(state.busy||state.ids.has(requestId)||now()-state.last<1000||pipeline)throw fail(409,'busy');
@@ -96,7 +96,7 @@ export function voiceRoutes({cfg,hub,sessions,provider,now=()=>performance.now()
       });
       const result=await Promise.race([pending,canceled]);
       if(!sessions.get(cookieToken(req))||hub.authorizeVoice({user:sessions.get(cookieToken(req)),session,capability})!==client)throw fail(409,'session_changed');
-      if(cfg.voice.execution==='enabled'&&!hub.voiceLiveReady(session))throw fail(409,'not_ready');
+      if(cfg.voice.execution==='enabled'){const readiness=hub.voiceReadiness(session);if(!readiness.ready)throw fail(409,'not_ready',readiness.reason);}
       if(!CHOICES.includes(result?.choice)||typeof result.transcript!=='string'||result.transcript.length>1000)throw fail(502,'provider_error');
       const timing={};for(const key of ['transcriptionMs','decisionMs']){const v=result.timing?.[key];timing[key]=Number.isFinite(v)&&v>=0?v:0;}
       send(res,200,{requestId,session,choice:result.choice,transcript:result.transcript,timing});
@@ -104,7 +104,7 @@ export function voiceRoutes({cfg,hub,sessions,provider,now=()=>performance.now()
       const own=err instanceof RouteError;
       const status=own?err.status:(err?.code==='provider_unconfigured'?503:502);
       // Only errors created in this module are allowed to carry response codes.
-      send(res,status,{error:own?err.code:status===503?'provider_unconfigured':'provider_error'});
+      send(res,status,{error:own?err.code:status===503?'provider_unconfigured':'provider_error',...(own&&err.code==='not_ready'?{reason:err.reason}:{})});
     }finally{
       clearTimeout(timer);
       if(task){req.off('aborted',onDisconnect);res.off?.('close',onDisconnect);work.delete(task);state.busy=false;}

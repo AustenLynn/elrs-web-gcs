@@ -37,7 +37,7 @@ test('busy and duplicate requests rejected; ctl remains synchronous',async()=>{
 });
 for(const change of ['cookie','owner'])test(`rechecks ${change} after recognition`,async()=>{let finish;const s=setup('dry-run',()=>new Promise(r=>{finish=r;}));const a=s.request();await new Promise(setImmediate);if(change==='cookie')s.sessions.delete(s.token);else s.hub.detach(s.client);finish({choice:'none',transcript:'',timing:{}});assert.equal((await a.done).status,409);s.route.close();});
 test('provider exceptions are sanitized',async()=>{const s=setup('dry-run',()=>{throw Error('secret-token-key');});const r=await s.request().done;assert.equal(r.status,502);assert.equal(JSON.stringify(r).includes('secret'),false);s.route.close();});
-test('live requires fresh armed Normal state and telemetry',async()=>{const s=setup('enabled');assert.equal((await s.request().done).status,409);s.hub.onCoreStatus({state:'ARMED',session:42,out:{mode:0,turtle:0}});s.hub.onCoreTelemetry('flightMode','S-NORMAL');s.setTime(3000);assert.equal((await s.request().done).status,409);s.hub.onCoreStatus({state:'ARMED',session:42,out:{mode:0,turtle:0}});s.hub.onCoreTelemetry('flightMode','S-NORMAL');assert.equal((await s.request().done).status,200);s.route.close();});
+test('live requires fresh armed Normal state and telemetry',async()=>{const s=setup('enabled');assert.equal((await s.request().done).status,409);s.hub.onCoreStatus({state:'ARMED',session:42,out:{mode:0,turtle:0}});s.hub.onCoreTelemetry('flightMode','S-NORMAL');s.setTime(3000);assert.equal((await s.request().done).status,409);s.hub.onCoreStatus({state:'ARMED',session:42,out:{mode:0,turtle:0}});s.hub.onCoreTelemetry('link',{upLq:95});s.hub.onCoreTelemetry('flightMode','S-NORMAL');assert.equal((await s.request().done).status,200);s.route.close();});
 test('disabled feature never calls provider',async()=>{const s=setup();const route=voiceRoutes({cfg:{voice:null},hub:s.hub,sessions:s.sessions,provider:{recognize:()=>assert.fail()}});const req=new PassThrough();Object.assign(req,{url:'/voice/command',method:'POST',headers:{cookie:`gcs_session=${s.token}`,origin:'http://gcs.test',host:'gcs.test'}});let status;await route(req,{writeHead:s=>{status=s;},end:()=>{}});assert.equal(status,404);route.close();s.route.close();});
 test('aborted uploads release admission slots',async()=>{const s=setup();const a=s.request({},null);a.req.emit('aborted');await a.done;s.setTime(3000);assert.equal((await s.request().done).status,200);s.route.close();});
 test('upload timeout is bounded',async()=>{const s=setup();assert.equal((await s.request({},null).done).status,408);s.route.close();});
@@ -51,3 +51,34 @@ test('cookie expiration during recognition invalidates the response',async()=>{l
 test('matching HTTPS gateway origin works without trusting proxy scheme headers',async()=>{const s=setup();assert.equal((await s.request({origin:'https://gcs.test'},Buffer.from('audio'),true).done).status,200);s.route.close();const t=setup();assert.equal((await t.request({origin:'https://gcs.test','x-forwarded-proto':'https'}).done).status,403);t.route.close();});
 test('late upload transport errors after abort cannot escape the HTTP handler',async()=>{const s=setup();const a=s.request({},null);a.req.emit('aborted');await a.done;assert.doesNotThrow(()=>a.req.emit('error',Error('connection reset')));s.route.close();});
 test('another tab cannot use its queued session and an invented capability',async()=>{const s=setup();assert.equal((await s.request({'x-voice-session':'43','x-voice-capability':'other-tab'}).done).status,403);s.route.close();});
+
+function live(s){s.hub.onCoreStatus({state:'ARMED',session:42,out:{mode:0,turtle:0}});s.hub.onCoreTelemetry('link',{upLq:95});s.hub.onCoreTelemetry('flightMode','S-NORMAL');}
+test('HTTP admission and status expose the same fixed readiness reason',async()=>{
+  const s=setup('enabled');const response=await s.request().done;assert.deepEqual(response.data,{error:'not_ready',reason:'core_stale'});assert.deepEqual(s.messages.filter(m=>m.t==='status').at(-1).voice,{ready:false,reason:'core_stale'});assert.equal(s.calls,0);s.route.close();
+});
+test('HTTP accepts sparse mode while status/RF stay fresh',async()=>{
+  const s=setup('enabled');live(s);for(let t=1100;t<=2500;t+=100){s.setTime(t);s.hub.onCoreStatus({state:'ARMED',session:42,out:{mode:0,turtle:0}});s.hub.onCoreTelemetry('link',{upLq:95});}assert.equal((await s.request().done).status,200);s.route.close();
+});
+test('RF loss during recognition is rejected by the same post-check without execution',async()=>{
+  let finish;const s=setup('enabled',()=>new Promise(r=>{finish=r;}));live(s);const a=s.request();await new Promise(setImmediate);s.hub.onCoreTelemetry('link',{upLq:0});s.hub.onCoreStatus({state:'ARMED',session:42,out:{mode:0,turtle:0}});finish({choice:'forward_short',transcript:'adelante'});assert.deepEqual((await a.done).data,{error:'not_ready',reason:'link_lost'});assert.deepEqual(s.messages.filter(m=>m.t==='status').at(-1).voice,{ready:false,reason:'link_lost'});assert.equal(s.controlCalls.length,0);s.route.close();
+});
+test('hello cached mode replay never restores invalidated confirmation',()=>{
+  const s=setup('enabled');live(s);s.hub.onCoreTelemetry('link',{upLq:0});s.hub.onCoreTelemetry('link',{upLq:95});const other={send(){}};s.hub.attach(other,{user:{name:'other'},relay:false});s.hub.handle(other,{t:'hello',role:'observer'});assert.deepEqual(s.hub.voiceReadiness(42),{ready:false,reason:'normal_unconfirmed'});s.route.close();
+});
+test('accepted control intent invalidates rapid mode/turtle changes before status sampling',()=>{
+  for(const field of ['m','tu']){const s=setup('enabled');live(s);for(const [i,v]of [1,0].entries())s.hub.handle(s.client,{t:'ctl',seq:i+1,ts:1000,r:0,p:0,y:0,th:0,m:field==='m'?v:0,tu:field==='tu'?v:0});assert.deepEqual(s.hub.voiceReadiness(42),{ready:false,reason:'normal_unconfirmed'});s.route.close();}
+});
+
+for(const interruption of ['core_stale','link_stale','target','turtle','rf_recovered'])test(`HTTP post-check rejects ${interruption} while recognition is pending`,async()=>{
+  let finish;const s=setup('enabled',()=>new Promise(r=>{finish=r;}));live(s);const pending=s.request();await new Promise(setImmediate);
+  let reason;
+  if(interruption==='core_stale'){s.setTime(1500);s.hub.onCoreTelemetry('link',{upLq:95});reason='core_stale';}
+  else if(interruption==='link_stale'){s.setTime(1500);s.hub.onCoreStatus({state:'ARMED',session:42,out:{mode:0,turtle:0}});reason='link_stale';}
+  else if(interruption==='rf_recovered'){s.hub.onCoreTelemetry('link',{upLq:0});s.hub.onCoreTelemetry('link',{upLq:95});reason='normal_unconfirmed';}
+  else {s.hub.handle(s.client,{t:'ctl',seq:1,ts:1000,r:0,p:0,y:0,th:0,m:interruption==='target'?1:0,tu:interruption==='turtle'?1:0});reason=interruption==='target'?'not_normal':'turtle_active';}
+  finish({choice:'forward_short',transcript:'adelante'});assert.deepEqual((await pending.done).data,{error:'not_ready',reason});s.route.close();
+});
+
+for(const state of ['FAILSAFE','HOLD','LANDING','UNKNOWN'])test(`HTTP ${state} feedback requires recovery instead of arming`,async()=>{
+  const s=setup('enabled');s.hub.onCoreStatus({state,session:42,out:{mode:0,turtle:0}});assert.deepEqual((await s.request().done).data,{error:'not_ready',reason:'unsafe_state'});assert.equal(s.calls,0);s.route.close();
+});

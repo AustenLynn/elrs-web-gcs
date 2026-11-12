@@ -13,6 +13,7 @@
 //    maxCommandAgeMs (age estimated with ClockSync).
 import { randomBytes, randomInt } from 'node:crypto';
 import { ClockSync } from './clock.js';
+import { VoiceFlightState } from './voiceflight.js';
 
 const MAX_MSGS_PER_SEC = 120; // the pilot page sends 50 control messages per second
 
@@ -28,8 +29,7 @@ export class ControlHub {
     this.core = core;
     this.voice = voice;
     this.voiceInvalidators = new Set();
-    this.lastStatusAt = -Infinity;
-    this.flightModeAt = -Infinity;
+    this.voiceFlight = new VoiceFlightState({ now });
     this.maxCommandAgeMs = maxCommandAgeMs;
     this.now = now;
     this.newSession = newSession;
@@ -97,12 +97,13 @@ export class ControlHub {
       ? this.pilot : null;
   }
 
-  voiceLiveReady(session) {
-    const s = this.lastStatus;
-    return s?.session === session && s.state === 'ARMED' && s.out?.mode === 0 && s.out?.turtle === 0 &&
-      this.now() - this.lastStatusAt <= 500 && this.now() - this.flightModeAt <= 500 &&
-      /^[SMF]-NORMAL$/.test(this.telemetry.flightMode ?? '');
+  voiceReadiness(session) {
+    const c=this.clients.get(this.pilot);
+    if (!c || c.session!==session) return {ready:false,reason:'pilot_mismatch'};
+    return this.voiceFlight.readiness(session);
   }
+
+  voiceLiveReady(session) { return this.voiceReadiness(session).ready; }
 
   /** Name of the active pilot, or null. */
   activePilotName() {
@@ -167,7 +168,7 @@ export class ControlHub {
 
   onCoreStatus(status) {
     this.lastStatus = status;
-    this.lastStatusAt = this.now();
+    this.voiceFlight.onStatus(status);
     if (this.awaitingCore && status.session === 0) {   // nobody was taken: the seat is free
       this.awaitingCore = false;
       this.#seatHead();
@@ -179,7 +180,7 @@ export class ControlHub {
 
   onCoreDown() {
     this.lastStatus = null;
-    this.flightModeAt = -Infinity;
+    this.voiceFlight.reset();
     for (const c of this.clients.values()) this.#invalidateVoice(c);
     this.#broadcast(this.#statusMsg());
   }
@@ -188,6 +189,7 @@ export class ControlHub {
    *  while it was down never registered), so the pilot gets a fresh session. Any latched
    *  failsafe stays: the pilot still has to clear it and re-arm explicitly. */
   onCoreUp() {
+    this.voiceFlight.reset();
     this.sentStandby = 0;          // the core forgot the standby too
     if (this.awaitingCore) {       // a fresh core has no session: the seat is free
       this.awaitingCore = false;
@@ -205,7 +207,8 @@ export class ControlHub {
 
   onCoreTelemetry(kind, value) {
     this.telemetry[kind] = value;
-    if (kind === 'flightMode') this.flightModeAt = this.now();
+    if (kind === 'flightMode') this.voiceFlight.onMode(value);
+    if (kind === 'link') this.voiceFlight.onLink(value);
     this.#broadcast({ t: 'telem', [kind]: value });
   }
 
@@ -213,6 +216,7 @@ export class ControlHub {
     if (ev.what !== 'taken') this.#logEvent(ev);   // 'taken' is logged once the seat has moved
     switch (ev.what) {
       case 'hold': case 'resumed': case 'landing':
+        if (ev.what !== 'resumed') this.voiceFlight.reset();
         this.#broadcast({ t: 'event', what: ev.what, reason: ev.reason, session: ev.session });
         break;
       case 'taken':
@@ -359,6 +363,7 @@ export class ControlHub {
     if (stale) this.staleDropped++;
     else {
       const sticks = { roll: m.r, pitch: m.p, yaw: m.y, throttle: m.th, mode: m.m, speed: m.sp ?? 0, turtle: m.tu ?? 0 };
+      this.voiceFlight.onControl(sticks);
       const submission = this.controlTrace ? this.core.control(c.session, m.seq, sticks, true)
         : this.core.control(c.session, m.seq, sticks);
       forwarded = this.controlTrace ? submission.submittedNs : null;
@@ -386,6 +391,7 @@ export class ControlHub {
       ...(this.lastStatus ?? {}),
       rttMs: pc?.clock.ready ? round1(pc.clock.rtt) : null,
       staleDropped: this.staleDropped,
+      ...(this.voice ? {voice:this.voiceReadiness(pc?.session)} : {}),
     };
   }
 

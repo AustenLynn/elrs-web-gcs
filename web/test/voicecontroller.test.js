@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { VoiceCapture } from '../js/voicecapture.js';
 import { VoiceManeuver } from '../js/voicemaneuver.js';
 import { VoiceController } from '../js/voicecontroller.js';
-const context={role:'pilot',engaged:true,visible:true,focused:true,connected:true,armed:true,mode:'Normal',statusAt:0,heldManual:false};
+const context={role:'pilot',engaged:true,visible:true,focused:true,connected:true,armed:true,mode:'Normal',voiceReady:true,statusAt:0,heldManual:false};
 function setup(execution='enabled',trace=null){let t=0,starts=0,presses=0,canceled=0,request,resolve;const states=[];const maneuver={busy:false,configure(){},start(){starts++;this.busy=true;return true;},apply:m=>({...m,pitch:50}),cancel(){this.busy=false;},reset(){this.busy=false;}};const capture={press:async()=>{presses++;},release:async()=>({audio:new Blob(['a']),mime:'audio/webm;codecs=opus'}),cancel:()=>canceled++};const c=new VoiceController({capture,maneuver,trace,now:()=>t,onState:s=>states.push(s),fetchImpl:async(url,options)=>{request=options;return new Promise(r=>resolve=r);}});c.configure({execution,shortMs:250,mediumMs:500,strength:50});c.setSession({session:'s',capability:'c'});return {c,states,time:v=>t=v,get starts(){return starts;},get presses(){return presses;},get request(){return request;},reply(data={},ok=true){resolve({ok,json:async()=>({session:'s',requestId:request.headers['X-Voice-Request'],choice:'forward_short',transcript:'adelante',...data})});}};}
 const manual={roll:0,pitch:0,yaw:0,throttle:0,mode:0};
 async function submitted(s){await s.c.press();const p=s.c.release();await new Promise(r=>setImmediate(r));return {p};}
@@ -95,4 +95,44 @@ test('valid responses at and beyond the lifetime boundary report stale_result', 
     s.c.apply(manual, {...context,statusAt:age});
     assert.equal(s.starts, 0);
   }
+});
+
+for (const voiceReady of [undefined,false,1,'true',null]) test(`missing/invalid gateway readiness ${voiceReady} blocks live output`,async()=>{
+  const s=setup();const {p}=await submitted(s);s.reply();await p;s.c.apply(manual,{...context,voiceReady});assert.equal(s.starts,0);
+});
+test('gateway readiness loss cancels an active maneuver with fresh local status',async()=>{
+  const s=setup();const {p}=await submitted(s);s.reply();await p;s.c.apply(manual,context);assert.equal(s.starts,1);assert.equal(s.c.apply(manual,{...context,voiceReady:false}).pitch,0);assert.equal(s.c.busy,false);
+});
+for(const reason of ['link_lost','normal_unconfirmed','not_armed','unsafe_state','untrusted_provider_detail'])test(`HTTP readiness reason ${reason} is bounded for UI`,async()=>{
+  const s=setup();const {p}=await submitted(s);s.reply({error:'not_ready',reason},false);await p;assert.equal(s.states.at(-1).reason,reason==='untrusted_provider_detail'?null:reason);
+});
+
+test('idle readiness feedback follows authoritative reason and clears without another utterance',async()=>{
+  const s=setup();const {p}=await submitted(s);s.reply({error:'not_ready',reason:'link_stale'},false);await p;
+  s.c.onReadiness({ready:false,reason:'normal_unconfirmed'});
+  assert.equal(s.states.at(-1).error,'not_ready');assert.equal(s.states.at(-1).reason,'normal_unconfirmed');
+  const count=s.states.length;s.c.onReadiness({ready:false,reason:'normal_unconfirmed'});
+  assert.equal(s.states.length,count,'unchanged status does not repaint');
+  s.c.cancel('state',{preserveReadiness:true});
+  s.c.onReadiness({ready:false,reason:'unsafe_state'});
+  assert.equal(s.states.at(-1).reason,'unsafe_state','core state transitions keep readiness feedback current');
+  assert.equal(s.states.at(-1).error,'not_ready');
+  s.c.onReadiness({ready:true,reason:'ready'});
+  assert.equal(s.states.at(-1).phase,'idle');assert.equal(s.states.at(-1).error,null);
+  s.c.onReadiness({ready:false,reason:'link_lost'});
+  assert.equal(s.states.at(-1).error,null,'cleared feedback stays cleared');
+});
+
+test('readiness status preserves provider errors and active voice phases',async()=>{
+  const s=setup();const {p}=await submitted(s);s.reply({error:'provider_timeout'},false);await p;
+  const count=s.states.length;s.c.onReadiness({ready:true,reason:'ready'});
+  assert.equal(s.states.length,count);assert.equal(s.states.at(-1).error,'provider_timeout');
+  await s.c.press();s.c.onReadiness({ready:false,reason:'link_lost'});
+  assert.equal(s.states.at(-1).phase,'recording');
+  const pending=s.c.release();await new Promise(r=>setImmediate(r));
+  s.c.onReadiness({ready:true,reason:'ready'});assert.equal(s.states.at(-1).phase,'processing');
+  s.reply();await pending;s.c.onReadiness({ready:false,reason:'link_lost'});
+  assert.equal(s.states.at(-1).phase,'ready');s.c.apply(manual,context);
+  s.c.onReadiness({ready:true,reason:'ready'});assert.equal(s.states.at(-1).phase,'executing');
+  s.c.cancel('cleanup');
 });

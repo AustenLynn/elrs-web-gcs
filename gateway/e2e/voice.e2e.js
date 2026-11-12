@@ -23,7 +23,7 @@ async function voiceFixture(t, inputMode='keyboard') {
   t.after(()=>page.close());
   await page.call('script.addPreloadScript',{functionDeclaration:`() => {
     document.hasFocus=()=>true;
-    window.fixture={sent:[],requests:0,delay:0,choice:'forward_short',execution:'dry-run',state:'DISARMED',flightMode:'S-NORMAL',modeTelemetry:true,clock:0,transcript:'adelante <b>hola</b>',error:null};
+    window.fixture={sent:[],requests:0,delay:0,choice:'forward_short',execution:'dry-run',state:'DISARMED',flightMode:'S-NORMAL',modeTelemetry:true,voiceReady:true,reason:'not_armed',clock:0,transcript:'adelante <b>hola</b>',error:null};
     const realNow=performance.now.bind(performance);performance.now=()=>fixture.freeze ?? (realNow()+fixture.clock);
     class Recorder {static isTypeSupported(){return true;} constructor(){this.state='inactive';fixture.recorder=this;} start(){this.state='recording';} stop(){this.state='inactive';this.ondataavailable?.({data:new Blob(['fake-audio'],{type:'audio/webm;codecs=opus'})});this.onstop?.();}}
     window.MediaRecorder=Recorder;
@@ -33,10 +33,10 @@ async function voiceFixture(t, inputMode='keyboard') {
       const answer=data=>({ok:true,json:async()=>data});
       if(url==='/me')return answer({name:'ana',admin:false});
       if(url==='/voice/config')return answer({execution:fixture.execution,shortMs:250,mediumMs:500,strength:50});
-      if(url==='/voice/command'){fixture.requests++;await new Promise(r=>setTimeout(r,fixture.delay));if(fixture.error)return {ok:false,json:async()=>({error:fixture.error})};return answer({requestId:opts.headers['X-Voice-Request'],session:opts.headers['X-Voice-Session'],choice:fixture.choice,transcript:fixture.transcript});}
+      if(url==='/voice/command'){fixture.requests++;await new Promise(r=>setTimeout(r,fixture.delay));if(fixture.error)return {ok:false,json:async()=>({error:fixture.error,reason:fixture.reason})};return answer({requestId:opts.headers['X-Voice-Request'],session:opts.headers['X-Voice-Session'],choice:fixture.choice,transcript:fixture.transcript});}
       return {ok:false,json:async()=>({})};
     };
-    class Socket {static OPEN=1; constructor(){this.readyState=1;fixture.socket=this;setTimeout(()=>this.onopen?.(),0);} send(raw){const m=JSON.parse(raw);fixture.sent.push(m);if(m.t==='hello'){this.emit({t:'welcome',role:'pilot',session:1});this.emit({t:'voice_ready',session:1,capability:'fake-capability'});this.timer=setInterval(()=>{this.emit({t:'status',state:fixture.state});if(fixture.modeTelemetry)this.emit({t:'telem',flightMode:fixture.flightMode});},50);}} emit(m){this.onmessage?.({data:JSON.stringify(m)});} close(){clearInterval(this.timer);this.readyState=3;this.onclose?.({code:1000});}}
+    class Socket {static OPEN=1; constructor(){this.readyState=1;fixture.socket=this;setTimeout(()=>this.onopen?.(),0);} send(raw){const m=JSON.parse(raw);fixture.sent.push(m);if(m.t==='hello'){this.emit({t:'welcome',role:'pilot',session:1});this.emit({t:'voice_ready',session:1,capability:'fake-capability'});this.timer=setInterval(()=>{this.emit({t:'status',state:fixture.state,reason:fixture.state==='FAILSAFE'?'rf_lost':'none',voice:fixture.voiceReady===null?undefined:{ready:fixture.voiceReady,reason:fixture.reason}});if(fixture.modeTelemetry)this.emit({t:'telem',flightMode:fixture.flightMode});},50);}} emit(m){this.onmessage?.({data:JSON.stringify(m)});} close(){clearInterval(this.timer);this.readyState=3;this.onclose?.({code:1000});}}
     window.WebSocket=Socket;
     try {localStorage.setItem('gcs-input-mode','${inputMode}');sessionStorage.setItem('gcs-token-demo','fake');} catch {}
   }`});
@@ -240,14 +240,17 @@ test('voice PTT runs on control ticks, dry-run and manual safety lifecycle', {ti
   await utterance();await sleep(350);
   assert.equal(await page.evaluate("fixture.sent.filter(m=>m.t==='ctl').every(m=>m.p===0)"),true,'held intent blocks a still-zero keyboard ramp');
   await page.evaluate("document.dispatchEvent(new KeyboardEvent('keyup',{code:'ArrowUp',bubbles:true}));fixture.freeze=null");
-  // Status stays fresh while actual Normal telemetry ages out independently.
+  // A quiet confirmed mode is valid while authoritative RF/core readiness stays true.
   await page.evaluate("fixture.modeTelemetry=false;fixture.sent=[];fixture.choice='forward_short'");
-  await sleep(650);
-  await utterance();await sleep(350);
-  assert.ok(await page.evaluate("fixture.sent.filter(m=>m.t==='ctl').length")>=10,'fresh status and manual ticks continue while mode telemetry is stale');
-  assert.equal(await page.evaluate("fixture.sent.filter(m=>m.t==='ctl').every(m=>m.p===0&&m.r===0&&m.y===0)"),true,'stale actual-mode telemetry blocks a valid voice result');
-  assert.equal(await page.evaluate("document.getElementById('voice-state').dataset.phase"),'idle');
-  await page.evaluate("fixture.modeTelemetry=true");
+  await sleep(1150);
+  await startLive();await sleep(320);
+  assert.equal(await page.evaluate("fixture.sent.some(m=>m.t==='ctl'&&m.p===50)"),true,'sparse Normal mode remains eligible');
+  for(const flag of [false,null]) {
+    await page.evaluate(`fixture.voiceReady=${flag};fixture.sent=[]`);await sleep(80);
+    await utterance();await sleep(350);
+    assert.equal(await page.evaluate("fixture.sent.filter(m=>m.t==='ctl').every(m=>m.p===0&&m.r===0&&m.y===0)"),true,'missing or rejected gateway readiness blocks live motion');
+  }
+  await page.evaluate("fixture.voiceReady=true;fixture.modeTelemetry=true");
   // Relay origin never loads or exposes voice permission, capture or upload.
   await page.open(url+'?room=demo');
   assert.equal(await page.evaluate("typeof window.voiceLatency"),'undefined','trace absent without opt-in');
@@ -306,13 +309,24 @@ test('voice-enabled touch pads stay usable and stable across feedback and held-s
     }
     await page.evaluate("fixture.error='provider_timeout'");await press();await sleep(40);await release();
     await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent==='Sin acción: provider_timeout'"),2000,'provider error');
-    await stable('provider error');
-    await page.evaluate("fixture.error='not_ready'");await press();await sleep(40);await release();
-    await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent.includes('armado manual')"),2000,'readable live prerequisites');
+    await stable('provider error');await sleep(100);
+    assert.equal(await page.evaluate("document.getElementById('voice-state').textContent"),'Sin acción: provider_timeout','ready status preserves provider error feedback');
+    await page.evaluate("fixture.error='not_ready';fixture.voiceReady=false;fixture.reason='normal_unconfirmed'");await press();await sleep(40);await release();
+    await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent==='Sin acción: Confirma Normal'"),2000,'readable live prerequisites');
     const readinessText=await page.evaluate("document.getElementById('voice-state').textContent");
-    assert.match(readinessText,/modo Normal/);assert.match(readinessText,/telemetría reciente/);
+    assert.ok(readinessText.length<50);assert.match(await page.evaluate("document.getElementById('voice-state').title"),/Normal/);
     await stable('live prerequisites');
-    await page.evaluate('fixture.error=null');await press();await sleep(40);
+    await page.evaluate("fixture.reason='link_lost'");
+    await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent==='Sin acción: Sin enlace RF'"),1000,'idle feedback follows updated readiness reason without recording');
+    // A same-string mode confirmation and authoritative status clear only readiness feedback.
+    await page.evaluate("fixture.voiceReady=true;fixture.socket.emit({t:'telem',flightMode:'S-NORMAL'});fixture.socket.emit({t:'status',state:'ARMED',voice:{ready:true,reason:'ready'}})");
+    await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent==='Lista' && document.getElementById('voice-state').title===''"),1000,'idle readiness feedback follows same-string confirmation');
+    await page.evaluate("fixture.voiceReady=false");
+    await page.evaluate("fixture.reason='unsafe_state'");await press();await sleep(40);await release();
+    await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent==='Sin acción: Recupera el control'"),2000,'unsafe state recovery feedback');
+    assert.match(await page.evaluate("document.getElementById('voice-state').title"),/recuperación manual/);
+    await stable('unsafe recovery');
+    await page.evaluate('fixture.error=null;fixture.voiceReady=true');await press();await sleep(40);
     await page.evaluate('fixture.recorder.onerror()');
     await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent==='Sin acción: capture_failed'"),1000,'capture error reaches UI');
     await stable('capture error');await release();
@@ -345,6 +359,27 @@ test('voice-enabled touch pads stay usable and stable across feedback and held-s
   assert.deepEqual(page.errors,[]);
 });
 
+test('idle readiness feedback survives failsafe neutralization and clears on same-string Normal recovery', {timeout:45000}, async t => {
+  const {page,url}=await voiceFixture(t);
+  await page.open(url);
+  await waitFor(()=>page.evaluate("!document.getElementById('btn-voice-prepare').disabled"),3000,'preflight ready');
+  await page.evaluate("document.getElementById('btn-voice-prepare').click();document.getElementById('btn-take').click()");
+  await waitFor(()=>page.evaluate("document.getElementById('btn-take').disabled && !document.getElementById('btn-voice-ptt').disabled"),3000,'prepared and engaged');
+  await page.evaluate("fixture.state='ARMED';fixture.error='not_ready';fixture.voiceReady=false;fixture.reason='link_lost';fixture.socket.emit({t:'status',state:'ARMED',voice:{ready:false,reason:'link_lost'}});document.getElementById('btn-voice-ptt').click()");
+  await sleep(80);
+  await page.evaluate("document.getElementById('btn-voice-ptt').click()");
+  await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent==='Sin acción: Sin enlace RF'"),2000,'idle readiness rejection');
+  await page.evaluate("fixture.state='FAILSAFE';fixture.reason='unsafe_state'");
+  await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent==='Sin acción: Recupera el control'"),1000,'idle feedback survives failsafe input resets');
+  await sleep(150);
+  assert.equal(await page.evaluate("document.getElementById('voice-state').textContent"),'Sin acción: Recupera el control','per-tick locked neutralization preserves readiness feedback');
+  assert.match(await page.evaluate("document.getElementById('voice-state').title"),/recuperación manual/);
+  await page.evaluate("fixture.state='ARMED';fixture.voiceReady=true;fixture.reason='ready';fixture.socket.emit({t:'telem',flightMode:'S-NORMAL'});fixture.socket.emit({t:'status',state:'ARMED',voice:{ready:true,reason:'ready'}})");
+  await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent==='Lista' && document.getElementById('voice-state').title===''"),1000,'authoritative same-string recovery clears feedback without another utterance');
+  assert.equal(await page.evaluate('fixture.requests'),1);
+  assert.deepEqual(page.errors,[]);
+});
+
 test('real gateway cookie, pilot voice_ready capability and audio HTTP upload with injected provider', {timeout:60000}, async t => {
   const repo=path.resolve(import.meta.dirname,'../..');
   const dir=tempDir('gcs-voice-real-');const procs=[];
@@ -359,11 +394,11 @@ test('real gateway cookie, pilot voice_ready capability and audio HTTP upload wi
   writeFileSync(config,`serial_device = ${serial}\nsocket_path = ${sock}\nrt_priority = 0\nrt_cpu = -1\n`);
   start(procs,path.join(repo,'core/build/crsf-core'),['-c',config]);
   await waitFor(()=>channels!==null,5000,'fake serial RC frames');
-  let calls=0;
+  let calls=0,providerGate=null;
   const gw=await startGateway({...DEFAULTS,listen:{host:'127.0.0.1',port:0},coreSocket:sock,webRoot:path.join(repo,'web'),
     auth:{usersFile:await makeUsers(dir,[{name:'ana',password:'voice-password'}])},
-    voice:{execution:'dry-run',shortMs:250,mediumMs:500,strength:50}},
-    {voiceProvider:{recognize:async({audio,mime})=>{calls++;assert.equal(audio.toString(),'browser-fixture-audio');assert.equal(mime,'audio/webm;codecs=opus');return {choice:'forward_short',transcript:'adelante',timing:{transcriptionMs:1,decisionMs:1}};}}});
+    voice:{execution:'enabled',shortMs:250,mediumMs:500,strength:50}},
+    {voiceProvider:{recognize:async({audio,mime})=>{calls++;if(providerGate)await providerGate;assert.equal(audio.toString(),'browser-fixture-audio');assert.equal(mime,'audio/webm;codecs=opus');return {choice:'forward_short',transcript:'adelante',timing:{transcriptionMs:1,decisionMs:1}};}}});
   t.after(()=>gw.close());
   await waitFor(()=>gw.core.connected,5000,'gateway core connection');
   const page=await firefox(procs,dir);t.after(()=>page.close());
@@ -376,39 +411,83 @@ test('real gateway cookie, pilot voice_ready capability and audio HTTP upload wi
   await waitFor(()=>page.evaluate("document.getElementById('btn-take').disabled"),3000,'deadman engaged');
   await page.evaluate('document.activeElement.blur()');
   await page.call('input.performActions',{context:page.context,actions:[{type:'key',id:'ptt',actions:[{type:'keyDown',value:'v'},{type:'pause',duration:80},{type:'keyUp',value:'v'}]}]});
-  try { await waitFor(()=>calls===1,3000,'one authenticated HTTP upload'); }
-  catch(error) { error.message += ' '+await page.evaluate("JSON.stringify({state:document.getElementById('voice-state').textContent,phase:document.getElementById('voice-state').dataset.phase,deadman:document.getElementById('deadman').textContent,active:document.activeElement.tagName,errors:document.getElementById('toast').textContent})");throw error; }
-  await waitFor(()=>page.evaluate("document.getElementById('voice-transcript').textContent==='adelante'"),3000,'real response shown');
-  assert.equal(await page.evaluate("document.getElementById('voice-state').textContent"),'Simulación: sin movimiento');
+  await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent==='Sin acción: Arma manualmente'"),3000,'disarmed live request rejected');
+  assert.equal(calls,0,'manual arming remains mandatory');
   assert.equal(channels[4],192,'voice never arms');
-  assert.equal(channels[2],192,'dry-run preserves zero throttle');
-  assert.equal(channels[1],992,'dry-run leaves pitch neutral');
+  assert.equal(channels[2],192,'voice preserves zero throttle');
+  assert.equal(channels[1],992,'disarmed voice leaves pitch neutral');
   // Drive readiness from actual CRSF reports through the real core and gateway IPC.
   const modeTimes=[];let statusCount=0,linkCount=0;
+  const recoveryEvents=[];
+  gw.core.on('event',event=>recoveryEvents.push(event));
   gw.core.on('status',()=>statusCount++);
   gw.core.on('telemetry',(kind,value)=>{
     if(kind==='flightMode'&&value==='S-NORMAL')modeTimes.push(performance.now());
     if(kind==='link')linkCount++;
   });
-  fake.stdin.write('mode S-NORMAL\n');
+  fake.stdin.write('mode\nmode_once S-NORMAL\n');
   await waitFor(()=>modeTimes.length>0,2000,'actual Normal report');
   const session=gw.hub.lastStatus.session;
   assert.equal(gw.hub.voiceLiveReady(session),false,'actual Normal reports cannot arm a disarmed core');
   // The operator hold is applied only to this fake aircraft, preserving manual arming.
-  const armBox=JSON.parse(await page.evaluate("JSON.stringify(document.getElementById('btn-arm').getBoundingClientRect().toJSON())"));
-  await page.call('input.performActions',{context:page.context,actions:[{type:'pointer',id:'manual-arm',parameters:{pointerType:'mouse'},actions:[
-    {type:'pointerMove',x:Math.round(armBox.x+armBox.width/2),y:Math.round(armBox.y+armBox.height/2)},
-    {type:'pointerDown',button:0},{type:'pause',duration:1200},{type:'pointerUp',button:0}]}]});
+  const holdButton=async(id,duration)=>{
+    const box=JSON.parse(await page.evaluate(`JSON.stringify(document.getElementById('${id}').getBoundingClientRect().toJSON())`));
+    await page.call('input.performActions',{context:page.context,actions:[{type:'pointer',id:'manual-fake-control',parameters:{pointerType:'mouse'},actions:[
+      {type:'pointerMove',x:Math.round(box.x+box.width/2),y:Math.round(box.y+box.height/2)},
+      {type:'pointerDown',button:0},{type:'pause',duration},{type:'pointerUp',button:0}]}]});
+  };
+  await holdButton('btn-arm',1200);
   await waitFor(()=>gw.hub.lastStatus.state==='ARMED',3000,'manual fake-aircraft arm');
-  await waitFor(()=>modeTimes.length>=8&&modeTimes.at(-1)-modeTimes[0]>1100,3000,'identical real-core reports beyond freshness threshold');
-  assert.equal(gw.hub.voiceLiveReady(session),true,'unchanged actual Normal reports keep live readiness eligible');
-  fake.stdin.write('mode\n');
-  await sleep(300); // drain any actual report already in serial/IPC transit
-  const stoppedCount=modeTimes.length,oldStatus=statusCount,oldLink=linkCount;
-  await waitFor(()=>statusCount>=oldStatus+6&&linkCount>=oldLink+6,2000,'status/link continue without mode source');
-  assert.equal(modeTimes.length,stoppedCount,'the real core never fabricates mode freshness');
-  assert.equal(gw.hub.lastStatus.state,'ARMED','mode expiry alone does not change manual arming');
-  assert.equal(gw.hub.voiceLiveReady(session),false,'missing actual mode reports expire live readiness');
-  t.diagnostic(`actual mode IPC: ${modeTimes.length} reports over ${(modeTimes.at(-1)-modeTimes[0]).toFixed(0)}ms; stopped source: unchanged count, ${statusCount-oldStatus} status/${linkCount-oldLink} link reports`);
+  const oldStatus=statusCount,oldLink=linkCount;
+  await waitFor(()=>statusCount>=oldStatus+11&&linkCount>=oldLink+11,3000,'fresh RF/status for more than one second without mode reports');
+  assert.equal(modeTimes.length,1,'one actual mode report, no synthetic core mode keepalive');
+  assert.equal(gw.hub.voiceLiveReady(session),true,'quiet Normal confirmation remains ready');
+  const utterance=async()=>{
+    await page.evaluate("document.activeElement.blur();document.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyV',bubbles:true}))");await sleep(80);
+    await page.evaluate("document.dispatchEvent(new KeyboardEvent('keyup',{code:'KeyV',bubbles:true}))");
+  };
+  let moved=false;const movement=()=>{if(channels?.[1]>992)moved=true;};const watch=setInterval(movement,5);t.after(()=>clearInterval(watch));
+  await utterance();await waitFor(()=>moved,3000,'authorized voice result reaches fake core pitch');
+  await waitFor(()=>page.evaluate("document.getElementById('voice-state').dataset.phase==='idle'"),2000,'voice completion');
+  assert.equal(calls,1);assert.equal(channels[2],192,'live voice preserves manual throttle');
+  fake.stdin.write('link\n');
+  await waitFor(()=>gw.hub.voiceReadiness(session).reason==='link_stale',2000,'RF staleness despite continued core status');
+  assert.equal(gw.hub.lastStatus.state,'ARMED');
+  moved=false;await utterance();await sleep(300);assert.equal(calls,1,'stale RF rejects before provider');assert.equal(moved,false);
+  // This long outage also exercises the existing real-core RF failsafe latch.
+  await waitFor(()=>gw.hub.lastStatus.state==='FAILSAFE',2000,'core RF failsafe remains enforced');
+  assert.equal(gw.hub.lastStatus.reason,'rf_lost');assert.equal(channels[4],192);
+  fake.stdin.write('link 95\n');
+  await waitFor(()=>gw.hub.telemetry.link?.upLq===95&&gw.hub.voiceReadiness(session).reason==='unsafe_state',2000,'RF recovery cannot clear core failsafe');
+  assert.equal(modeTimes.length,1);assert.equal(moved,false);
+  // Test-driver manual recovery applies only to the fake aircraft through existing UI.
+  await waitFor(()=>page.evaluate("!document.getElementById('btn-take').disabled"),2000,'manual fake-aircraft take control rendered');
+  await page.evaluate("document.getElementById('btn-take').click()");
+  await waitFor(async()=>gw.hub.lastStatus.cmdAgeMs!==null && gw.hub.lastStatus.cmdAgeMs<100 &&
+    await page.evaluate("document.getElementById('btn-take').disabled && /Limpiar failsafe/.test(document.querySelector('#recovery li.next')?.textContent??'')"),3000,'manual fake-aircraft recovery has fresh control');
+  await holdButton('btn-ack',2500);
+  try {await waitFor(()=>gw.hub.lastStatus.state==='DISARMED',3000,'manual recovery clears latch to DISARMED');}
+  catch(error) {
+    error.message+=' '+JSON.stringify({status:gw.hub.lastStatus,events:recoveryEvents,ui:await page.evaluate("JSON.stringify({toast:document.getElementById('toast').textContent,recovery:document.getElementById('recovery').textContent,deadman:document.getElementById('deadman').textContent,ack:document.getElementById('btn-ack').getBoundingClientRect().toJSON(),atAck:document.elementFromPoint(...((b)=>[b.x+b.width/2,b.y+b.height/2])(document.getElementById('btn-ack').getBoundingClientRect()))?.outerHTML})")});
+    throw error;
+  }
+  await holdButton('btn-arm',1200);
+  await waitFor(()=>gw.hub.lastStatus.state==='ARMED',3000,'manual fake-aircraft re-arm');
+  assert.deepEqual(gw.hub.voiceReadiness(session),{ready:false,reason:'normal_unconfirmed'},'manual recovery and RF alone never reconfirm mode');
+  await sleep(1050);await utterance();await sleep(200);assert.equal(calls,1,'RF-only recovery cannot authorize a voice request');
+  fake.stdin.write('mode_once S-NORMAL\n');
+  await waitFor(()=>gw.hub.voiceLiveReady(session),2000,'new actual Normal reconfirms');
+  await sleep(1050);moved=false;await utterance();await waitFor(()=>moved,3000,'reconfirmed voice result reaches fake core');
+  assert.equal(calls,2);assert.equal(modeTimes.length,2);
+  // Explicit RF loss during provider work rejects the returned result without motion.
+  await waitFor(()=>page.evaluate("document.getElementById('voice-state').dataset.phase==='idle'"),2000,'reconfirmed voice completion');
+  let finish;providerGate=new Promise(resolve=>{finish=resolve;});
+  await sleep(1050);moved=false;await utterance();await waitFor(()=>calls===3,2000,'provider work admitted before loss');
+  fake.stdin.write('link 0\n');
+  await waitFor(()=>gw.hub.voiceReadiness(session).reason==='link_lost',2000,'actual zero-LQ report');
+  finish();providerGate=null;
+  await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent==='Sin acción: Sin enlace RF'"),2000,'post-recognition RF loss reason');
+  assert.equal(moved,false,'provider result after RF loss never reaches control');
+  t.diagnostic(`sparse actual mode IPC: ${modeTimes.length} reports; initial quiet interval ${statusCount-oldStatus} status/${linkCount-oldLink} RF reports; authorized fake-core pitch before/after reconfirmation`);
   assert.deepEqual(page.errors,[]);
 });

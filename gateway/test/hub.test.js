@@ -535,3 +535,23 @@ test('voice capability is private and rotates on reconnect and takeover',()=>{
  assert.ok(b.last('voice_ready').capability);assert.equal(hub.authorizeVoice({user:ANA.user,session:prior.session,capability:prior.capability}),null);
  hub.onCoreDown();assert.equal(hub.authorizeVoice({user:ANA.user,...b.last('voice_ready')}),null);
 });
+
+test('voice status uses the active pilot readiness without capability disclosure and is absent when disabled',()=>{
+  for(const enabled of [false,true]){
+    const core=fakeCore();const hub=new ControlHub({core,voice:enabled,now:()=>1000,newSession:()=>42});const pilot=join(hub);
+    hub.onCoreStatus({session:42,state:'ARMED',out:{mode:0,turtle:0}});
+    hub.onCoreTelemetry('link',{upLq:95});hub.onCoreTelemetry('flightMode','S-NORMAL');
+    hub.onCoreStatus({session:42,state:'ARMED',out:{mode:0,turtle:0}});
+    const message=pilot.last('status');
+    if(enabled){assert.deepEqual(message.voice,{ready:true,reason:'ready'});assert.deepEqual(message.voice,hub.voiceReadiness(42));assert.equal(JSON.stringify(message).includes(pilot.last('voice_ready').capability),false);}
+    else assert.equal(Object.hasOwn(message,'voice'),false);
+  }
+});
+test('core loss/reconnect invalidates readiness while retaining display telemetry',()=>{
+  const core=fakeCore();const hub=new ControlHub({core,voice:true,now:()=>1000,newSession:()=>42});join(hub);
+  const status={session:42,state:'ARMED',out:{mode:0,turtle:0}};
+  hub.onCoreStatus(status);hub.onCoreTelemetry('link',{upLq:95});hub.onCoreTelemetry('flightMode','S-NORMAL');assert.equal(hub.voiceLiveReady(42),true);
+  hub.onCoreDown();hub.onCoreUp();hub.onCoreStatus(status);hub.onCoreTelemetry('link',{upLq:95});
+  assert.equal(hub.telemetry.flightMode,'S-NORMAL');assert.equal(hub.voiceLiveReady(42),false);
+  hub.onCoreTelemetry('flightMode','S-NORMAL');assert.equal(hub.voiceLiveReady(42),true);
+});

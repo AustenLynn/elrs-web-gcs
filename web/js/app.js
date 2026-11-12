@@ -72,7 +72,6 @@ let voiceConfig = null;
 let voicePrepared = false;
 let voiceLoad = 0;
 let statusAt = -Infinity;
-let flightModeAt = -Infinity;
 const heldFlightKeys = new Set();
 const heldFlightPointers = new Set();
 let voicePreviousPhase = 'idle';
@@ -82,7 +81,20 @@ const voice = new VoiceController({ trace: voiceTrace, capture, maneuver: new Vo
   if (state.phase === 'idle') voiceOwner = null;
   const messages = {idle:'Lista',recording:voiceOwner === 'button' ? 'Escuchando… toca Enviar' : 'Escuchando… suelta V para enviar',processing:'Interpretando…',ready:'Interpretado',executing:'Movimiento temporizado'};
   $('voice-state').dataset.phase = state.phase;
-  const error = state.error === 'not_ready' ? 'Voz en vivo requiere armado manual, modo Normal y telemetría reciente' : state.error;
+  const readinessMessages = {
+    core_stale:['Sin estado reciente','Espera un estado reciente del controlador.'],
+    pilot_mismatch:['Sin control de piloto','Esta sesión debe ser el piloto activo.'],
+    unsafe_state:['Recupera el control','Sigue el procedimiento existente de recuperación manual hasta quedar desarmado. Después confirma Normal y arma manualmente.'],
+    not_armed:['Arma manualmente','La voz en vivo requiere armado manual mediante los controles existentes.'],
+    not_normal:['Selecciona Normal','Selecciona el modo Normal y espera su confirmación.'],
+    turtle_active:['Desactiva Turtle','Desactiva Turtle antes de usar voz en vivo.'],
+    link_stale:['Sin RF reciente','Espera telemetría RF reciente y una nueva confirmación de modo Normal.'],
+    link_lost:['Sin enlace RF','Recupera el enlace RF y confirma de nuevo el modo Normal.'],
+    normal_unconfirmed:['Confirma Normal','Falta una nueva confirmación de modo Normal. Usa los controles manuales de modo estando desarmado.'],
+  };
+  const readiness = readinessMessages[state.reason] ?? ['Voz no lista','No se cumplen las condiciones para usar voz en vivo.'];
+  const error = state.error === 'not_ready' ? readiness[0] : state.error;
+  $('voice-state').title = state.error === 'not_ready' ? readiness[1] : (error ?? '');
   $('voice-state').textContent = error ? `Sin acción: ${error}` : state.dryRun ? 'Simulación: sin movimiento' : state.phase === 'idle' && voicePreviousPhase === 'executing' ? 'Movimiento terminado' : messages[state.phase];
   $('voice-transcript').textContent = state.transcript;
   const directions = {forward:'Adelante',backward:'Atrás',left:'Izquierda',right:'Derecha',turn_left:'Giro izquierda',turn_right:'Giro derecha'};
@@ -91,9 +103,9 @@ const voice = new VoiceController({ trace: voiceTrace, capture, maneuver: new Vo
   $('voice-action').textContent = state.choice === 'none' ? 'Sin acción' : `${state.choice === 'repeat_short' ? 'Repetir' : directions[direction]} · ${tier === 'medium' ? 'medio' : 'corto'} · ${voiceConfig?.[`${tier}Ms`] ?? '—'} ms`;
   voicePreviousPhase = state.phase;
 }});
-function cancelVoice(reason) {
+function cancelVoice(reason,options) {
   const wasBusy = voice.busy;
-  voice.cancel(reason);
+  voice.cancel(reason,options);
   if (wasBusy) $('voice-state').textContent = 'Voz cancelada';
 }
 async function loadVoice() {
@@ -169,8 +181,9 @@ function handle(msg) {
       const prevState = status?.state;
       status = msg;
       statusAt = performance.now();
-      if (prevState !== status.state) cancelVoice('state');
+      if (prevState !== status.state) cancelVoice('state',{preserveReadiness:true});
       if (enteringFailsafe(prevState, status.state)) startAgainAfterFailsafe();
+      voice.onReadiness(status.voice);
       links.update(status, performance.now());
       if (shouldReclaimPilotSeat(wantRole, welcome, status)) ws.close();   // reconnects with hello pilot
       if (lostPending) {               // this status names the pilot who took over
@@ -186,7 +199,6 @@ function handle(msg) {
     case 'telem':
       if (typeof msg.flightMode === 'string') {
         if (telem.flightMode !== msg.flightMode) cancelVoice('flight_mode');
-        flightModeAt = performance.now();
       }
       if (msg.link) telem.linkAt = performance.now();
       Object.assign(telem, msg);
@@ -257,8 +269,8 @@ function takeOver(last) {
 }
 
 /** Every way of losing control goes through here. */
-function disengage(reason) {
-  cancelVoice(reason);
+function disengage(reason,options) {
+  cancelVoice(reason,options);
   deadman.disengage(reason);
 }
 
@@ -276,8 +288,8 @@ function currentCommand(dtMs) {
 }
 
 /** Every input back to neutral with the throttle at zero, no finger or key held. */
-function resetInputs() {
-  cancelVoice('reset');
+function resetInputs(options) {
+  cancelVoice('reset',options);
   left.reset();
   right.reset();
   keyboard.reset();
@@ -287,12 +299,12 @@ function resetInputs() {
 /** The core entered FAILSAFE: everything starts again from zero, and the pilot takes control
  *  again before clearing it (inputmode.js). */
 function startAgainAfterFailsafe() {
-  resetInputs();
+  resetInputs({preserveReadiness:true});
   switches.turtleOff();
   armKey.release();
   armHold.release();
   $('btn-arm').style.setProperty('--progress', 0);
-  disengage('failsafe');
+  disengage('failsafe',{preserveReadiness:true});
 }
 
 // 50 Hz control loop. Nothing is queued while disconnected or disengaged. In FAILSAFE every
@@ -301,7 +313,7 @@ setInterval(() => {
   const now = performance.now();
   checkPadLayout();
   const locked = inputsLocked(status);
-  if (locked) resetInputs();
+  if (locked) resetInputs({preserveReadiness:true});
   lastCmd = locked ? lockedCommand(mode) : currentCommand(now - lastTick);
   lastTick = now;
   // Not tied to the role: a taker stays engaged and sends from its promotion on.
@@ -313,7 +325,8 @@ setInterval(() => {
   const overlay = voice.apply(lastCmd, {
     role, engaged, visible: document.visibilityState === 'visible', focused: document.hasFocus(), connected: wsOpen(),
     armed: !locked && status?.state === 'ARMED',
-    mode: mode === 0 && !switches.turtle && /^[SMF]-NORMAL$/.test(telem.flightMode ?? '') && now - flightModeAt >= 0 && now - flightModeAt < 500 ? 'Normal' : null,
+    mode: mode === 0 && !switches.turtle ? 'Normal' : null,
+    voiceReady: status?.voice?.ready === true,
     statusAt, heldManual: heldFlightKeys.size > 0 || heldFlightPointers.size > 0,
   });
   lastCmd = locked ? lockedCommand(mode) : overlay;
