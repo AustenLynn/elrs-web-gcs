@@ -298,3 +298,9 @@ body.admin button { padding: 10px 12px; }
   body[data-input="touch"]:has(#voice-panel:not([hidden])) .cockpit { padding-top:10px; padding-bottom:10px; }
 }
 #voice-panel[hidden], #voice-panel [hidden] { display:none; }
+
+/* Fixed-width language settings keep header controls compact on small pilot displays. */
+.language-settings { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.language-settings > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.language-settings select { width: 55px; min-height: 32px; padding: 4px; font: inherit; color: var(--text); background: var(--raised); border: 1px solid var(--line); border-radius: 8px; }
+.language-settings select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

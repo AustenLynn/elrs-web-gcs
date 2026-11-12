@@ -1,9 +1,11 @@
+import { setLanguage } from '../js/i18n.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { INPUT_MODES, canSwitchInput, channelsCommand, defaultInputMode, enteringFailsafe, inputsLocked, loadInputMode, lockedCommand, padPositions, readouts, saveInputMode, seedInputs } from '../js/inputmode.js';
 import { KeyboardModel } from '../js/keyboard.js';
 import { StepModel } from '../js/stepper.js';
 import { StickModel, sticksToCommand } from '../js/sticks.js';
+setLanguage('es');
 
 const memory = (init = {}) => {
   const data = { ...init };

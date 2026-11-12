@@ -1,7 +1,9 @@
+import { setLanguage } from '../js/i18n.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { fullscreenTip, takeControlSteps } from '../js/fullscreen.js';
+setLanguage('es');
 
 test('a tip only where the page cannot go full screen and is not already the home-screen app', () => {
   assert.equal(fullscreenTip({ canFullscreen: true, standalone: false }), null);    // Android, desktop

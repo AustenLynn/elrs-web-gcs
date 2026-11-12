@@ -1,3 +1,4 @@
+import { t, onLanguageChange, initLanguageUI } from './i18n.js';
 // Pilot page: wires the pure modules to the DOM and the gateway WebSocket.
 // ?observe in the URL opens a read-only view. Flying needs a pilot sign-in (or, with ?room=,
 // the relay room's key): a signed-in page joins the gateway's queue. The queue head is the
@@ -19,6 +20,7 @@ import { VoiceCapture } from './voicecapture.js';
 import { VoiceTrace } from './voicetrace.js';
 import { VoiceController } from './voicecontroller.js';
 import { VoiceManeuver } from './voicemaneuver.js';
+import { voiceFeedback } from './voiceview.js';
 
 // Add ?measure to opt in. Export after a props-off bench run with controlLatency.download().
 const controlTrace = new URLSearchParams(location.search).has('measure') ? new ControlTrace() : null;
@@ -33,7 +35,7 @@ const tokenKey = (room) => `gcs-token-${room}`;
 const getToken = (room) => {
   let token = sessionStorage.getItem(tokenKey(room));
   if (!token) {
-    token = prompt(`Clave de piloto para «${room}»`) ?? '';
+    token = prompt(t('pilot.key.for.room', { room })) ?? '';
     if (token) sessionStorage.setItem(tokenKey(room), token);
   }
   return token;
@@ -77,36 +79,30 @@ const heldFlightPointers = new Set();
 let voicePreviousPhase = 'idle';
 let voiceOwner = null;
 const capture = new VoiceCapture();
+let voiceDisplay = () => {};
+function renderVoiceFeedback(state, previousPhase) {
+  const feedback = voiceFeedback(state, {owner: voiceOwner, previousPhase, config: voiceConfig});
+  $('voice-state').dataset.phase = feedback.phase;
+  $('voice-state').title = feedback.title;
+  $('voice-state').textContent = feedback.text;
+  $('voice-transcript').textContent = feedback.transcript;
+  $('voice-action').textContent = feedback.action;
+}
+function voiceNotice(key) {
+  voiceDisplay = () => { $('voice-state').textContent = t(key); $('voice-state').title = ''; };
+  voiceDisplay();
+}
 const voice = new VoiceController({ trace: voiceTrace, capture, maneuver: new VoiceManeuver(), onState: state => {
   if (state.phase === 'idle') voiceOwner = null;
-  const messages = {idle:'Lista',recording:voiceOwner === 'button' ? 'Escuchando… toca Enviar' : 'Escuchando… suelta V para enviar',processing:'Interpretando…',ready:'Interpretado',executing:'Movimiento temporizado'};
-  $('voice-state').dataset.phase = state.phase;
-  const readinessMessages = {
-    core_stale:['Sin estado reciente','Espera un estado reciente del controlador.'],
-    pilot_mismatch:['Sin control de piloto','Esta sesión debe ser el piloto activo.'],
-    unsafe_state:['Recupera el control','Sigue el procedimiento existente de recuperación manual hasta quedar desarmado. Después confirma Normal y arma manualmente.'],
-    not_armed:['Arma manualmente','La voz en vivo requiere armado manual mediante los controles existentes.'],
-    not_normal:['Selecciona Normal','Selecciona el modo Normal y espera su confirmación.'],
-    turtle_active:['Desactiva Turtle','Desactiva Turtle antes de usar voz en vivo.'],
-    link_stale:['Sin RF reciente','Espera telemetría RF reciente y una nueva confirmación de modo Normal.'],
-    link_lost:['Sin enlace RF','Recupera el enlace RF y confirma de nuevo el modo Normal.'],
-    normal_unconfirmed:['Confirma Normal','Falta una nueva confirmación de modo Normal. Usa los controles manuales de modo estando desarmado.'],
-  };
-  const readiness = readinessMessages[state.reason] ?? ['Voz no lista','No se cumplen las condiciones para usar voz en vivo.'];
-  const error = state.error === 'not_ready' ? readiness[0] : state.error === 'interrupted' ? 'Repite el comando' : state.error;
-  $('voice-state').title = state.error === 'not_ready' ? readiness[1] : (error ?? '');
-  $('voice-state').textContent = error ? `Sin acción: ${error}` : state.dryRun ? 'Simulación: sin movimiento' : state.phase === 'idle' && voicePreviousPhase === 'executing' ? 'Movimiento terminado' : messages[state.phase];
-  $('voice-transcript').textContent = state.transcript;
-  const directions = {forward:'Adelante',backward:'Atrás',left:'Izquierda',right:'Derecha',turn_left:'Giro izquierda',turn_right:'Giro derecha'};
-  const tier = state.choice.endsWith('_medium') ? 'medium' : 'short';
-  const direction = state.choice.replace(/_(short|medium)$/, '');
-  $('voice-action').textContent = state.choice === 'none' ? 'Sin acción' : `${state.choice === 'repeat_short' ? 'Repetir' : directions[direction]} · ${tier === 'medium' ? 'medio' : 'corto'} · ${voiceConfig?.[`${tier}Ms`] ?? '—'} ms`;
+  const previousPhase = voicePreviousPhase;
+  voiceDisplay = () => renderVoiceFeedback(state, previousPhase);
+  voiceDisplay();
   voicePreviousPhase = state.phase;
 }});
 function cancelVoice(reason,options) {
   const wasBusy = voice.busy;
   voice.cancel(reason,options);
-  if (wasBusy) $('voice-state').textContent = 'Voz cancelada';
+  if (wasBusy) voiceNotice('voice.cancelled');
 }
 async function loadVoice() {
   const generation = ++voiceLoad;
@@ -130,6 +126,11 @@ function voicePress(source) {
 
 const storage = () => { try { return window.localStorage; } catch { return null; } };
 
+function gatewayError(message) {
+  const key = {'send hello first': 'gateway.hello', 'only the next pilot can take control or land': 'gateway.next', 'observers cannot send commands': 'gateway.observer'}[message];
+  return key ? t(key) : t('gateway.error', {message});
+}
+
 const wsOpen = () => ws?.readyState === WebSocket.OPEN;
 const send = (msg) => {
   if (!wsOpen()) return;
@@ -139,7 +140,8 @@ const send = (msg) => {
 
 function toast(text, persist = false, ms = 4000) {
   const el = $('toast');
-  el.textContent = text;
+  toast.display = typeof text === 'function' ? text : () => text;
+  el.textContent = toast.display();
   el.hidden = false;
   clearTimeout(toast.timer);
   if (!persist) toast.timer = setTimeout(() => { el.hidden = true; }, ms);
@@ -159,7 +161,7 @@ function connect() {
   ws.onclose = (ev) => {
     const next = closeAction(ev.code, target.room);
     if (next.clearToken) sessionStorage.removeItem(tokenKey(target.room));   // asked again after a reload
-    if (next.text) toast(next.text, next.retryMs === null);
+    if (next.text) toast(() => closeAction(ev.code, target.room).text, next.retryMs === null);
     voice.setSession(null);
     ++voiceLoad;
     voiceConfig = null;
@@ -188,7 +190,8 @@ function handle(msg) {
       if (shouldReclaimPilotSeat(wantRole, welcome, status)) ws.close();   // reconnects with hello pilot
       if (lostPending) {               // this status names the pilot who took over
         lostPending = false;
-        toast(queueText({ role: 'queued', lost: true }, status));
+        const lostStatus = status;
+        toast(() => queueText({ role: 'queued', lost: true }, lostStatus));
         queued = { ...queued, lost: false };   // told once: from now on the usual queue text
       }
       break;
@@ -211,7 +214,7 @@ function handle(msg) {
       send(tsyncReply(msg, performance.now()));
       break;
     case 'error':
-      toast(msg.msg);
+      toast(() => gatewayError(msg.msg));
       break;
     default:
       break;
@@ -224,7 +227,8 @@ function onEvent(msg) {
   const r = eventReaction(msg, welcome?.session);
   if (!r) return;
   if (r.disengage) disengage('not_engaged');
-  toast(r.text);
+  const session = welcome?.session;
+  toast(() => eventReaction(msg, session).text);
 }
 
 function onWelcome(msg) {
@@ -251,7 +255,7 @@ function onWelcome(msg) {
     queued = null;
   }
   if (role === 'pilot' && msg.takeover) takeOver(msg.takeover);
-  if (role === 'observer' && msg.reason === 'pilot_present') toast('Ya hay un piloto conectado: modo observador');
+  if (role === 'observer' && msg.reason === 'pilot_present') toast(() => t('a.pilot.is.already.connected.observer.mode'));
 }
 
 /** Promoted on a take: every input starts from the drone's last command (the throttle
@@ -338,7 +342,7 @@ setInterval(() => {
  *  with throttle at zero, and the pilot must take control again. */
 function setInputMode(next, { save = true } = {}) {
   if (next !== inputMode && !canSwitchInput(status)) {
-    toast('Desarma antes de cambiar el modo de control');
+    toast(() => t('disarm.before.changing.input.mode'));
     return;
   }
   inputMode = next;
@@ -377,7 +381,7 @@ async function takeControl(afterEngage = () => {}) {
       });
       if (tip && !fullscreenTipShown) {
         fullscreenTipShown = true;
-        toast(tip, false, 10000);                // two steps to read
+        toast(() => fullscreenTip({canFullscreen: false, standalone: false}), false, 10000);                // two steps to read
       }
     },
     engage: () => {
@@ -456,25 +460,25 @@ function renderRecovery(steps) {
   }));
 }
 
-function render() {
+function renderDisplay(updateInputs = true) {
   const now = performance.now();
-  renderInput(now);
+  if (updateInputs) renderInput(now);
   $('voice-panel').hidden = voiceLocal && !voiceConfig;
   for (const id of ['btn-voice-prepare','btn-voice-ptt','btn-voice-cancel','voice-state','voice-transcript','voice-action']) $(id).hidden = !voiceLocal;
   $('voice-badge').hidden = !voiceConfig;
-  $('voice-badge').textContent = voiceConfig?.execution === 'enabled' ? 'Movimiento temporizado' : 'SIMULACIÓN';
+  $('voice-badge').textContent = voiceConfig?.execution === 'enabled' ? t('timed.movement') : t('simulation');
   $('btn-voice-prepare').disabled = !voiceLocal || role !== 'pilot' || !voiceConfig || status?.state !== 'DISARMED' || voice.busy;
   const recording = voice.phase === 'recording';
   const buttonRecording = recording && voiceOwner === 'button';
   $('btn-voice-ptt').disabled = !voiceLocal || role !== 'pilot' || !voiceConfig || !voicePrepared || (voice.busy && !buttonRecording);
-  $('btn-voice-ptt').textContent = buttonRecording ? 'Enviar' : recording ? 'Grabando · V' : voice.busy ? 'Procesando…' : 'Hablar';
+  $('btn-voice-ptt').textContent = buttonRecording ? t('send') : recording ? t('recording.v') : voice.busy ? t('processing') : t('speak');
   $('btn-voice-ptt').setAttribute('aria-pressed', String(recording));
-  const voiceHelp = buttonRecording ? 'Enviar grabación' : recording ? 'Grabando: suelta V para enviar' : voice.busy ? 'Procesando comando de voz' : 'Toca para hablar; toca Enviar para terminar. En teclado, mantén V y suelta para enviar';
+  const voiceHelp = buttonRecording ? t('send.recording') : recording ? t('recording.release.v.to.send') : voice.busy ? t('processing.voice.command') : t('tap.to.speak.tap.send.to.finish.with.keyboard.hold.v.and.release.to.send');
   $('btn-voice-ptt').setAttribute('aria-label', voiceHelp);
   $('btn-voice-ptt').title = voiceHelp;
   $('btn-voice-cancel').disabled = !voiceLocal;
   $('voice-unavailable').hidden = voiceLocal && !!voiceConfig;
-  $('voice-unavailable').textContent = voiceLocal ? 'Voz no disponible en esta conexión' : 'Voz no disponible mediante relay u observador';
+  $('voice-unavailable').textContent = voiceLocal ? t('voice.unavailable.on.this.connection') : t('voice.unavailable.through.relay.or.observer');
   const seg = segments({ wsOpen: wsOpen(), lastMsgAt, status, links, telem, now });
   for (const [name, health] of Object.entries(seg)) $(`seg-${name}`).dataset.health = health;
   $('state').textContent = stateLabel(status, wsOpen(), seg.core === 'ok' || !status?.core);
@@ -510,8 +514,9 @@ function render() {
     $('banner-age').textContent = formatCmdAge(status.cmdAgeMs);
     renderRecovery(recoverySteps({ status, engaged: deadman.engaged }));
   }
-  requestAnimationFrame(render);
 }
+
+function render() { renderDisplay(); requestAnimationFrame(render); }
 
 function renderAuth() {
   if (!signInShown) return;
@@ -522,8 +527,8 @@ function renderAuth() {
   $('btn-logout').hidden = me === null;
   $('btn-logout').disabled = role === 'pilot' && status?.state === 'ARMED';   // disarm first
   $('auth-msg').textContent = noUsers && me === null
-    ? 'Todavía no hay cuentas de piloto: créalas en la Pi con users-cli.js (ver docs/HANDOFF.md)'
-    : loginRequired && me === null ? 'Inicia sesión para pilotar' : '';
+    ? t('no.pilot.accounts.yet.create.them.on.the.pi.with.users.cli.js.see.docs.handoff.md')
+    : loginRequired && me === null ? t('sign.in.to.fly') : '';
 }
 
 /** Who is signed in (the cookie is HttpOnly: only the gateway can tell). */
@@ -536,7 +541,9 @@ async function loadMe() {
   } catch { /* gateway unreachable: the connection segment shows it */ }
 }
 
-const LOGIN_ERRORS = { 401: 'Nombre o contraseña incorrectos', 429: 'Demasiados intentos: espera un minuto' };
+const LOGIN_ERRORS = { 401: 'incorrect.name.or.password', 429: 'too.many.attempts.wait.one.minute' };
+let loginError = '';
+function renderLoginError() { $('login-msg').textContent = loginError ? t(loginError) : ''; }
 
 /** Signed in: the WebSocket reconnects, since the gateway reads the cookie at the upgrade. */
 async function login(ev) {
@@ -547,15 +554,15 @@ async function login(ev) {
     res = await fetch('/login', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, password: $('login-password').value }) });
   } catch {
-    $('login-msg').textContent = 'Sin conexión con la Pi';
+    loginError = 'no.connection.to.pi'; renderLoginError();
     return;
   }
   if (!res.ok) {
-    $('login-msg').textContent = LOGIN_ERRORS[res.status] ?? 'Error del servidor';
+    loginError = LOGIN_ERRORS[res.status] ?? 'server.error'; renderLoginError();
     return;
   }
   $('login-password').value = '';
-  $('login-msg').textContent = '';
+  loginError = ''; renderLoginError();
   $('login').hidden = true;
   await loadMe();
   ws?.close();                       // reconnects with hello pilot and the cookie
@@ -583,10 +590,10 @@ if (signInShown) {
 
 $('btn-voice-prepare').addEventListener('click', async () => {
   if (!voiceConfig || role !== 'pilot' || status?.state !== 'DISARMED') return;
-  try { await capture.prepare(); voicePrepared = true; $('voice-state').textContent = 'Micrófono listo: toca Hablar o mantén V'; }
-  catch { voicePrepared = false; $('voice-state').textContent = 'Micrófono no disponible o formato no compatible'; }
+  try { await capture.prepare(); voicePrepared = true; voiceNotice('microphone.ready.tap.speak.or.hold.v'); }
+  catch { voicePrepared = false; voiceNotice('microphone.unavailable.or.format.unsupported'); }
 });
-$('btn-voice-cancel').addEventListener('click', () => { cancelVoice('local'); $('voice-state').textContent = 'Cancelado'; });
+$('btn-voice-cancel').addEventListener('click', () => { cancelVoice('local'); voiceNotice('cancelled'); });
 const ptt = $('btn-voice-ptt');
 ptt.addEventListener('click', () => {
   if (voice.phase === 'recording' && voiceOwner === 'button') voice.release();
@@ -603,7 +610,7 @@ for (const type of ['pointerup','pointercancel','lostpointercapture']) document.
 const flightCodes = new Set(['KeyW','KeyS','KeyA','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyT', ...Object.keys(SPEED_KEYS), ...Object.keys(KEY_ACTIONS), ...Object.keys(MODE_KEYS)]);
 document.addEventListener('keydown', ev => {
   if (typing(ev) || ev.ctrlKey || ev.metaKey || ev.altKey) return;
-  if (ev.code === 'KeyC') { ev.preventDefault(); cancelVoice('local'); $('voice-state').textContent = 'Cancelado'; return; }
+  if (ev.code === 'KeyC') { ev.preventDefault(); cancelVoice('local'); voiceNotice('cancelled'); return; }
   if (ev.code === 'KeyV') { if (ev.shiftKey) return; ev.preventDefault(); if (!ev.repeat) voicePress('key'); return; }
   if (role === 'pilot' && flightCodes.has(ev.code)) { heldFlightKeys.add(ev.code); cancelVoice('manual'); }
 }, true);
@@ -642,7 +649,7 @@ for (const [selector, attr, model] of CAP_CONTROLS) {
     b.addEventListener('click', () => {
       const next = Number(b.dataset[attr]);
       if (capChangeAllowed(model.cap, next, status)) model.setCap(next);
-      else toast('Desarma para subir el límite del acelerador');
+      else toast(() => t('disarm.to.raise.the.throttle.limit'));
     });
   }
 }
@@ -655,7 +662,7 @@ for (const row of document.querySelectorAll('#panel-step .axis')) {
     if (input.value.trim() === '') return;          // left empty: keep the current value
     const typed = Number(input.value) * 10;
     const applied = stepper.set(axis, typed);
-    if (applied !== null && axis === 'throttle' && typed > applied) toast(`Límite del acelerador: ${stepper.cap / 10} %`);
+    if (applied !== null && axis === 'throttle' && typed > applied) toast(() => t('throttle.limit.cap', { cap: stepper.cap / 10 }));
     input.value = String(stepper.target[axis] / 10);
   });
   input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') input.blur(); });
@@ -724,6 +731,15 @@ function checkPadLayout() {
   else if (action === 'disengage') disengage('layout');
 }
 for (const type of ['resize', 'orientationchange', 'fullscreenchange']) window.addEventListener(type, checkPadLayout);
+
+initLanguageUI(document);
+onLanguageChange(() => {
+  voiceDisplay();
+  renderLoginError();
+  if (!$('toast').hidden && toast.display) $('toast').textContent = toast.display();
+  renderDisplay(false);
+  // Existing pad-layout safety remains active if translated text causes real reflow.
+});
 
 setInputMode(loadInputMode(storage(), matchMedia('(pointer: coarse)').matches), { save: false });
 connect();

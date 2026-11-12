@@ -1,6 +1,8 @@
+import { setLanguage } from '../js/i18n.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { LinkTracker, failsafeAlert, failsafeDetail, formatBattery, formatCmdAge, formatFlightMode, formatLink, formatMs, holdBanner, pilotLine, queueText, recoverySteps, reportsTurtle, segments, stateLabel } from '../js/view.js';
+setLanguage('es');
 
 const goodStatus = { core: true, serialOk: true, timingFrames: 10, state: 'ARMED', reason: 'none' };
 const link = { upLq: 100, upRssi1: -60, txPowerMw: 100 };

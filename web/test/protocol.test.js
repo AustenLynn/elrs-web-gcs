@@ -1,6 +1,8 @@
+import { setLanguage } from '../js/i18n.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { REFUSAL_TEXT, closeAction, connectionTarget, controlMessage, eventReaction, helloMessage, shouldReclaimPilotSeat, tsyncReply } from '../js/protocol.js';
+setLanguage('es');
 
 test('messages match what the gateway hub expects', () => {
   assert.deepEqual(helloMessage('pilot'), { t: 'hello', role: 'pilot' });

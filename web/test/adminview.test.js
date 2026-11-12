@@ -1,6 +1,8 @@
+import { setLanguage } from '../js/i18n.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { rowActions } from '../js/adminview.js';
+setLanguage('es');
 
 const me = 'ana';
 

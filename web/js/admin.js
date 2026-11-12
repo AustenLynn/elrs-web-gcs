@@ -1,18 +1,22 @@
+import { t, onLanguageChange, initLanguageUI } from './i18n.js';
 // Admin screen: list pilots, add, change password, remove. The list reloads every 2 s so the
 // "flying" flag stays current.
-import { FLYING_TEXT, rowActions } from './adminview.js';
+import { rowActions } from './adminview.js';
 
 const $ = (id) => document.getElementById(id);
 let me = null;
 
 const ERRORS = {
-  bad_name: 'Nombre no válido: 2 a 20 caracteres a-z, 0-9, _ o -',
-  bad_password: 'La contraseña necesita al menos 8 caracteres',
-  exists: 'Ese piloto ya existe',
-  unknown: 'Ese piloto no existe',
-  flying: FLYING_TEXT,
-  self: 'No puedes quitar tu propia cuenta',
+  bad_name: 'invalid.name.2.to.20.characters.a.z.0.9.or',
+  bad_password: 'password.must.contain.at.least.8.characters',
+  exists: 'pilot.already.exists', unknown: 'pilot.does.not.exist',
+  flying: 'flying.cannot.be.removed', self: 'you.cannot.remove.your.own.account',
 };
+let users = [];
+let message = () => '';
+function renderUsers() { $('users').replaceChildren(...users.map(row)); }
+initLanguageUI(document);
+onLanguageChange(() => { renderUsers(); $('msg').textContent = message(); });
 
 async function call(method, path, body) {
   const res = await fetch(path, {
@@ -25,12 +29,13 @@ async function call(method, path, body) {
     throw new Error('forbidden');
   }
   const data = res.headers.get('content-type')?.includes('json') ? await res.json().catch(() => ({})) : {};
-  if (!res.ok) throw new Error(ERRORS[data.error] ?? 'Error del servidor');
+  if (!res.ok) throw Object.assign(new Error('admin_error'), {key: ERRORS[data.error] ?? 'server.error'});
   return data;
 }
 
 function say(text) {
-  $('msg').textContent = text;
+  message = typeof text === 'function' ? text : () => text;
+  $('msg').textContent = message();
 }
 
 async function act(fn) {
@@ -38,7 +43,7 @@ async function act(fn) {
     await fn();
     say('');
   } catch (err) {
-    say(err.message);
+    say(() => t(err.key ?? 'server.error'));
   }
   await refresh();
 }
@@ -54,19 +59,19 @@ function row(user) {
   note.textContent = reason ?? '';
   const pass = document.createElement('button');
   pass.type = 'button';
-  pass.textContent = 'Cambiar contraseña';
+  pass.textContent = t('change.password');
   pass.onclick = () => {
-    const password = prompt(`Nueva contraseña para ${user.name}`);
+    const password = prompt(t('new.password.for.name', { name: user.name }));
     if (password) act(() => call('POST', `/admin/users/${encodeURIComponent(user.name)}/password`, { password }));
   };
   const del = document.createElement('button');
   del.type = 'button';
   del.className = 'warn';
-  del.textContent = 'Quitar';
+  del.textContent = t('remove');
   del.disabled = !canRemove;
   if (reason) del.title = reason;
   del.onclick = () => {
-    if (confirm(`¿Quitar a ${user.name}?`)) act(() => call('DELETE', `/admin/users/${encodeURIComponent(user.name)}`));
+    if (confirm(t('remove.name', { name: user.name }))) act(() => call('DELETE', `/admin/users/${encodeURIComponent(user.name)}`));
   };
   li.append(name, note, pass, del);
   return li;
@@ -74,8 +79,8 @@ function row(user) {
 
 async function refresh() {
   try {
-    const list = await call('GET', '/admin/users');
-    $('users').replaceChildren(...list.map(row));
+    users = await call('GET', '/admin/users');
+    renderUsers();
   } catch { /* keeps the last list; the next tick retries */ }
 }
 
