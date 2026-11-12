@@ -5,8 +5,12 @@ uses local static files and makes no ElevenLabs request. Generation is separate
 from the gateway, browser, control loop and aircraft. This checkout contains an
 unavailable manifest with ten pending clips; no audio has been generated yet, so the
 pilot page reports announcements as unavailable until an approved pack is committed.
-The gateway serves `.mp3` as `audio/mpeg` (with `nosniff`); deploying that MIME map
-needs a gateway restart, done only under the usual disarmed deployment checks.
+The gateway serves `.mp3` as `audio/mpeg` (with `nosniff`) and answers single HTTP byte
+ranges (`206`/`416`, `Accept-Ranges: bytes`) for every static file, because iOS Safari
+requests media by range. Deploying the MIME map and range support needs a gateway restart,
+done only under the usual disarmed deployment checks; the core is never restarted for this.
+Real-iPhone playback is still unverified: check it on a device once an approved clip pack
+exists, and record the result here.
 
 ## Generate locally
 
@@ -106,8 +110,15 @@ keeps the controller usable. `mute()` stops playback and remembers false.
 `setLanguage('es'|'en')` stops the old clip without replaying the current state.
 `setRecording(true)` discards speech while microphone capture is active; clearing
 it never replays suppressed events. All snapshots still update silent baselines
-while muted/recording. Each event has a 3-second cooldown; urgent loss/failsafe
-preempts routine audio, and no event is queued for later playback.
+while muted/recording. One clip plays at a time; urgent loss/failsafe preempts
+routine audio. The engine remembers what the pilot last heard for the arm state and
+for the radio: a confirmed change that arrives during a clip, or inside its event's
+3-second cooldown, is not dropped but spoken once (as the *current* value) when the
+clip ends or the cooldown passes, so the last thing heard always converges on the
+confirmed state. Nothing stale is queued: a change that reverts before it can be
+spoken is never said. A clip that fires neither `ended` nor `error` stops counting
+as playing after 8 s. A language change also clears a missing-clips error that
+belonged to the old language (not a browser block).
 
 ## Pilot page integration
 
@@ -136,8 +147,9 @@ The button blurs after each tap and is not a flight key target: Space still disa
   new connection and that looks fresh for 2 s.
 - **Reset**: the WebSocket closing calls `reset()`; the next statuses seed silently.
 - **Microphone**: `setRecording()` follows the voice controller's `recording` phase.
-- **Language**: a change calls `setLanguage()` (stops the old clip, no replay). If the new
-  language has no clips while enabled, the announcer reports `audio_unavailable`.
+- **Language**: a change calls `setLanguage()` (stops the old clip, no replay, clears the
+  old language's missing-clips error). If the new language has no clips while enabled or
+  while that error was shown, the announcer reports `audio_unavailable` again.
 
 ## Validation
 

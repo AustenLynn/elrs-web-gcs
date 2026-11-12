@@ -123,6 +123,53 @@ test('serves prerecorded announcement clips as audio/mpeg, GET and HEAD, without
   assert.equal((await fetch(`${base}/audio/announcements/es/armed.mp3`, { method: 'POST' })).status, 405);
 });
 
+test('static files answer single byte ranges (iOS media playback needs 206), GET and HEAD alike', async (t) => {
+  const { base, dir, gw } = await setup(t);
+  mkdirSync(path.join(dir, 'audio', 'announcements', 'en'), { recursive: true });
+  const clip = Buffer.from('0123456789');
+  writeFileSync(path.join(dir, 'audio', 'announcements', 'en', 'armed.mp3'), clip);
+  const url = `${base}/audio/announcements/en/armed.mp3`;
+  const whole = await fetch(url);
+  assert.equal(whole.status, 200);
+  assert.equal(whole.headers.get('accept-ranges'), 'bytes');
+  assert.equal(whole.headers.get('content-length'), '10');
+  await whole.arrayBuffer();
+  for (const [range, first, last] of [['bytes=0-1', 0, 1], ['bytes=3-', 3, 9], ['bytes=-4', 6, 9], ['bytes=8-50', 8, 9], ['bytes=-20', 0, 9], ['bytes=0-0', 0, 0]]) {
+    for (const method of ['GET', 'HEAD']) {
+      const res = await fetch(url, { method, headers: { Range: range } });
+      assert.equal(res.status, 206, `${method} ${range}`);
+      assert.equal(res.headers.get('content-range'), `bytes ${first}-${last}/10`, `${method} ${range}`);
+      assert.equal(res.headers.get('content-length'), String(last - first + 1), `${method} ${range}`);
+      assert.equal(res.headers.get('accept-ranges'), 'bytes');
+      assert.equal(res.headers.get('content-type'), 'audio/mpeg');
+      assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+      assert.equal(res.headers.get('cache-control'), 'no-cache');
+      const body = Buffer.from(await res.arrayBuffer());
+      assert.deepEqual(body, method === 'HEAD' ? Buffer.alloc(0) : clip.subarray(first, last + 1), `${method} ${range}`);
+    }
+  }
+  for (const range of ['bytes=10-', 'bytes=10-12', 'bytes=-0']) {
+    for (const method of ['GET', 'HEAD']) {
+      const res = await fetch(url, { method, headers: { Range: range } });
+      assert.equal(res.status, 416, `${method} ${range}`);
+      assert.equal(res.headers.get('content-range'), 'bytes */10', `${method} ${range}`);
+      assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+      assert.equal((await res.arrayBuffer()).byteLength, 0);
+    }
+  }
+  // Malformed, multi-range or other units: ignored, the whole file as usual.
+  for (const range of ['bytes=5-2', 'bytes=0-1,3-4', 'items=0-1', 'bytes=', 'bytes=-', 'bytes=a-b', 'bytes=1-2-3', 'bytes= 1-2x']) {
+    const res = await fetch(url, { headers: { Range: range } });
+    assert.equal(res.status, 200, range);
+    assert.equal(res.headers.get('content-range'), null, range);
+    assert.deepEqual(Buffer.from(await res.arrayBuffer()), clip, range);
+  }
+  // Ranges change nothing about containment or methods.
+  assert.equal((await fetch(`${base}/audio/announcements/en/missing.mp3`, { headers: { Range: 'bytes=0-1' } })).status, 404);
+  assert.equal((await fetch(url, { method: 'POST', headers: { Range: 'bytes=0-1' } })).status, 405);
+  assert.equal(await rawStatus(gw.port, '/%2e%2e%2f%2e%2e%2fetc%2fpasswd'), 403);
+});
+
 test('serves the home-screen manifest and its icons (iPhone: no full screen for web pages)', async (t) => {
   const { base } = await setup(t, { webRoot: fileURLToPath(new URL('../../web', import.meta.url)) });
   const res = await fetch(`${base}/manifest.webmanifest`);
