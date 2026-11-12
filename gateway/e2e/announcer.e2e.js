@@ -40,7 +40,8 @@ async function fixture(t, { locale, manifest = 'available', inputMode = 'keyboar
     document.hasFocus = () => true;
     Element.prototype.requestFullscreen = async function () {};   // no real full screen: the viewport must not change under the test
     window.RTCPeerConnection = class { constructor() { throw new Error('no video in this fixture'); } };
-    const audioMode = sessionStorage.getItem('fixture-audio') ?? 'fake';
+    let audioMode = 'fake';
+    try { audioMode = sessionStorage.getItem('fixture-audio') ?? 'fake'; } catch {}   // opaque initial document: no storage
     window.fixture = { sent: [], plays: [], pauses: 0, audios: 0, sockets: 0, frames: 0, loadMark: Math.random(),
       state: 'DISARMED', reason: 'none', lq: null, playError: audioMode === 'blocked' ? 'NotAllowedError' : null };
     class FakeAudio {
@@ -252,7 +253,8 @@ test('blocked or missing audio is reported and never blocks the controls', { tim
   assert.match(b.status, /bloque/);
   await f.js("document.getElementById('btn-take').click()");
   await waitFor(() => f.js("fixture.sent.some((m) => m.t === 'ctl')"), 3000, 'control commands still flow');
-  assert.equal(await f.js("document.getElementById('deadman').textContent"), '');
+  // The first ctl can leave before the next frame renders the engaged deadman text.
+  await waitFor(() => f.js("document.getElementById('deadman').textContent === ''"), 2000, 'engaged');
   assert.deepEqual(f.page.errors, [], 'a NotAllowedError probe leaves no unhandled error');
 });
 
