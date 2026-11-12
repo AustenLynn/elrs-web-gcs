@@ -44,6 +44,103 @@ async function voiceFixture(t, inputMode='keyboard') {
   return {page,url};
 }
 
+test('two-tap voice button submits once and isolates keyboard ownership', {timeout:45000}, async t => {
+  const {page,url}=await voiceFixture(t,'touch');
+  await page.call('browsingContext.setViewport',{context:page.context,viewport:{width:740,height:360}});
+  await page.open(url);
+  await waitFor(()=>page.evaluate("!document.getElementById('btn-voice-prepare').disabled"),3000,'preflight ready');
+  await page.evaluate("document.getElementById('btn-voice-prepare').click();document.getElementById('btn-take').click()");
+  await waitFor(()=>page.evaluate("!document.getElementById('btn-voice-ptt').disabled"),3000,'voice ready');
+  const phase=()=>page.evaluate("document.getElementById('voice-state').dataset.phase");
+  const requests=()=>page.evaluate('fixture.requests');
+  const press=()=>page.evaluate("document.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyV',bubbles:true}))");
+  const release=()=>page.evaluate("document.dispatchEvent(new KeyboardEvent('keyup',{code:'KeyV',bubbles:true}))");
+  const touch=actions=>page.call('input.performActions',{context:page.context,actions:[{type:'pointer',id:'voice-tap',parameters:{pointerType:'touch'},actions}]});
+  const down=async()=>{
+    const b=JSON.parse(await page.evaluate("JSON.stringify(document.getElementById('btn-voice-ptt').getBoundingClientRect().toJSON())"));
+    await touch([{type:'pointerMove',x:Math.round(b.x+b.width/2),y:Math.round(b.y+b.height/2)},{type:'pointerDown',button:0}]);
+  };
+  const up=()=>touch([{type:'pointerUp',button:0}]);
+  const tap=async()=>{await down();await up();await sleep(40);};
+  const reset=async()=>{
+    await page.evaluate("document.getElementById('btn-voice-cancel').click();document.getElementById('btn-take').click()");
+    await sleep(60);
+    assert.equal(await phase(),'idle');
+    assert.equal(await page.evaluate("document.getElementById('btn-voice-ptt').textContent"),'Hablar');
+    assert.equal(await page.evaluate("document.getElementById('btn-voice-ptt').getAttribute('aria-pressed')"),'false');
+  };
+  const canceledTap=async()=>{
+    await down();
+    await page.evaluate("document.getElementById('btn-voice-ptt').dispatchEvent(new PointerEvent('pointercancel',{pointerId:7,bubbles:true}))");
+    await touch([{type:'pointerMove',x:1,y:1},{type:'pointerUp',button:0}]);
+    await sleep(40);
+  };
+  await down();
+  assert.equal(await phase(),'idle','uncompleted touch does not start recording');
+  await up();await sleep(80);
+  assert.equal(await phase(),'recording','first completed touch remains recording');
+  assert.equal(await requests(),0,'first release and synthetic click never upload');
+  assert.equal(await page.evaluate("document.getElementById('btn-voice-ptt').textContent"),'Enviar');
+  assert.equal(await page.evaluate("document.getElementById('btn-voice-ptt').getAttribute('aria-pressed')"),'true');
+  await page.evaluate('fixture.delay=400');
+  await tap();
+  await waitFor(async()=>await requests()===1,1000,'second touch uploads');
+  assert.equal(await phase(),'processing');
+  await tap();await tap();
+  assert.equal(await requests(),1,'busy taps cannot upload again');
+  await waitFor(async()=>await phase()==='idle',2000,'dry-run completion');
+  await reset();
+  await canceledTap();
+  assert.equal(await phase(),'idle','canceled first touch never starts');
+  await tap();await canceledTap();
+  assert.equal(await phase(),'recording','canceled second touch never submits');
+  assert.equal(await requests(),1);
+  await reset();
+  // A release or repeat from V cannot submit a button-owned utterance.
+  await tap();await press();await release();
+  assert.equal(await phase(),'recording');
+  assert.equal(await requests(),1);
+  await reset();
+  await press();await sleep(60);await tap();
+  assert.equal(await phase(),'recording','button cannot submit keyboard-owned recording');
+  assert.equal(await page.evaluate("document.getElementById('btn-voice-ptt').disabled"),true);
+  await page.evaluate("document.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyV',repeat:true,bubbles:true}));fixture.delay=0");
+  await release();
+  await waitFor(async()=>await requests()===2,1000,'V release still uploads once');
+  await waitFor(async()=>await phase()==='idle',2000,'V completion');
+  // Every interruption resets ownership so the next first tap starts afresh.
+  for(const interruption of [
+    "document.getElementById('btn-voice-cancel').click()",
+    "fixture.recorder.onerror()",
+    "window.dispatchEvent(new Event('blur'))",
+    "fixture.socket.emit({t:'welcome',role:'pilot',session:2});fixture.socket.emit({t:'voice_ready',session:2,capability:'next'})",
+    "document.dispatchEvent(new KeyboardEvent('keydown',{code:'ArrowUp',bubbles:true}))",
+  ]) {
+    await reset();await tap();assert.equal(await phase(),'recording');
+    await page.evaluate(interruption);await sleep(80);
+    assert.equal(await phase(),'idle',interruption);
+    assert.equal(await requests(),2,'interruption discards without upload');
+    if(interruption.includes('ArrowUp')) {
+      await tap();assert.equal(await phase(),'idle','held manual input blocks recording');
+      await page.evaluate("document.dispatchEvent(new KeyboardEvent('keyup',{code:'ArrowUp',bubbles:true}))");
+    }
+    await reset();await tap();assert.equal(await phase(),'recording','fresh first tap after interruption');
+  }
+  await reset();await tap();
+  await waitFor(async()=>await phase()==='idle',6000,'five-second discard');
+  assert.equal(await page.evaluate("document.getElementById('voice-state').textContent"),'Sin acción: recording_timeout');
+  assert.equal(await requests(),2,'timeout never auto-submits');
+  await tap();assert.equal(await phase(),'recording','timeout cleared button ownership');
+  await reset();
+  // Normal click activation also supports mouse and keyboard accessibility callers.
+  await page.evaluate("document.getElementById('btn-voice-ptt').click()");
+  assert.equal(await phase(),'recording');
+  await page.evaluate("document.getElementById('btn-voice-ptt').click()");
+  await waitFor(async()=>await requests()===3,1000,'completed click pair uploads');
+  await waitFor(async()=>await phase()==='idle',2000,'click completion');
+  assert.deepEqual(page.errors,[]);
+});
+
 test('voice PTT runs on control ticks, dry-run and manual safety lifecycle', {timeout:60000}, async t => {
   const {page,url}=await voiceFixture(t);
   await page.open(url+'?measure');
@@ -128,13 +225,13 @@ test('voice PTT runs on control ticks, dry-run and manual safety lifecycle', {ti
     await utterance();await sleep(320);
     assert.equal(await page.evaluate("fixture.sent.filter(m=>m.t==='ctl').every(m=>m.p===0)"),true,`repeat cleared by ${interruption}`);
   }
-  // Pointer cancellation discards the utterance; no upload is made.
+  // Canceled button pointers cannot discard a keyboard-owned utterance.
   for(const event of ['pointercancel','lostpointercapture']) {
     const before=await page.evaluate('fixture.requests');
     await press();await sleep(40);
     await page.evaluate(`document.getElementById('btn-voice-ptt').dispatchEvent(new PointerEvent('${event}',{pointerId:7}))`);
     await release();await sleep(70);
-    assert.equal(await page.evaluate('fixture.requests'),before,`${event} discards recording`);
+    assert.equal(await page.evaluate('fixture.requests'),before+1,`${event} leaves V release authoritative`);
   }
   // Freeze the monotonic clock for neutral keyboard ramps; held physical intent must still block.
   await page.evaluate('fixture.freeze=performance.now()');
@@ -199,7 +296,8 @@ test('voice-enabled touch pads stay usable and stable across feedback and held-s
     await stable('prepared');
     for(const transcript of ['adelante','palabra '.repeat(125)]) {
       await page.evaluate(`fixture.transcript=${JSON.stringify(transcript)};fixture.delay=160;fixture.choice='forward_medium';fixture.sent=[]`);
-      await press();await sleep(40);await stable('recording');await release();
+      await page.evaluate("document.getElementById('btn-voice-ptt').click()");await sleep(40);await stable('button recording');
+      await page.evaluate("document.getElementById('btn-voice-ptt').click()");
       await waitFor(async()=>await phase()==='processing',1000,'processing');await stable('processing');
       await waitFor(async()=>await phase()==='executing',2000,'executing');
       assert.equal(await page.evaluate("document.getElementById('voice-transcript').textContent"),transcript);

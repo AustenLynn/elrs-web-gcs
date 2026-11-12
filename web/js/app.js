@@ -76,9 +76,11 @@ let flightModeAt = -Infinity;
 const heldFlightKeys = new Set();
 const heldFlightPointers = new Set();
 let voicePreviousPhase = 'idle';
+let voiceOwner = null;
 const capture = new VoiceCapture();
 const voice = new VoiceController({ trace: voiceTrace, capture, maneuver: new VoiceManeuver(), onState: state => {
-  const messages = {idle:'Lista',recording:'Escuchando… suelta para enviar',processing:'Interpretando…',ready:'Interpretado',executing:'Movimiento temporizado'};
+  if (state.phase === 'idle') voiceOwner = null;
+  const messages = {idle:'Lista',recording:voiceOwner === 'button' ? 'Escuchando… toca Enviar' : 'Escuchando… suelta V para enviar',processing:'Interpretando…',ready:'Interpretado',executing:'Movimiento temporizado'};
   $('voice-state').dataset.phase = state.phase;
   $('voice-state').textContent = state.error ? `Sin acción: ${state.error}` : state.dryRun ? 'Simulación: sin movimiento' : state.phase === 'idle' && voicePreviousPhase === 'executing' ? 'Movimiento terminado' : messages[state.phase];
   $('voice-transcript').textContent = state.transcript;
@@ -106,9 +108,11 @@ async function loadVoice() {
     voiceConfig = config;
   } catch { if (generation === voiceLoad) voice.configure(null); }
 }
-function voicePress() {
-  if (!voiceLocal || !voicePrepared || !voiceConfig || role !== 'pilot' || !deadman.engaged || !wsOpen() || !document.hasFocus() || document.visibilityState !== 'visible') return;
+function voicePress(source) {
+  if (voice.busy || !voiceLocal || !voicePrepared || !voiceConfig || role !== 'pilot' || !deadman.engaged || !wsOpen() || !document.hasFocus() || document.visibilityState !== 'visible') return;
+  voiceOwner = source;
   voice.press();
+  if (voice.phase === 'idle') voiceOwner = null;
 }
 
 const storage = () => { try { return window.localStorage; } catch { return null; } };
@@ -445,7 +449,14 @@ function render() {
   $('voice-badge').hidden = !voiceConfig;
   $('voice-badge').textContent = voiceConfig?.execution === 'enabled' ? 'Movimiento temporizado' : 'SIMULACIÓN';
   $('btn-voice-prepare').disabled = !voiceLocal || role !== 'pilot' || !voiceConfig || status?.state !== 'DISARMED' || voice.busy;
-  $('btn-voice-ptt').disabled = !voiceLocal || role !== 'pilot' || !voiceConfig || !voicePrepared;
+  const recording = voice.phase === 'recording';
+  const buttonRecording = recording && voiceOwner === 'button';
+  $('btn-voice-ptt').disabled = !voiceLocal || role !== 'pilot' || !voiceConfig || !voicePrepared || (voice.busy && !buttonRecording);
+  $('btn-voice-ptt').textContent = buttonRecording ? 'Enviar' : recording ? 'Grabando · V' : voice.busy ? 'Procesando…' : 'Hablar';
+  $('btn-voice-ptt').setAttribute('aria-pressed', String(recording));
+  const voiceHelp = buttonRecording ? 'Enviar grabación' : recording ? 'Grabando: suelta V para enviar' : voice.busy ? 'Procesando comando de voz' : 'Toca para hablar; toca Enviar para terminar. En teclado, mantén V y suelta para enviar';
+  $('btn-voice-ptt').setAttribute('aria-label', voiceHelp);
+  $('btn-voice-ptt').title = voiceHelp;
   $('btn-voice-cancel').disabled = !voiceLocal;
   $('voice-unavailable').hidden = voiceLocal && !!voiceConfig;
   $('voice-unavailable').textContent = voiceLocal ? 'Voz no disponible en esta conexión' : 'Voz no disponible mediante relay u observador';
@@ -557,18 +568,17 @@ if (signInShown) {
 
 $('btn-voice-prepare').addEventListener('click', async () => {
   if (!voiceConfig || role !== 'pilot' || status?.state !== 'DISARMED') return;
-  try { await capture.prepare(); voicePrepared = true; $('voice-state').textContent = 'Micrófono listo: mantén V para hablar'; }
+  try { await capture.prepare(); voicePrepared = true; $('voice-state').textContent = 'Micrófono listo: toca Hablar o mantén V'; }
   catch { voicePrepared = false; $('voice-state').textContent = 'Micrófono no disponible o formato no compatible'; }
 });
 $('btn-voice-cancel').addEventListener('click', () => { cancelVoice('local'); $('voice-state').textContent = 'Cancelado'; });
 const ptt = $('btn-voice-ptt');
-ptt.addEventListener('pointerdown', ev => { if (ev.button !== 0) return; ev.preventDefault(); ptt.setPointerCapture(ev.pointerId); voicePress(); });
-ptt.addEventListener('pointerup', ev => { ev.preventDefault(); voice.release(); });
-for (const type of ['pointercancel','lostpointercapture']) ptt.addEventListener(type, () => {
-  if (voice.phase === 'recording') cancelVoice('pointer_discard');
+ptt.addEventListener('click', () => {
+  if (voice.phase === 'recording' && voiceOwner === 'button') voice.release();
+  else if (!voice.busy) voicePress('button');
 });
 // Capture deliberate intent before any flight listener changes its model or starts a ramp.
-const flightSelector = '#stick-left, #stick-right, #btn-arm, #btn-ack, #btn-take, #btn-hold-take, #btn-disarm, #btn-failsafe, #btn-hold-land, #btn-neutral, #btn-turtle, [data-mode], [data-speed], [data-input], [data-step], [data-intensity], [data-cap], [data-key-cap], #panel-step .axis';
+const flightSelector = '#stick-left, #stick-right, #btn-arm, #btn-ack, #btn-take, #btn-hold-take, #btn-disarm, #btn-failsafe, #btn-hold-land, #btn-neutral, #btn-turtle, [data-mode], [data-speed], button[data-input], [data-step], [data-intensity], [data-cap], [data-key-cap], #panel-step .axis';
 for (const type of ['pointerdown','click','input','change']) document.addEventListener(type, ev => {
   if (!(ev.target instanceof Element) || !ev.target.closest(flightSelector)) return;
   cancelVoice('manual');
@@ -579,12 +589,12 @@ const flightCodes = new Set(['KeyW','KeyS','KeyA','KeyD','ArrowUp','ArrowDown','
 document.addEventListener('keydown', ev => {
   if (typing(ev) || ev.ctrlKey || ev.metaKey || ev.altKey) return;
   if (ev.code === 'KeyC') { ev.preventDefault(); cancelVoice('local'); $('voice-state').textContent = 'Cancelado'; return; }
-  if (ev.code === 'KeyV') { if (ev.shiftKey) return; ev.preventDefault(); if (!ev.repeat) voicePress(); return; }
+  if (ev.code === 'KeyV') { if (ev.shiftKey) return; ev.preventDefault(); if (!ev.repeat) voicePress('key'); return; }
   if (role === 'pilot' && flightCodes.has(ev.code)) { heldFlightKeys.add(ev.code); cancelVoice('manual'); }
 }, true);
 document.addEventListener('keyup', ev => {
   heldFlightKeys.delete(ev.code);
-  if (ev.code === 'KeyV') voice.release();
+  if (ev.code === 'KeyV' && voiceOwner === 'key') voice.release();
 }, true);
 bindStick($('stick-left'), left);
 bindStick($('stick-right'), right);
