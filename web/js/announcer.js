@@ -51,11 +51,11 @@ export class FlightAnnouncer {
       // A real, muted clip both unlocks this element and detects missing assets.
       this.audio ??= this.audioFactory(clip(this.language, 'armed'));
       this.audio.src = clip(this.language, 'armed');
-      this.audio.volume = 0;
+      this.audio.muted = true;
       await this.audio.play();
       if (generation !== this.generation) return false;
       this.stop();
-      this.audio.volume = 1;
+      this.audio.muted = false;
       this.enabled = true;
       this.remember(true);
       this.emit();

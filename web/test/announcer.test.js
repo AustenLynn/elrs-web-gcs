@@ -6,11 +6,11 @@ function setup({stored=null,storageFails=false}={}) {
   assert.equal(typeof FlightAnnouncer,'function','FlightAnnouncer implementation is required');
   let clock=0;
   const calls=[],states=[],writes=[];
-  const audio={src:'',volume:1,currentTime:0,paused:true,reject:null,pending:null,
-    play(){this.paused=false;calls.push({url:this.src,volume:this.volume});if(this.pending)return this.pending;if(this.reject)return Promise.reject(this.reject);return Promise.resolve();},
+  const audio={src:'',volume:1,muted:false,currentTime:0,paused:true,reject:null,pending:null,
+    play(){this.paused=false;calls.push({url:this.src,volume:this.volume,muted:this.muted});if(this.pending)return this.pending;if(this.reject)return Promise.reject(this.reject);return Promise.resolve();},
     pause(){this.paused=true;},onended:null,onerror:null};
   const c=new FlightAnnouncer({audioFactory:url=>{audio.src=url;return audio;},now:()=>clock,onState:s=>states.push(s),storage:{getItem(){if(storageFails)throw Error('storage');return stored;},setItem(k,v){if(storageFails)throw Error('storage');writes.push([k,v]);}}});
-  return {c,audio,calls,states,writes,time:v=>clock=v,update:v=>c.update({...snapshot,...v}),events:()=>calls.filter(x=>x.volume!==0).map(x=>x.url.split('/').at(-1))};
+  return {c,audio,calls,states,writes,time:v=>clock=v,update:v=>c.update({...snapshot,...v}),events:()=>calls.filter(x=>x.volume!==0&&!x.muted).map(x=>x.url.split('/').at(-1))};
 }
 async function enabled(options){const s=setup(options);assert.equal(await s.c.enable(),true);return s;}
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
@@ -70,4 +70,15 @@ for(const operation of ['mute','language','recording','reset'])test(`${operation
 });
 test('late failure from preempted routine does not disable urgent speech',async()=>{
   const s=await enabled();s.update({});let reject;s.audio.pending=new Promise((_,r)=>reject=r);s.update({state:'ARMED'});s.audio.pending=null;s.update({state:'ARMED',radio:'down'});reject(Error('old'));await tick();assert.equal(s.states.at(-1).enabled,true);assert.equal(s.events().at(-1),'signal_lost.mp3');
+});
+
+test('gesture probe stays silent when volume writes are ignored; confirmed event becomes audible only after paused unmute',async()=>{
+  const s=setup();let muted=false,unmutedWhilePlaying=false;
+  Object.defineProperty(s.audio,'volume',{get:()=>1,set(){}});
+  Object.defineProperty(s.audio,'muted',{get:()=>muted,set(value){if(!value&&!s.audio.paused)unmutedWhilePlaying=true;muted=value;}});
+  assert.equal(await s.c.enable(),true);
+  assert.deepEqual(s.events(),[],'unlock must never speak armed before confirmed telemetry');
+  assert.equal(s.calls[0].muted,true);assert.equal(s.audio.paused,true);assert.equal(s.audio.muted,false);assert.equal(unmutedWhilePlaying,false);
+  s.update({});assert.deepEqual(s.events(),[]);s.update({state:'ARMED'});
+  assert.deepEqual(s.events(),['armed.mp3']);assert.equal(s.calls.at(-1).muted,false);
 });

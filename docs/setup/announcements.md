@@ -87,7 +87,9 @@ link and never asserts failsafe clearance. `reset()` discards playback and seeds
 both baselines anew without changing the mute preference.
 
 `enable()` must run directly in a user gesture. It silently probes the real
-`armed.mp3` in the selected language on a reusable audio element, then pauses it.
+`armed.mp3` in the selected language on a reusable audio element with
+`muted = true`, then pauses it before restoring `muted = false`. Silence does
+not depend on JavaScript volume control, which some mobile browsers ignore.
 Missing/invalid assets return false with `audio_unavailable`; browser policy
 rejection returns false with `audio_blocked` and `blocked: true`. The callback
 always receives `{enabled, blocked, error}`, with `error: null` on success.
