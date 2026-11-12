@@ -57,7 +57,7 @@ async function setup(t, { tls = false, webRoot = null, voice = null, voiceProvid
     assert.equal(res.status, 200);
     return res.headers.get('set-cookie').split(';')[0];
   };
-  return { gw, core, base, login, wsUrl: `${tls ? 'wss' : 'ws'}://127.0.0.1:${gw.port}/ws` };
+  return { gw, core, base, dir, login, wsUrl: `${tls ? 'wss' : 'ws'}://127.0.0.1:${gw.port}/ws` };
 }
 
 async function waitFor(pred, ms = 2000) {
@@ -102,6 +102,25 @@ test('serves the web fonts as font/woff2', async (t) => {
   const res = await fetch(`${base}/fonts/barlow-400.woff2`);
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('content-type'), 'font/woff2');
+});
+
+test('serves prerecorded announcement clips as audio/mpeg, GET and HEAD, without sniffing', async (t) => {
+  const { base, dir } = await setup(t);
+  mkdirSync(path.join(dir, 'audio', 'announcements', 'es'), { recursive: true });
+  const clip = Buffer.from([0xff, 0xfb, 0x90, 0x64, 0, 0, 0, 0]);
+  writeFileSync(path.join(dir, 'audio', 'announcements', 'es', 'armed.mp3'), clip);
+  const res = await fetch(`${base}/audio/announcements/es/armed.mp3`);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type'), 'audio/mpeg');
+  assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+  assert.deepEqual(Buffer.from(await res.arrayBuffer()), clip);
+  const head = await fetch(`${base}/audio/announcements/es/armed.mp3`, { method: 'HEAD' });
+  assert.equal(head.status, 200);
+  assert.equal(head.headers.get('content-type'), 'audio/mpeg');
+  assert.equal(head.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal((await head.arrayBuffer()).byteLength, 0);
+  assert.equal((await fetch(`${base}/audio/announcements/es/missing.mp3`)).status, 404);
+  assert.equal((await fetch(`${base}/audio/announcements/es/armed.mp3`, { method: 'POST' })).status, 405);
 });
 
 test('serves the home-screen manifest and its icons (iPhone: no full screen for web pages)', async (t) => {
