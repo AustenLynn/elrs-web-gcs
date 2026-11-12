@@ -66,8 +66,15 @@ async function fixture(t, { locale, manifest = 'available', inputMode = 'keyboar
         const m = JSON.parse(raw);
         fixture.sent.push(m);
         if (m.t !== 'hello') return;
+        // Like the hub: the answer to hello (after a round trip of fixture.helloDelay ms)
+        // carries the welcome and a replay of the last cached link telemetry.
+        setTimeout(() => this.hello(), fixture.helloDelay ?? 0);
+      }
+      hello() {
+        if (this.readyState !== 1) return;
         this.emit({ t: 'welcome', role: 'pilot', session: this.id });
         this.emit({ t: 'voice_ready', session: this.id, capability: 'fixture-capability' });
+        if (fixture.replayLink) this.emit({ t: 'telem', link: fixture.replayLink });
         this.timer = setInterval(() => {
           fixture.frames += 5;   // the TX module keeps talking: timing frames grow
           this.emit({ t: 'status', core: true, state: fixture.state, reason: fixture.reason, serialOk: true, timingFrames: fixture.frames,
@@ -189,12 +196,19 @@ test('announcements: user gesture, silent seeding and reconnect, real transition
   await waitFor(async () => (await f.plays()).length >= 6, 2000, 'failsafe');
   assert.equal((await f.plays())[5].src, '/audio/announcements/en/failsafe.mp3');
 
-  // Reconnect: whatever changed while disconnected is the new baseline, not an event.
+  // Reconnect: whatever changed while disconnected is the new baseline, not an event. The
+  // drone went quiet meanwhile, but the hub replays its cached (live-looking) link telemetry
+  // one slow round trip after the socket opens; that replay going stale is not a loss.
+  await f.js("fixture.helloDelay = 1200; fixture.replayLink = { upLq: 80 }");
   await f.js('fixture.socket.close()');
   await f.js("fixture.state = 'ARMED'; fixture.reason = 'none'; fixture.lq = null");
   await waitFor(() => f.js('fixture.sockets === 2'), 4000, 'reconnected');
-  await sleep(3500);
-  assert.equal((await f.plays()).length, 6, 'silent after reconnect, including stale link telemetry');
+  await waitFor(() => f.js("document.getElementById('state').dataset.state === 'ARMED'"), 4000, 'hello answered');
+  await waitFor(() => f.js("document.getElementById('seg-drone').dataset.health === 'ok'"), 3000, 'replayed link looks live');
+  await waitFor(() => f.js("document.getElementById('seg-drone').dataset.health === 'down'"), 4000, 'replayed link goes stale');
+  await sleep(1500);
+  assert.deepEqual((await f.plays()).slice(6), [], 'silent after reconnect, including replayed stale link telemetry');
+  await f.js("fixture.helloDelay = 0; fixture.replayLink = null");
   assert.deepEqual(await f.flightMessages(), ['hello', 'hello'], 'only the reconnection hello: no pilot or control message');
 
   await f.click();

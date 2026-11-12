@@ -85,10 +85,15 @@ const capture = new VoiceCapture();
 // failure of it may reach the control loop or rendering. Off on every load until a tap unlocks audio.
 const announcer = new FlightAnnouncer({ onState: () => renderAnnouncer() });
 announcer.setLanguage(getLanguage());
-// Longer than the link-stale time (view.js): the gateway replays its last link telemetry to a new
-// connection, which looks fresh for 2 s. Until then the radio is unknown, so it seeds silently.
+// The gateway answers hello with a replay of its last cached link telemetry, which looks fresh
+// for the 2 s link-stale time (view.js) whatever the drone is doing now. The radio stays unknown
+// (seeds silently) until 2.5 s after the later of the socket opening, the first welcome and the
+// first link report on this connection, so the window counts from the replay's arrival, not
+// from a round trip earlier.
 const ANNOUNCE_SETTLE_MS = 2500;
 let announceSettledAt = Infinity;
+let announceAwaiting = { welcome: false, link: false };   // first of each on this connection
+const settleAnnouncerFrom = (now) => { announceSettledAt = Math.max(announceSettledAt, now + ANNOUNCE_SETTLE_MS); };
 let clipsReady = null;   // {es, en} from the clip manifest; null = unknown (the enable probe decides)
 let voiceDisplay = () => {};
 function renderVoiceFeedback(state, previousPhase) {
@@ -164,6 +169,7 @@ function connect() {
   ws = new WebSocket(target.url);
   ws.onopen = () => {
     announceSettledAt = performance.now() + ANNOUNCE_SETTLE_MS;
+    announceAwaiting = { welcome: true, link: true };
     seq = 0;                       // a new connection is a new session: never resend old commands
     send(target.hello);
   };
@@ -219,7 +225,10 @@ function handle(msg) {
       if (typeof msg.flightMode === 'string') {
         if (telem.flightMode !== msg.flightMode) cancelVoice('flight_mode');
       }
-      if (msg.link) telem.linkAt = performance.now();
+      if (msg.link) {
+        telem.linkAt = performance.now();
+        if (announceAwaiting.link) { announceAwaiting.link = false; settleAnnouncerFrom(telem.linkAt); }
+      }
       Object.assign(telem, msg);
       delete telem.t;
       break;
@@ -248,6 +257,7 @@ function onEvent(msg) {
 }
 
 function onWelcome(msg) {
+  if (announceAwaiting.welcome) { announceAwaiting.welcome = false; settleAnnouncerFrom(performance.now()); }
   voice.setSession(null);
   welcome = msg;
   role = msg.role;
