@@ -128,7 +128,7 @@ test('two-tap voice button submits once and isolates keyboard ownership', {timeo
   }
   await reset();await tap();
   await waitFor(async()=>await phase()==='idle',6000,'five-second discard');
-  assert.equal(await page.evaluate("document.getElementById('voice-state').textContent"),'Sin acción: recording_timeout');
+  assert.equal(await page.evaluate("document.getElementById('voice-state').textContent"),'Sin acción: Grabación demasiado larga: vuelve a intentarlo');   // localized since the bilingual interface
   assert.equal(await requests(),2,'timeout never auto-submits');
   await tap();assert.equal(await phase(),'recording','timeout cleared button ownership');
   await reset();
@@ -318,9 +318,9 @@ test('voice-enabled touch pads stay usable and stable across feedback and held-s
       await waitFor(async()=>await phase()==='idle',2000,'completion');await stable('completion');
     }
     await page.evaluate("fixture.error='provider_timeout'");await press();await sleep(40);await release();
-    await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent==='Sin acción: provider_timeout'"),2000,'provider error');
+    await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent==='Sin acción: Falló la solicitud de voz: vuelve a intentarlo'"),2000,'provider error');
     await stable('provider error');await sleep(100);
-    assert.equal(await page.evaluate("document.getElementById('voice-state').textContent"),'Sin acción: provider_timeout','ready status preserves provider error feedback');
+    assert.equal(await page.evaluate("document.getElementById('voice-state').textContent"),'Sin acción: Falló la solicitud de voz: vuelve a intentarlo','ready status preserves provider error feedback');
     await page.evaluate("fixture.error='not_ready';fixture.voiceReady=false;fixture.reason='normal_unconfirmed'");await press();await sleep(40);await release();
     await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent==='Sin acción: Confirma Normal'"),2000,'readable live prerequisites');
     const readinessText=await page.evaluate("document.getElementById('voice-state').textContent");
@@ -338,7 +338,7 @@ test('voice-enabled touch pads stay usable and stable across feedback and held-s
     await stable('unsafe recovery');
     await page.evaluate('fixture.error=null;fixture.voiceReady=true');await press();await sleep(40);
     await page.evaluate('fixture.recorder.onerror()');
-    await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent==='Sin acción: capture_failed'"),1000,'capture error reaches UI');
+    await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent==='Sin acción: Falló la grabación del micrófono'"),1000,'capture error reaches UI');
     await stable('capture error');await release();
     await press();await sleep(40);await page.evaluate("document.getElementById('btn-voice-cancel').click()");
     await stable('cancellation');await release();

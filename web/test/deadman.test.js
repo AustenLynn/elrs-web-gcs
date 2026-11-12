@@ -1,6 +1,8 @@
+import { setLanguage } from '../js/i18n.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DEADMAN_TEXT, Deadman } from '../js/deadman.js';
+setLanguage('es');
 
 const ok = { visible: true, focused: true, wsOpen: true };
 

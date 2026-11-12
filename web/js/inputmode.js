@@ -1,3 +1,4 @@
+import { t } from './i18n.js';
 // Input modes: how the pilot produces stick values. Every mode yields the same command
 // ({roll, pitch, yaw, throttle, mode}), so the gateway and crsf-core never know which one
 // is in use, and the dead-man, arming and failsafe rules apply unchanged.
@@ -76,7 +77,14 @@ const signed = (v) => (pct(v) > 0 ? `+${pct(v)}` : pct(v) < 0 ? `−${-pct(v)}` 
 /** The values on the air, in percent, under each pad. */
 export function readouts(cmd) {
   return {
-    left: `Acel. ${pct(cmd.throttle)} % · Guiñ. ${signed(cmd.yaw)} %`,
-    right: `Cab. ${signed(cmd.pitch)} % · Alab. ${signed(cmd.roll)} %`,
+    left: t('thr.throttle.yaw.yaw', { throttle: pct(cmd.throttle), yaw: signed(cmd.yaw) }),
+    right: t('pitch.pitch.roll.roll', { pitch: signed(cmd.pitch), roll: signed(cmd.roll) }),
   };
+}
+
+/** True while a key press belongs to a text/number field. The language selector is excluded: it keeps
+ *  focus after a mouse pick and must never disable the pilot's flight and safety keys. */
+export function isTypingTarget(el) {
+  if (!el || el.matches('[data-language-select]')) return false;
+  return el.matches('input, textarea, select') || el.isContentEditable === true;
 }

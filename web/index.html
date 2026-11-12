@@ -4,71 +4,77 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
   <meta name="theme-color" content="#0d131a">
-  <title>GCS ELRS · Piloto</title>
+  <title data-i18n="gcs.elrs.pilot">GCS ELRS · Piloto</title>
   <!-- Home-screen app: iPhone Safari cannot put a web page in full screen, but the page added
        to the home screen opens without the browser's bars (see js/fullscreen.js). -->
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="GCS Piloto">
+  <meta name="apple-mobile-web-app-title" content="GCS Piloto" data-i18n-content="gcs.pilot">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
   <header class="bar">
-    <nav class="links" aria-label="Estado de los enlaces">
-      <span class="seg" id="seg-pc" title="Navegador ↔ Raspberry Pi">Navegador</span>
-      <span class="seg" id="seg-core" title="Gateway ↔ crsf-core">Núcleo</span>
-      <span class="seg" id="seg-tx" title="crsf-core ↔ módulo TX">TX</span>
-      <span class="seg" id="seg-drone" title="Módulo TX ↔ dron (radio)">Dron</span>
+    <label class="language-settings"><span data-i18n="language">Idioma</span>
+      <select id="language" data-language-select aria-label="Idioma" data-i18n-aria-label="language"><option value="es">ES</option><option value="en">EN</option></select></label>
+    <nav class="links" aria-label="Estado de los enlaces" data-i18n-aria-label="link.status">
+      <span class="seg" id="seg-pc" title="Navegador ↔ Raspberry Pi" data-i18n-title="browser.raspberry.pi"><span data-i18n="browser">Navegador</span></span>
+      <span class="seg" id="seg-core" title="Gateway ↔ crsf-core" data-i18n-title="gateway.crsf.core"><span data-i18n="core">Núcleo</span></span>
+      <span class="seg" id="seg-tx" title="crsf-core ↔ módulo TX" data-i18n-title="crsf.core.tx.module">TX</span>
+      <span class="seg" id="seg-drone" title="Módulo TX ↔ dron (radio)" data-i18n-title="tx.module.drone.radio"><span data-i18n="drone">Dron</span></span>
     </nav>
-    <div class="seg-ctl input-modes pilot-only" role="group" aria-label="Modo de control">
-      <button data-input="touch" title="Dos sticks táctiles (Modo 2)">Táctil</button>
-      <button data-input="keyboard" title="Teclado: W/S, A/D y flechas">Teclado</button>
-      <button data-input="step" title="Prueba: pasos y valores exactos">Prueba</button>
+    <div class="seg-ctl input-modes pilot-only" role="group" aria-label="Modo de control" data-i18n-aria-label="input.mode">
+      <button data-input="touch" title="Dos sticks táctiles (Modo 2)" data-i18n-title="two.touch.sticks.mode.2"><span data-i18n="touch">Táctil</span></button>
+      <button data-input="keyboard" title="Teclado: W/S, A/D y flechas" data-i18n-title="keyboard.w.s.a.d.and.arrows"><span data-i18n="keyboard">Teclado</span></button>
+      <button data-input="step" title="Prueba: pasos y valores exactos" data-i18n-title="test.steps.and.exact.values"><span data-i18n="test">Prueba</span></button>
     </div>
     <span id="pilots" class="pilots"></span>
     <!-- Sign-in (not with ?observe or ?room=: relay pilots use the room's key) -->
     <div id="auth" class="auth" hidden>
       <span id="auth-msg" class="auth-msg"></span>
-      <button id="btn-login" type="button">Iniciar sesión como piloto</button>
+      <button id="btn-login" type="button"><span data-i18n="sign.in.as.pilot">Iniciar sesión como piloto</span></button>
       <span id="auth-name" class="auth-name" hidden></span>
-      <button id="btn-logout" type="button" hidden>Salir</button>
+      <button id="btn-logout" type="button" hidden><span data-i18n="sign.out">Salir</span></button>
     </div>
-    <div id="state" class="state">SIN CONEXIÓN</div>
+    <!-- Spoken flight alerts (prerecorded clips): off on every load until tapped; app.js writes its text.
+         Beside the state pill, on the header row that has room, at that row's height. -->
+    <button id="btn-announce" type="button" class="announce" data-state="off" aria-pressed="false" aria-describedby="announce-status"><span>Avisos</span></button>
+    <span id="announce-status" class="visually-hidden" role="status"></span>
+    <div id="state" class="state"><span data-i18n="disconnected">SIN CONEXIÓN</span></div>
   </header>
 
   <form id="login" class="login" hidden>
-    <label>Piloto <input id="login-name" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
-    <label>Contraseña <input id="login-password" name="password" type="password" autocomplete="current-password" required></label>
+    <label><span data-i18n="pilot">Piloto</span> <input id="login-name" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+    <label><span data-i18n="password">Contraseña</span> <input id="login-password" name="password" type="password" autocomplete="current-password" required></label>
     <p id="login-msg" class="login-msg" role="alert"></p>
     <div class="login-buttons">
-      <button type="submit">Entrar</button>
-      <button id="login-cancel" type="button">Cancelar</button>
+      <button type="submit"><span data-i18n="sign.in">Entrar</span></button>
+      <button id="login-cancel" type="button"><span data-i18n="cancel">Cancelar</span></button>
     </div>
   </form>
 
   <main class="cockpit">
-    <div class="stick" id="stick-left"><div class="knob"></div><span class="label">Acelerador · Guiñada</span></div>
+    <div class="stick" id="stick-left"><div class="knob"></div><span class="label"><span data-i18n="throttle.yaw">Acelerador · Guiñada</span></span></div>
     <section class="center">
       <div class="video">
         <video id="video" autoplay muted playsinline></video>
         <!-- HOLD / LANDING: a strip along the top of the video; the picture stays visible below it -->
         <div id="hold-banner" class="hold-banner" role="alert" hidden>
           <span id="hold-text"></span>
-          <button id="btn-hold-take" type="button">Tomar el control</button>
-          <button id="btn-hold-land" type="button">Aterrizar</button>
+          <button id="btn-hold-take" type="button"><span data-i18n="take.control">Tomar el control</span></button>
+          <button id="btn-hold-land" type="button"><span data-i18n="land">Aterrizar</span></button>
         </div>
       </div>
       <dl class="telemetry">
-        <dt>Batería</dt><dd id="t-battery">—</dd>
-        <dt>Enlace</dt><dd id="t-link">—</dd>
-        <dt>Modo FC</dt><dd id="t-mode">—</dd>
-        <dt>Latencia</dt><dd id="t-rtt">—</dd>
-        <dt>Comando</dt><dd id="t-age">—</dd>
+        <dt><span data-i18n="battery">Batería</span></dt><dd id="t-battery">—</dd>
+        <dt><span data-i18n="link">Enlace</span></dt><dd id="t-link">—</dd>
+        <dt><span data-i18n="fc.mode">Modo FC</span></dt><dd id="t-mode">—</dd>
+        <dt><span data-i18n="latency">Latencia</span></dt><dd id="t-rtt">—</dd>
+        <dt><span data-i18n="command">Comando</span></dt><dd id="t-age">—</dd>
       </dl>
-      <p class="onair" title="Lo que se está enviando al dron"><span id="ro-left"></span><span id="ro-right"></span></p>
+      <p class="onair" title="Lo que se está enviando al dron" data-i18n-title="values.being.sent.to.the.drone"><span id="ro-left"></span><span id="ro-right"></span></p>
       <p id="deadman" class="deadman"></p>
       <!-- Queued pilot: who flies, and (for the queue head) what happens if they drop -->
       <div id="standby" class="standby" hidden>
@@ -76,110 +82,110 @@
       </div>
       <div id="toast" class="toast" hidden></div>
     </section>
-    <div class="stick" id="stick-right"><div class="knob"></div><span class="label">Cabeceo · Alabeo</span></div>
+    <div class="stick" id="stick-right"><div class="knob"></div><span class="label"><span data-i18n="pitch.roll">Cabeceo · Alabeo</span></span></div>
   </main>
 
   <!-- Prueba: every axis holds the value set here; changes ramp at 20 %/s -->
-  <section id="panel-step" class="panel pilot-only" hidden aria-label="Modo prueba">
+  <section id="panel-step" class="panel pilot-only" hidden aria-label="Modo prueba" data-i18n-aria-label="test.mode">
     <div class="axis-group">
-      <h3>Stick izquierdo</h3>
+      <h3><span data-i18n="left.stick">Stick izquierdo</span></h3>
       <div class="axis" data-axis="throttle">
-        <span class="axis-name">Acelerador</span>
-        <button data-nudge="-1" aria-label="Bajar acelerador">−</button>
-        <input type="number" inputmode="numeric" min="0" max="100" step="1" aria-label="Acelerador en %"><span class="unit">%</span>
-        <button data-nudge="1" aria-label="Subir acelerador">+</button>
+        <span class="axis-name"><span data-i18n="throttle">Acelerador</span></span>
+        <button data-nudge="-1" aria-label="Bajar acelerador" data-i18n-aria-label="lower.throttle">−</button>
+        <input type="number" inputmode="numeric" min="0" max="100" step="1" aria-label="Acelerador en %" data-i18n-aria-label="throttle.in"><span class="unit">%</span>
+        <button data-nudge="1" aria-label="Subir acelerador" data-i18n-aria-label="raise.throttle">+</button>
       </div>
       <div class="axis" data-axis="yaw">
-        <span class="axis-name">Guiñada</span>
-        <button data-nudge="-1" aria-label="Guiñada a la izquierda">−</button>
-        <input type="number" inputmode="numeric" min="-100" max="100" step="1" aria-label="Guiñada en %"><span class="unit">%</span>
-        <button data-nudge="1" aria-label="Guiñada a la derecha">+</button>
+        <span class="axis-name"><span data-i18n="yaw">Guiñada</span></span>
+        <button data-nudge="-1" aria-label="Guiñada a la izquierda" data-i18n-aria-label="yaw.left">−</button>
+        <input type="number" inputmode="numeric" min="-100" max="100" step="1" aria-label="Guiñada en %" data-i18n-aria-label="yaw.in"><span class="unit">%</span>
+        <button data-nudge="1" aria-label="Guiñada a la derecha" data-i18n-aria-label="yaw.right">+</button>
       </div>
     </div>
     <div class="axis-group">
-      <h3>Stick derecho</h3>
+      <h3><span data-i18n="right.stick">Stick derecho</span></h3>
       <div class="axis" data-axis="pitch">
-        <span class="axis-name">Cabeceo</span>
-        <button data-nudge="-1" aria-label="Cabeceo atrás">−</button>
-        <input type="number" inputmode="numeric" min="-100" max="100" step="1" aria-label="Cabeceo en %"><span class="unit">%</span>
-        <button data-nudge="1" aria-label="Cabeceo adelante">+</button>
+        <span class="axis-name"><span data-i18n="pitch">Cabeceo</span></span>
+        <button data-nudge="-1" aria-label="Cabeceo atrás" data-i18n-aria-label="pitch.back">−</button>
+        <input type="number" inputmode="numeric" min="-100" max="100" step="1" aria-label="Cabeceo en %" data-i18n-aria-label="pitch.in"><span class="unit">%</span>
+        <button data-nudge="1" aria-label="Cabeceo adelante" data-i18n-aria-label="pitch.forward">+</button>
       </div>
       <div class="axis" data-axis="roll">
-        <span class="axis-name">Alabeo</span>
-        <button data-nudge="-1" aria-label="Alabeo a la izquierda">−</button>
-        <input type="number" inputmode="numeric" min="-100" max="100" step="1" aria-label="Alabeo en %"><span class="unit">%</span>
-        <button data-nudge="1" aria-label="Alabeo a la derecha">+</button>
+        <span class="axis-name"><span data-i18n="roll">Alabeo</span></span>
+        <button data-nudge="-1" aria-label="Alabeo a la izquierda" data-i18n-aria-label="roll.left">−</button>
+        <input type="number" inputmode="numeric" min="-100" max="100" step="1" aria-label="Alabeo en %" data-i18n-aria-label="roll.in"><span class="unit">%</span>
+        <button data-nudge="1" aria-label="Alabeo a la derecha" data-i18n-aria-label="roll.right">+</button>
       </div>
     </div>
     <div class="panel-tools">
-      <div class="seg-ctl" role="group" aria-label="Tamaño del paso">
-        <span class="seg-label">Paso</span>
+      <div class="seg-ctl" role="group" aria-label="Tamaño del paso" data-i18n-aria-label="step.size">
+        <span class="seg-label"><span data-i18n="step">Paso</span></span>
         <button data-step="10">1 %</button><button data-step="50">5 %</button><button data-step="100">10 %</button>
       </div>
-      <div class="seg-ctl" role="group" aria-label="Límite del acelerador">
-        <span class="seg-label">Límite acel.</span>
+      <div class="seg-ctl" role="group" aria-label="Límite del acelerador" data-i18n-aria-label="throttle.limit">
+        <span class="seg-label"><span data-i18n="throttle.cap">Límite acel.</span></span>
         <button data-cap="300">30 %</button><button data-cap="500">50 %</button><button data-cap="1000">100 %</button>
       </div>
-      <button id="btn-neutral" class="neutral">NEUTRO</button>
+      <button id="btn-neutral" class="neutral"><span data-i18n="neutral">NEUTRO</span></button>
     </div>
-    <ul class="keys" aria-label="Teclas del modo prueba">
-      <li>Cada pulsación, un paso:</li>
-      <li><kbd>W</kbd><kbd>S</kbd> acelerador</li>
-      <li><kbd>A</kbd><kbd>D</kbd> guiñada</li>
-      <li><kbd>↑</kbd><kbd>↓</kbd> cabeceo</li>
-      <li><kbd>←</kbd><kbd>→</kbd> alabeo</li>
-      <li><kbd>Shift</kbd> fino (1 %)</li>
-      <li><kbd>R</kbd> mantener 1 s: armar</li>
-      <li><kbd>Espacio</kbd> desarmar</li>
+    <ul class="keys" aria-label="Teclas del modo prueba" data-i18n-aria-label="test.mode.keys">
+      <li><span data-i18n="each.press.one.step">Cada pulsación, un paso:</span></li>
+      <li><kbd>W</kbd><kbd>S</kbd> <span data-i18n="throttle.189">acelerador</span></li>
+      <li><kbd>A</kbd><kbd>D</kbd> <span data-i18n="yaw.190">guiñada</span></li>
+      <li><kbd>↑</kbd><kbd>↓</kbd> <span data-i18n="pitch.191">cabeceo</span></li>
+      <li><kbd>←</kbd><kbd>→</kbd> <span data-i18n="roll.192">alabeo</span></li>
+      <li><kbd>Shift</kbd> <span data-i18n="fine.1">fino (1 %)</span></li>
+      <li><kbd>R</kbd> <span data-i18n="hold.1.s.arm">mantener 1 s: armar</span></li>
+      <li><kbd data-i18n="space">Espacio</kbd> <span data-i18n="disarm">desarmar</span></li>
       <li><kbd>F</kbd> failsafe</li>
       <li class="wide"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> Normal / Sport / Manual</li>
       <li class="wide"><kbd>4</kbd><kbd>5</kbd><kbd>6</kbd> Slow / Mid / Fast</li>
       <li><kbd>T</kbd> Turtle</li>
-      <li><kbd>Esc</kbd> soltar control</li>
+      <li><kbd>Esc</kbd> <span data-i18n="release.control">soltar control</span></li>
     </ul>
   </section>
 
   <!-- Teclado: key guide -->
-  <section id="panel-keys" class="panel pilot-only" hidden aria-label="Teclas de control">
+  <section id="panel-keys" class="panel pilot-only" hidden aria-label="Teclas de control" data-i18n-aria-label="control.keys">
     <ul class="keys">
-      <li><kbd>W</kbd><kbd>S</kbd> acelerador</li>
-      <li><kbd>A</kbd><kbd>D</kbd> guiñada</li>
-      <li><kbd>↑</kbd><kbd>↓</kbd> cabeceo</li>
-      <li><kbd>←</kbd><kbd>→</kbd> alabeo</li>
-      <li><kbd>Shift</kbd> fino</li>
-      <li><kbd>R</kbd> mantener 1 s: armar</li>
-      <li><kbd>Espacio</kbd> desarmar</li>
+      <li><kbd>W</kbd><kbd>S</kbd> <span data-i18n="throttle.189">acelerador</span></li>
+      <li><kbd>A</kbd><kbd>D</kbd> <span data-i18n="yaw.190">guiñada</span></li>
+      <li><kbd>↑</kbd><kbd>↓</kbd> <span data-i18n="pitch.191">cabeceo</span></li>
+      <li><kbd>←</kbd><kbd>→</kbd> <span data-i18n="roll.192">alabeo</span></li>
+      <li><kbd>Shift</kbd> <span data-i18n="fine">fino</span></li>
+      <li><kbd>R</kbd> <span data-i18n="hold.1.s.arm">mantener 1 s: armar</span></li>
+      <li><kbd data-i18n="space">Espacio</kbd> <span data-i18n="disarm">desarmar</span></li>
       <li><kbd>F</kbd> failsafe</li>
       <li><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> Normal / Sport / Manual</li>
       <li><kbd>4</kbd><kbd>5</kbd><kbd>6</kbd> Slow / Mid / Fast</li>
       <li><kbd>T</kbd> Turtle</li>
-      <li><kbd>Esc</kbd> soltar control</li>
+      <li><kbd>Esc</kbd> <span data-i18n="release.control">soltar control</span></li>
     </ul>
-    <div class="seg-ctl" role="group" aria-label="Intensidad de las teclas">
-      <span class="seg-label">Intensidad</span>
+    <div class="seg-ctl" role="group" aria-label="Intensidad de las teclas" data-i18n-aria-label="key.intensity">
+      <span class="seg-label"><span data-i18n="intensity">Intensidad</span></span>
       <button data-intensity="0.3">30 %</button><button data-intensity="0.5">50 %</button><button data-intensity="1">100 %</button>
     </div>
-    <div class="seg-ctl" role="group" aria-label="Límite del acelerador">
-      <span class="seg-label">Límite acel.</span>
+    <div class="seg-ctl" role="group" aria-label="Límite del acelerador" data-i18n-aria-label="throttle.limit">
+      <span class="seg-label"><span data-i18n="throttle.cap">Límite acel.</span></span>
       <button data-key-cap="300">30 %</button><button data-key-cap="500">50 %</button><button data-key-cap="1000">100 %</button>
     </div>
   </section>
 
   <footer class="controls pilot-only">
-    <button id="btn-take">Tomar control</button>
-    <button id="btn-arm" class="hold danger">Armar (mantener 1 s)</button>
-    <button id="btn-disarm" class="disarm">Desarmar</button>
+    <button id="btn-take"><span data-i18n="take.control.202">Tomar control</span></button>
+    <button id="btn-arm" class="hold danger"><span data-i18n="arm.hold.1.s">Armar (mantener 1 s)</span></button>
+    <button id="btn-disarm" class="disarm"><span data-i18n="disarm.204">Desarmar</span></button>
     <button id="btn-failsafe" class="warn">FAILSAFE</button>
     <div class="modes">
-      <button data-mode="0" class="on" title="Mantener posición">Normal</button>
-      <button data-mode="1" title="Autonivelado">Sport</button>
-      <button data-mode="2" title="Sin estabilización">Manual</button>
+      <button data-mode="0" class="on" title="Mantener posición" data-i18n-title="position.hold">Normal</button>
+      <button data-mode="1" title="Autonivelado" data-i18n-title="self.level">Sport</button>
+      <button data-mode="2" title="Sin estabilización" data-i18n-title="no.stabilization">Manual</button>
     </div>
     <div class="modes switches">
-      <button data-speed="0" class="on" title="Velocidad lenta (CH7)">Slow</button>
-      <button data-speed="1" title="Velocidad media (CH7)">Mid</button>
-      <button data-speed="2" title="Velocidad rápida (CH7)">Fast</button>
-      <button id="btn-turtle" class="turtle" title="Modo tortuga: voltea el dron si cayó boca abajo (CH8)">Turtle</button>
+      <button data-speed="0" class="on" title="Velocidad lenta (CH7)" data-i18n-title="slow.speed.ch7">Slow</button>
+      <button data-speed="1" title="Velocidad media (CH7)" data-i18n-title="medium.speed.ch7">Mid</button>
+      <button data-speed="2" title="Velocidad rápida (CH7)" data-i18n-title="fast.speed.ch7">Fast</button>
+      <button id="btn-turtle" class="turtle" title="Modo tortuga: voltea el dron si cayó boca abajo (CH8)" data-i18n-title="turtle.mode.flip.the.drone.if.upside.down.ch8">Turtle</button>
     </div>
   </footer>
 
@@ -187,28 +193,28 @@
        it never moves the sticks, and touches outside its button reach them. -->
   <div id="banner" class="banner" hidden role="alert">
     <div class="banner-text">
-      <strong id="banner-title">FAILSAFE ACTIVO</strong>
+      <strong id="banner-title"><span data-i18n="failsafe.active">FAILSAFE ACTIVO</span></strong>
       <span id="banner-detail"></span>
-      <span class="banner-age">Último comando: <span id="banner-age">—</span></span>
+      <span class="banner-age"><span data-i18n="last.command">Último comando:</span> <span id="banner-age">—</span></span>
     </div>
-    <ol id="recovery" class="recovery pilot-only" aria-label="Para volver a volar"></ol>
-    <button id="btn-ack" class="hold pilot-only">Limpiar failsafe (mantener 2 s)</button>
+    <ol id="recovery" class="recovery pilot-only" aria-label="Para volver a volar" data-i18n-aria-label="to.fly.again"></ol>
+    <button id="btn-ack" class="hold pilot-only"><span data-i18n="clear.failsafe.hold.2.s">Limpiar failsafe (mantener 2 s)</span></button>
   </div>
 
   <!-- Promoted on a handover: the drone keeps flying on this page's sticks from now on. -->
-  <div id="takeover" class="takeover" hidden role="alert">TIENES EL CONTROL</div>
+  <div id="takeover" class="takeover" hidden role="alert"><span data-i18n="you.have.control">TIENES EL CONTROL</span></div>
 
-  <aside id="voice-panel" hidden aria-label="Comandos de voz ES / EN">
+  <aside id="voice-panel" hidden aria-label="Comandos de voz ES / EN" data-i18n-aria-label="voice.commands.es.en">
     <div class="voice-buttons">
-      <button id="btn-voice-prepare" aria-label="Preparar micrófono (desarmado)" title="Preparar micrófono (desarmado)">Micrófono</button>
-      <button id="btn-voice-ptt" disabled aria-pressed="false" aria-label="Toca para hablar; toca Enviar para terminar. En teclado, mantén V y suelta para enviar" title="Toca para hablar; toca Enviar para terminar. En teclado, mantén V y suelta para enviar">Hablar</button>
-      <button id="btn-voice-cancel">Cancelar · C</button>
+      <button id="btn-voice-prepare" aria-label="Preparar micrófono (desarmado)" data-i18n-aria-label="prepare.microphone.disarmed" title="Preparar micrófono (desarmado)" data-i18n-title="prepare.microphone.disarmed"><span data-i18n="microphone">Micrófono</span></button>
+      <button id="btn-voice-ptt" disabled aria-pressed="false" aria-label="Toca para hablar; toca Enviar para terminar. En teclado, mantén V y suelta para enviar" data-i18n-aria-label="tap.to.speak.tap.send.to.finish.with.keyboard.hold.v.and.release.to.send" title="Toca para hablar; toca Enviar para terminar. En teclado, mantén V y suelta para enviar" data-i18n-title="tap.to.speak.tap.send.to.finish.with.keyboard.hold.v.and.release.to.send"><span data-i18n="speak">Hablar</span></button>
+      <button id="btn-voice-cancel"><span data-i18n="cancel.c">Cancelar · C</span></button>
     </div>
     <div class="voice-feedback">
-      <span id="voice-badge">SIMULACIÓN</span>
-      <span id="voice-unavailable">Voz no disponible en esta conexión</span>
-      <span id="voice-state" data-phase="idle" role="status">Lista</span>
-      <span id="voice-transcript"></span><span id="voice-action">Sin acción</span>
+      <span id="voice-badge"><span data-i18n="simulation">SIMULACIÓN</span></span>
+      <span id="voice-unavailable"><span data-i18n="voice.unavailable.on.this.connection">Voz no disponible en esta conexión</span></span>
+      <span id="voice-state" data-phase="idle" role="status"><span data-i18n="ready">Lista</span></span>
+      <span id="voice-transcript"></span><span id="voice-action"><span data-i18n="no.action">Sin acción</span></span>
     </div>
   </aside>
   <script type="module" src="js/app.js"></script>

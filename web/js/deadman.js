@@ -1,3 +1,4 @@
+import { t } from './i18n.js';
 // Dead-man rule: the pilot must deliberately take control, and loses it whenever the page
 // is not in front of them (tab hidden, window not focused, connection lost). A page that
 // is not engaged sends nothing, so crsf-core fails safe 300 ms later (FMEA #4).
@@ -28,13 +29,13 @@ export class Deadman {
 }
 
 export const DEADMAN_TEXT = {
-  not_engaged: 'Pulsa «Tomar control» para pilotar',
-  hidden: 'Control perdido: la página dejó de estar visible',
-  blur: 'Control perdido: la ventana perdió el foco',
-  disconnected: 'Control perdido: se cortó la conexión',
-  layout: 'Control perdido: la pantalla cambió de tamaño o de orientación',
-  input: 'Cambiaste el modo de control: pulsa «Tomar control» de nuevo',
-  released: 'Soltaste el control (Esc)',
-  lost: 'Perdiste el control: otro piloto lo tomó. Quedas en la cola',
-  failsafe: 'Failsafe: los mandos volvieron a cero. Pulsa «Tomar control» para empezar de nuevo',
+  get not_engaged() { return t('press.take.control.to.fly'); },
+  get hidden() { return t('control.lost.page.is.no.longer.visible'); },
+  get blur() { return t('control.lost.window.lost.focus'); },
+  get disconnected() { return t('control.lost.disconnected'); },
+  get layout() { return t('control.lost.screen.size.or.orientation.changed'); },
+  get input() { return t('input.mode.changed.press.take.control.again'); },
+  get released() { return t('control.released.esc'); },
+  get lost() { return t('control.lost.another.pilot.took.over.you.are.queued'); },
+  get failsafe() { return t('failsafe.controls.reset.to.zero.press.take.control.to.start.again'); },
 };

@@ -121,10 +121,21 @@ make -C core test                     # 141 C unit tests (UBSan)
 make -C core integration              # 40 tests: real binaries vs a Python fake TX module on a pty
 npm --prefix relay install && npm --prefix gateway install   # first time only
 npm --prefix relay test               # 11
-npm --prefix gateway test             # 236 (gateway + web)
+npm --prefix gateway test             # 459 (gateway + web/test + scripts/test)
 python3 -W error -m unittest discover -s tools/analysis -t tools/analysis   # 26
-make -C core && npm --prefix gateway run e2e   # 10 headless-Firefox tests (admin, hold, keyboard, layout, pilot, video), one at a time
+make -C core && npm --prefix gateway run e2e   # 19 headless-Firefox tests (admin, announcer, hold, keyboard, layout, pilot, video, voice), one at a time
 ```
+
+The gateway suite also runs `web/test/` (including `i18n`, `announcer` and `voiceview`) and
+`scripts/test/` (the announcement generator: no network, no key). `gateway/e2e/announcer.e2e.js`
+covers the bilingual page and the announcer with fake audio and a fake socket (no core). The
+shared e2e Firefox helper starts with a Spanish device locale (`es-ES`), the page's default for
+Spanish devices; pass `{ locale }` to `firefox()` for another. Gateway count from 2026-11-12
+(`feat/bilingual-announcer`, final fix wave).
+
+Deploying the announcer: the `.mp3` MIME type and HTTP Range support are gateway changes, so
+they need a gateway restart, done only under the disarmed preflight (`crsf-ctl status` shows
+DISARMED). Never restart the core for this feature.
 
 Counts from 2026-10-23 (`feat/hold-then-land`, after the final review), run on the Pi 4 (≤ 48 °C, not throttled): all
 pass, e2e 10/10, and the three hold e2e tests passed three runs in a row. Earlier counts

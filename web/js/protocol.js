@@ -1,3 +1,4 @@
+import { t } from './i18n.js';
 // Messages exchanged with the gateway (see gateway/src/hub.js) and their Spanish UI texts.
 export const RATE_HZ = 50;
 
@@ -23,10 +24,10 @@ export const shouldReclaimPilotSeat = (wantRole, welcome, status) =>
 export function closeAction(code, room) {
   if (!room) return { retryMs: 1000, clearToken: false, text: null };
   switch (code) {
-    case 4003: return { retryMs: null, clearToken: true, text: 'Clave de piloto incorrecta: recarga la página para intentarlo de nuevo' };
-    case 4001: return { retryMs: 5000, clearToken: false, text: 'La Pi no está conectada al relay: reintentando' };
-    case 4002: return { retryMs: 1000, clearToken: false, text: 'La Pi se reconectó al relay' };
-    case 4004: return { retryMs: 5000, clearToken: false, text: 'La sala está llena (4 conexiones remotas)' };
+    case 4003: return { retryMs: null, clearToken: true, text: t('incorrect.pilot.key.reload.the.page.to.try.again') };
+    case 4001: return { retryMs: 5000, clearToken: false, text: t('pi.is.not.connected.to.the.relay.retrying') };
+    case 4002: return { retryMs: 1000, clearToken: false, text: t('pi.reconnected.to.the.relay') };
+    case 4004: return { retryMs: 5000, clearToken: false, text: t('room.is.full.4.remote.connections') };
     default: return { retryMs: 1000, clearToken: false, text: null };
   }
 }
@@ -38,21 +39,21 @@ export const controlMessage = (seq, ts, cmd, sw = { sp: 0, tu: 0 }) => ({
 export const tsyncReply = (msg, now) => ({ t: 'tsync_r', s0: msg.s0, c1: now });
 
 export const STATE_TEXT = {
-  DISARMED: 'DESARMADO',
-  ARMED: 'ARMADO',
+  get DISARMED() { return t('disarmed'); },
+  get ARMED() { return t('armed'); },
   FAILSAFE: 'FAILSAFE',
-  HOLD: 'ESPERA · SIN PILOTO',
-  LANDING: 'ATERRIZANDO',
+  get HOLD() { return t('hold.no.pilot'); },
+  get LANDING() { return t('landing.21'); },
 };
 
 export const REASON_TEXT = {
   none: '',
-  cmd_timeout: 'dejaron de llegar comandos del piloto',
-  pilot_lost: 'el piloto se desconectó',
-  gateway_lost: 'el gateway se reinició',
-  session_changed: 'cambió el piloto',
-  manual: 'activado por el piloto',
-  rf_lost: 'el dron perdió el enlace de radio',
+  get cmd_timeout() { return t('pilot.commands.stopped.arriving'); },
+  get pilot_lost() { return t('pilot.disconnected'); },
+  get gateway_lost() { return t('gateway.restarted'); },
+  get session_changed() { return t('pilot.changed'); },
+  get manual() { return t('activated.by.pilot'); },
+  get rf_lost() { return t('drone.lost.radio.link'); },
 
 };
 
@@ -60,20 +61,20 @@ export const REASON_TEXT = {
  *  null. A refused take or land means the hold is over: the queued page drops the dead-man it
  *  engaged for the take. */
 export function eventReaction(msg, session) {
-  if (msg.what === 'resumed' && msg.session === session) return { text: 'Conexión recuperada', disengage: false };
+  if (msg.what === 'resumed' && msg.session === session) return { text: t('connection.restored'), disengage: false };
   if ((msg.what === 'take' || msg.what === 'land') && msg.refused) {
-    return { text: 'Ya no es posible: el dron ya no está en espera', disengage: true };
+    return { text: t('no.longer.possible.drone.is.no.longer.holding'), disengage: true };
   }
   if (msg.refused) return { text: REFUSAL_TEXT[msg.refused] ?? `${msg.what}: ${msg.refused}`, disengage: false };
   return null;
 }
 
 export const REFUSAL_TEXT = {
-  throttle_high: 'Baja el acelerador por completo',
-  link_stale: 'Toma el control primero (no llegan comandos)',
-  not_disarmed: 'Ya está armado o en failsafe',
-  not_in_failsafe: 'No hay failsafe que limpiar',
-  fc_still_armed: 'El dron sigue armado: espera a que aterrice y se desarme',
-  rf_down: 'Sin enlace de radio con el dron: enciéndelo y espera a que «Dron» esté en verde',
-  wrong_session: 'Tu sesión de piloto venció: recarga la página',
+  get throttle_high() { return t('lower.throttle.completely'); },
+  get link_stale() { return t('take.control.first.no.commands.arriving'); },
+  get not_disarmed() { return t('already.armed.or.in.failsafe'); },
+  get not_in_failsafe() { return t('no.failsafe.to.clear'); },
+  get fc_still_armed() { return t('drone.still.armed.wait.for.it.to.land.and.disarm'); },
+  get rf_down() { return t('no.radio.link.to.drone.power.it.on.and.wait.for.drone.to.turn.green'); },
+  get wrong_session() { return t('pilot.session.expired.reload.the.page'); },
 };

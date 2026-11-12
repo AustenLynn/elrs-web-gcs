@@ -1,5 +1,7 @@
+import { t, onLanguageChange } from './i18n.js';
 // What the admin list may offer for a row (pure, so it can be tested).
-export const FLYING_TEXT = 'Está volando: no se puede quitar';
+export let FLYING_TEXT = t('flying.cannot.be.removed');
+onLanguageChange(() => { FLYING_TEXT = t('flying.cannot.be.removed'); });
 
 /** `me` is the signed-in user's name (or the {name} object from /me). */
 export function rowActions(user, me) {

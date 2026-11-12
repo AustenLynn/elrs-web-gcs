@@ -1,3 +1,4 @@
+import { t } from './i18n.js';
 // Pure helpers that turn gateway state into what the page shows.
 import { REASON_TEXT, STATE_TEXT } from './protocol.js';
 
@@ -40,9 +41,9 @@ export function segments({ wsOpen, lastMsgAt, status, links, telem, now }) {
 }
 
 export function stateLabel(status, wsOpen, statusFresh = true) {
-  if (!wsOpen) return 'SIN CONEXIÓN';
-  if (!status?.core) return 'NÚCLEO APAGADO';
-  if (!statusFresh) return 'NÚCLEO SIN RESPUESTA';
+  if (!wsOpen) return t('disconnected');
+  if (!status?.core) return t('core.offline');
+  if (!statusFresh) return t('core.not.responding');
   return STATE_TEXT[status.state] ?? status.state;
 }
 
@@ -57,9 +58,9 @@ export function failsafeAlert(status) {
   const detail = failsafeDetail(status);
   if (detail === null) return null;
   if (status.reason === 'rf_lost') {
-    return { title: 'EL DRON DEJÓ DE RESPONDER', detail: 'El failsafe del receptor ELRS toma el control. Mantén el dron a la vista.' };
+    return { title: t('drone.stopped.responding'), detail: t('the.elrs.receiver.failsafe.takes.control.keep.the.drone.in.sight') };
   }
-  return { title: 'FAILSAFE ACTIVO', detail: detail.charAt(0).toUpperCase() + detail.slice(1) };
+  return { title: t('failsafe.active'), detail: detail.charAt(0).toUpperCase() + detail.slice(1) };
 }
 
 const CMD_FRESH_MS = 500;   // the core sees our commands (it times out at 300 ms; status lags up to 100 ms)
@@ -72,13 +73,13 @@ const CMD_FRESH_MS = 500;   // the core sees our commands (it times out at 300 m
 export function recoverySteps({ status, engaged }) {
   if (status?.state !== 'FAILSAFE') return null;
   const commandsFresh = engaged && status.cmdAgeMs !== null && status.cmdAgeMs !== undefined && status.cmdAgeMs <= CMD_FRESH_MS;
-  const drone = { disarmed: ['done', 'Dron desarmado'],
-    armed: ['todo', 'El dron sigue armado: espera a que aterrice y se desarme'] }[status.fcArm]
-    ?? ['unknown', 'Dron: sin datos de armado'];
+  const drone = { disarmed: ['done', t('drone.disarmed')],
+    armed: ['todo', t('drone.still.armed.wait.for.it.to.land.and.disarm')] }[status.fcArm]
+    ?? ['unknown', t('drone.arming.status.unavailable')];
   const steps = [
-    { id: 'control', state: commandsFresh ? 'done' : 'todo', text: commandsFresh ? 'Control tomado' : 'Pulsa «Tomar control»' },
+    { id: 'control', state: commandsFresh ? 'done' : 'todo', text: commandsFresh ? t('control.engaged') : t('press.take.control') },
     { id: 'drone', state: drone[0], text: drone[1] },
-    { id: 'clear', state: 'todo', text: 'Mantén «Limpiar failsafe» 2 s; luego comprueba que Dron está en verde y arma de nuevo' },
+    { id: 'clear', state: 'todo', text: t('hold.clear.failsafe.for.2.s.then.check.that.drone.is.green.and.arm.again') },
   ];
   const next = steps.find((st) => st.state === 'todo');
   for (const st of steps) st.next = st === next;
@@ -94,10 +95,10 @@ const holdOn = (status) => (status?.holdMs ?? 0) > 0;
 export function queueText({ role, position, lost, standby }, status) {
   const pilot = status?.pilotName ?? '—';
   if (role !== 'queued') return '';
-  if (lost) return `Perdiste el control: ahora vuela ${pilot}`;
-  if (standby && holdOn(status)) return `Estás en espera. Si ${pilot} pierde la conexión, podrás tomar el control o aterrizar.`;
-  if (standby) return `Estás en espera. Si ${pilot} pierde la conexión, el dron se detiene.`;
-  return `En la cola: puesto ${position}`;
+  if (lost) return t('control.lost.pilot.is.now.flying', { pilot });
+  if (standby && holdOn(status)) return t('you.are.on.standby.if.pilot.disconnects.you.can.take.control.or.land', { pilot });
+  if (standby) return t('you.are.on.standby.if.pilot.disconnects.the.drone.stops', { pilot });
+  return t('queued.position.position', { position });
 }
 
 /** The banner over the video while the drone waits without a pilot (HOLD) or lands (LANDING).
@@ -108,16 +109,16 @@ export function holdBanner(status, { role, standby }) {
   const state = status?.state;
   if ((state !== 'HOLD' && state !== 'LANDING') || role === 'pilot') return null;
   const head = role === 'queued' && standby === true && holdOn(status);
-  if (state === 'LANDING') return { text: 'Aterrizando…', take: head, land: false };
+  if (state === 'LANDING') return { text: t('landing'), take: head, land: false };
   const secs = Math.ceil((status.stageLeftMs ?? 0) / 1000);
-  return { text: `${status.pilotName ?? '—'} perdió la conexión · aterriza en ${secs} s`, take: head, land: head };
+  return { text: t('pilot.disconnected.landing.in.secs.s', { pilot: status.pilotName ?? '—', secs }), take: head, land: head };
 }
 
 /** Who is flying and who is standby, for everyone. */
-export const pilotLine = (status) => `Piloto: ${status?.pilotName ?? '—'} · En espera: ${status?.standbyName ?? '—'}`;
+export const pilotLine = (status) => t('pilotLine', { pilot: status?.pilotName ?? '—', standby: status?.standbyName ?? '—' });
 
 /** How long ago the core received the last command. */
-export const formatCmdAge = (ms) => (ms === null || ms === undefined ? '—' : ms < 1000 ? 'ahora' : `hace ${(ms / 1000).toFixed(1)} s`);
+export const formatCmdAge = (ms) => (ms === null || ms === undefined ? '—' : ms < 1000 ? t('now') : t('secs.s.ago', { secs: (ms / 1000).toFixed(1) }));
 
 export const formatBattery = (b) => (b ? `${b.voltage.toFixed(1)} V · ${b.remainingPct} %` : '—');
 

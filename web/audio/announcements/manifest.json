@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "provider": "elevenlabs",
+  "outputFormat": "mp3_44100_128",
+  "available": false,
+  "clips": [
+    {
+      "language": "es",
+      "event": "armed",
+      "text": "Dron armado",
+      "path": "/audio/announcements/es/armed.mp3",
+      "available": false
+    },
+    {
+      "language": "es",
+      "event": "disarmed",
+      "text": "Dron desarmado",
+      "path": "/audio/announcements/es/disarmed.mp3",
+      "available": false
+    },
+    {
+      "language": "es",
+      "event": "signal_lost",
+      "text": "Señal perdida",
+      "path": "/audio/announcements/es/signal_lost.mp3",
+      "available": false
+    },
+    {
+      "language": "es",
+      "event": "signal_restored",
+      "text": "Señal recuperada",
+      "path": "/audio/announcements/es/signal_restored.mp3",
+      "available": false
+    },
+    {
+      "language": "es",
+      "event": "failsafe",
+      "text": "Failsafe activado",
+      "path": "/audio/announcements/es/failsafe.mp3",
+      "available": false
+    },
+    {
+      "language": "en",
+      "event": "armed",
+      "text": "Drone armed",
+      "path": "/audio/announcements/en/armed.mp3",
+      "available": false
+    },
+    {
+      "language": "en",
+      "event": "disarmed",
+      "text": "Drone disarmed",
+      "path": "/audio/announcements/en/disarmed.mp3",
+      "available": false
+    },
+    {
+      "language": "en",
+      "event": "signal_lost",
+      "text": "Signal lost",
+      "path": "/audio/announcements/en/signal_lost.mp3",
+      "available": false
+    },
+    {
+      "language": "en",
+      "event": "signal_restored",
+      "text": "Signal restored",
+      "path": "/audio/announcements/en/signal_restored.mp3",
+      "available": false
+    },
+    {
+      "language": "en",
+      "event": "failsafe",
+      "text": "Failsafe activated",
+      "path": "/audio/announcements/en/failsafe.mp3",
+      "available": false
+    }
+  ]
+}
