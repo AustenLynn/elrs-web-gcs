@@ -36,6 +36,9 @@ class CoreClient:
         self.link = None
         self.battery = None
         self.flight_mode = None
+        self.flight_mode_history = []   # (local receive time, value), not cached telemetry
+        self.status_count = 0
+        self.link_count = 0
         self.device = None
         self.events = []
         self._buf = b""
@@ -88,6 +91,7 @@ class CoreClient:
 
     def _handle(self, mtype, p):
         if mtype == STATUS:
+            self.status_count += 1
             values = struct.unpack(STATUS_FMT, p)
             st = dict(zip(STATUS_FIELDS, values[:15]))
             st["channels"] = list(values[15:31])
@@ -96,6 +100,7 @@ class CoreClient:
             st["reason_name"] = REASONS[st["fs_reason"]]
             self.status = st
         elif mtype == LINK:
+            self.link_count += 1
             self.link = dict(zip(("up_rssi1", "up_rssi2", "up_lq", "up_snr", "antenna", "rf_mode",
                                   "tx_power_mw", "dn_rssi", "dn_lq", "dn_snr"),
                                  struct.unpack("<bbBbBBHbBb", p)))
@@ -104,6 +109,7 @@ class CoreClient:
                                     struct.unpack("<HHIB", p)))
         elif mtype == FLIGHT_MODE:
             self.flight_mode = p[1:1 + p[0]].decode()
+            self.flight_mode_history.append((time.monotonic(), self.flight_mode))
         elif mtype == DEVICE:
             self.device = {"name": p[9:9 + p[8]].decode(), "version": "%d.%d.%d" % (p[1], p[2], p[3])}
         elif mtype == EVENT:

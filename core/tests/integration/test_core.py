@@ -500,6 +500,29 @@ class StartupTest(unittest.TestCase):
 
 
 class TelemetryTest(CoreHarness):
+    def test_identical_mode_reports_refresh_ipc_only_while_source_reports_arrive(self):
+        self.tx.flight_mode = "S-NORMAL"  # FakeTx emits real CRSF frames every 100 ms
+        self.assertTrue(self.client.wait(lambda c: len(c.flight_mode_history) >= 8
+                                         and c.flight_mode_history[-1][0] - c.flight_mode_history[0][0] > 1.0,
+                                         timeout=3), "identical actual mode reports stopped reaching IPC")
+        self.assertTrue(all(mode == "S-NORMAL" for _, mode in self.client.flight_mode_history))
+
+        self.tx.flight_mode = None       # stop only mode frames; link/status stay alive
+        time.sleep(0.3)                  # drain a report already in serial/IPC transit
+        with self.client._lock:
+            mode_count = len(self.client.flight_mode_history)
+            status_count, link_count = self.client.status_count, self.client.link_count
+        self.assertTrue(self.client.wait(lambda c: c.status_count >= status_count + 6
+                                         and c.link_count >= link_count + 6, timeout=2),
+                        "link/status must continue after mode source stops")
+        with self.client._lock:
+            self.assertEqual(len(self.client.flight_mode_history), mode_count,
+                             "cached mode must not be replayed as fresh telemetry")
+            self.assertGreater(time.monotonic() - self.client.flight_mode_history[-1][0], 0.5)
+        changes = [e for e in self.read_events() if e["ev"] == "flight_mode"]
+        self.assertEqual(len(changes), 1, changes)
+        self.assertEqual(changes[0]["mode"], "S-NORMAL")
+
     def test_link_battery_and_flight_mode_are_forwarded(self):
         self.tx.link_lq = 87
         self.tx.battery_dv = 151

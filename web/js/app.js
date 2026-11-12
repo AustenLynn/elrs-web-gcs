@@ -82,7 +82,8 @@ const voice = new VoiceController({ trace: voiceTrace, capture, maneuver: new Vo
   if (state.phase === 'idle') voiceOwner = null;
   const messages = {idle:'Lista',recording:voiceOwner === 'button' ? 'Escuchando… toca Enviar' : 'Escuchando… suelta V para enviar',processing:'Interpretando…',ready:'Interpretado',executing:'Movimiento temporizado'};
   $('voice-state').dataset.phase = state.phase;
-  $('voice-state').textContent = state.error ? `Sin acción: ${state.error}` : state.dryRun ? 'Simulación: sin movimiento' : state.phase === 'idle' && voicePreviousPhase === 'executing' ? 'Movimiento terminado' : messages[state.phase];
+  const error = state.error === 'not_ready' ? 'Voz en vivo requiere armado manual, modo Normal y telemetría reciente' : state.error;
+  $('voice-state').textContent = error ? `Sin acción: ${error}` : state.dryRun ? 'Simulación: sin movimiento' : state.phase === 'idle' && voicePreviousPhase === 'executing' ? 'Movimiento terminado' : messages[state.phase];
   $('voice-transcript').textContent = state.transcript;
   const directions = {forward:'Adelante',backward:'Atrás',left:'Izquierda',right:'Derecha',turn_left:'Giro izquierda',turn_right:'Giro derecha'};
   const tier = state.choice.endsWith('_medium') ? 'medium' : 'short';

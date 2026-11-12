@@ -96,9 +96,10 @@ static void on_frame(const uint8_t *frame, size_t len, void *user)
             safety_fc_flight_mode(&l->safety, m.u.flight_mode.mode, l->now_ns);
         if (strcmp(l->flight_mode, m.u.flight_mode.mode) != 0) {
             snprintf(l->flight_mode, sizeof l->flight_mode, "%s", m.u.flight_mode.mode);
-            mailbox_put_flight_mode(l->mb, l->flight_mode);
             push(l, EV_FLIGHT_MODE, 0, 0, 0, 0, 0, 0, l->flight_mode);
         }
+        /* Freshness follows actual received frames, even while the value stays unchanged. */
+        mailbox_put_flight_mode(l->mb, m.u.flight_mode.mode);
         break;
     case CRSF_MSG_LINK_STATS:
         safety_rf_link(&l->safety, m.u.link.up_lq > 0, l->now_ns);

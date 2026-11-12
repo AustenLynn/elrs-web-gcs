@@ -1,7 +1,7 @@
 """Run FakeTx as a process for the browser end-to-end test.
 
 Prints one JSON line with the pty path, then the latest RC channels every 50 ms.
-Reads commands on stdin: 'mode <text>' sets the flight-mode telemetry.
+Reads commands on stdin: 'mode <text>' sets flight-mode telemetry; 'mode' stops it.
 """
 import json
 import sys
@@ -20,8 +20,8 @@ print(json.dumps({"path": tx.path}), flush=True)
 def commands():
     for line in sys.stdin:
         parts = line.split(maxsplit=1)
-        if len(parts) == 2 and parts[0] == "mode":
-            tx.flight_mode = parts[1].strip()
+        if parts and parts[0] == "mode":
+            tx.flight_mode = parts[1].strip() if len(parts) == 2 else None
 
 
 threading.Thread(target=commands, daemon=True).start()

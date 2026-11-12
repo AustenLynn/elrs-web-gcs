@@ -307,6 +307,11 @@ test('voice-enabled touch pads stay usable and stable across feedback and held-s
     await page.evaluate("fixture.error='provider_timeout'");await press();await sleep(40);await release();
     await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent==='Sin acción: provider_timeout'"),2000,'provider error');
     await stable('provider error');
+    await page.evaluate("fixture.error='not_ready'");await press();await sleep(40);await release();
+    await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent.includes('armado manual')"),2000,'readable live prerequisites');
+    const readinessText=await page.evaluate("document.getElementById('voice-state').textContent");
+    assert.match(readinessText,/modo Normal/);assert.match(readinessText,/telemetría reciente/);
+    await stable('live prerequisites');
     await page.evaluate('fixture.error=null');await press();await sleep(40);
     await page.evaluate('fixture.recorder.onerror()');
     await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent==='Sin acción: capture_failed'"),1000,'capture error reaches UI');
@@ -378,5 +383,32 @@ test('real gateway cookie, pilot voice_ready capability and audio HTTP upload wi
   assert.equal(channels[4],192,'voice never arms');
   assert.equal(channels[2],192,'dry-run preserves zero throttle');
   assert.equal(channels[1],992,'dry-run leaves pitch neutral');
+  // Drive readiness from actual CRSF reports through the real core and gateway IPC.
+  const modeTimes=[];let statusCount=0,linkCount=0;
+  gw.core.on('status',()=>statusCount++);
+  gw.core.on('telemetry',(kind,value)=>{
+    if(kind==='flightMode'&&value==='S-NORMAL')modeTimes.push(performance.now());
+    if(kind==='link')linkCount++;
+  });
+  fake.stdin.write('mode S-NORMAL\n');
+  await waitFor(()=>modeTimes.length>0,2000,'actual Normal report');
+  const session=gw.hub.lastStatus.session;
+  assert.equal(gw.hub.voiceLiveReady(session),false,'actual Normal reports cannot arm a disarmed core');
+  // The operator hold is applied only to this fake aircraft, preserving manual arming.
+  const armBox=JSON.parse(await page.evaluate("JSON.stringify(document.getElementById('btn-arm').getBoundingClientRect().toJSON())"));
+  await page.call('input.performActions',{context:page.context,actions:[{type:'pointer',id:'manual-arm',parameters:{pointerType:'mouse'},actions:[
+    {type:'pointerMove',x:Math.round(armBox.x+armBox.width/2),y:Math.round(armBox.y+armBox.height/2)},
+    {type:'pointerDown',button:0},{type:'pause',duration:1200},{type:'pointerUp',button:0}]}]});
+  await waitFor(()=>gw.hub.lastStatus.state==='ARMED',3000,'manual fake-aircraft arm');
+  await waitFor(()=>modeTimes.length>=8&&modeTimes.at(-1)-modeTimes[0]>1100,3000,'identical real-core reports beyond freshness threshold');
+  assert.equal(gw.hub.voiceLiveReady(session),true,'unchanged actual Normal reports keep live readiness eligible');
+  fake.stdin.write('mode\n');
+  await sleep(300); // drain any actual report already in serial/IPC transit
+  const stoppedCount=modeTimes.length,oldStatus=statusCount,oldLink=linkCount;
+  await waitFor(()=>statusCount>=oldStatus+6&&linkCount>=oldLink+6,2000,'status/link continue without mode source');
+  assert.equal(modeTimes.length,stoppedCount,'the real core never fabricates mode freshness');
+  assert.equal(gw.hub.lastStatus.state,'ARMED','mode expiry alone does not change manual arming');
+  assert.equal(gw.hub.voiceLiveReady(session),false,'missing actual mode reports expire live readiness');
+  t.diagnostic(`actual mode IPC: ${modeTimes.length} reports over ${(modeTimes.at(-1)-modeTimes[0]).toFixed(0)}ms; stopped source: unchanged count, ${statusCount-oldStatus} status/${linkCount-oldLink} link reports`);
   assert.deepEqual(page.errors,[]);
 });
