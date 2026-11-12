@@ -38,6 +38,10 @@
       <span id="auth-name" class="auth-name" hidden></span>
       <button id="btn-logout" type="button" hidden><span data-i18n="sign.out">Salir</span></button>
     </div>
+    <!-- Spoken flight alerts (prerecorded clips): off on every load until tapped; app.js writes its text.
+         Beside the state pill, on the header row that has room, at that row's height. -->
+    <button id="btn-announce" type="button" class="announce" data-state="off" aria-pressed="false" aria-describedby="announce-status"><span>Avisos</span></button>
+    <span id="announce-status" class="visually-hidden" role="status"></span>
     <div id="state" class="state"><span data-i18n="disconnected">SIN CONEXIÓN</span></div>
   </header>
 

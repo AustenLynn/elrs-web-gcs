@@ -82,3 +82,7 @@ test('gesture probe stays silent when volume writes are ignored; confirmed event
   s.update({});assert.deepEqual(s.events(),[]);s.update({state:'ARMED'});
   assert.deepEqual(s.events(),['armed.mp3']);assert.equal(s.calls.at(-1).muted,false);
 });
+test('a legitimate event always plays unmuted, even if an earlier probe left the element muted',async()=>{
+  const s=await enabled();s.update({});s.audio.muted=true;s.update({state:'ARMED'});
+  assert.deepEqual(s.calls.at(-1),{url:'/audio/announcements/en/armed.mp3',volume:1,muted:false});
+});

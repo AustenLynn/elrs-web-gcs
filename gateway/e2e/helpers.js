@@ -1,7 +1,7 @@
 // Shared helpers for the browser end-to-end tests: headless Firefox driven over
 // WebDriver BiDi (the W3C standard protocol) through a WebSocket.
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { UserStore } from '../src/users.js';
 import path from 'node:path';
@@ -39,10 +39,14 @@ export function start(procs, cmd, args, opts = {}) {
   return p;
 }
 
-/** Launches headless Firefox with a fresh profile in `dir` and returns a page handle. */
-export async function firefox(procs, dir) {
+/** Launches headless Firefox with a fresh profile in `dir` and returns a page handle.
+ *  `locale` is the device language the page sees (navigator.language). The older suites assert
+ *  Spanish wording, so a Spanish device is the default; pass another tag (e.g. 'en-US') or
+ *  null (Firefox's own default) to test the first-visit language choice. */
+export async function firefox(procs, dir, { locale = 'es-ES' } = {}) {
   const profile = path.join(dir, 'firefox');
   mkdirSync(profile, { recursive: true });
+  if (locale) writeFileSync(path.join(profile, 'user.js'), `user_pref("intl.accept_languages", ${JSON.stringify(locale)});\n`);
   // Port 0: Firefox picks a free port and announces it. A port chosen here could collide with
   // another test's Firefox running in parallel ("Maximum number of active sessions").
   const ff = start(procs, 'firefox', ['--headless', '--profile', profile, '--remote-debugging-port', '0', 'about:blank'],

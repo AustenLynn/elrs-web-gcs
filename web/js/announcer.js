@@ -121,6 +121,7 @@ export class FlightAnnouncer {
     try {
       this.audio.src = clip(this.language, event);
       this.audio.volume = 1;
+      this.audio.muted = false;
       this.audio.onended = () => { if (generation === this.generation) this.stop(); };
       this.audio.onerror = () => { if (generation === this.generation) this.fail(); };
       Promise.resolve(this.audio.play()).catch(error => {

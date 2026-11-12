@@ -1,4 +1,4 @@
-import { t, onLanguageChange, initLanguageUI } from './i18n.js';
+import { t, getLanguage, onLanguageChange, initLanguageUI } from './i18n.js';
 // Pilot page: wires the pure modules to the DOM and the gateway WebSocket.
 // ?observe in the URL opens a read-only view. Flying needs a pilot sign-in (or, with ?room=,
 // the relay room's key): a signed-in page joins the gateway's queue. The queue head is the
@@ -21,6 +21,7 @@ import { VoiceTrace } from './voicetrace.js';
 import { VoiceController } from './voicecontroller.js';
 import { VoiceManeuver } from './voicemaneuver.js';
 import { voiceFeedback } from './voiceview.js';
+import { FlightAnnouncer } from './announcer.js';
 
 // Add ?measure to opt in. Export after a props-off bench run with controlLatency.download().
 const controlTrace = new URLSearchParams(location.search).has('measure') ? new ControlTrace() : null;
@@ -79,6 +80,16 @@ const heldFlightPointers = new Set();
 let voicePreviousPhase = 'idle';
 let voiceOwner = null;
 const capture = new VoiceCapture();
+
+// Spoken flight alerts: an observer of confirmed status/link state only. It never sends, and no
+// failure of it may reach the control loop or rendering. Off on every load until a tap unlocks audio.
+const announcer = new FlightAnnouncer({ onState: () => renderAnnouncer() });
+announcer.setLanguage(getLanguage());
+// Longer than the link-stale time (view.js): the gateway replays its last link telemetry to a new
+// connection, which looks fresh for 2 s. Until then the radio is unknown, so it seeds silently.
+const ANNOUNCE_SETTLE_MS = 2500;
+let announceSettledAt = Infinity;
+let clipsReady = null;   // {es, en} from the clip manifest; null = unknown (the enable probe decides)
 let voiceDisplay = () => {};
 function renderVoiceFeedback(state, previousPhase) {
   const feedback = voiceFeedback(state, {owner: voiceOwner, previousPhase, config: voiceConfig});
@@ -93,6 +104,7 @@ function voiceNotice(key) {
   voiceDisplay();
 }
 const voice = new VoiceController({ trace: voiceTrace, capture, maneuver: new VoiceManeuver(), onState: state => {
+  announcer.setRecording(state.phase === 'recording');   // the microphone must not hear alerts
   if (state.phase === 'idle') voiceOwner = null;
   const previousPhase = voicePreviousPhase;
   voiceDisplay = () => renderVoiceFeedback(state, previousPhase);
@@ -151,6 +163,7 @@ function connect() {
   const target = connectionTarget(location, wantRole, getToken);
   ws = new WebSocket(target.url);
   ws.onopen = () => {
+    announceSettledAt = performance.now() + ANNOUNCE_SETTLE_MS;
     seq = 0;                       // a new connection is a new session: never resend old commands
     send(target.hello);
   };
@@ -169,6 +182,8 @@ function connect() {
     welcome = null;
     queued = null;
     status = null;
+    announceSettledAt = Infinity;
+    announcer.reset();
     disengage('disconnected');
     if (next.retryMs !== null) setTimeout(connect, next.retryMs);
   };
@@ -194,6 +209,7 @@ function handle(msg) {
         toast(() => queueText({ role: 'queued', lost: true }, lostStatus));
         queued = { ...queued, lost: false };   // told once: from now on the usual queue text
       }
+      announce(performance.now());
       break;
     }
     case 'voice_ready':
@@ -481,6 +497,7 @@ function renderDisplay(updateInputs = true) {
   $('voice-unavailable').textContent = voiceLocal ? t('voice.unavailable.on.this.connection') : t('voice.unavailable.through.relay.or.observer');
   const seg = segments({ wsOpen: wsOpen(), lastMsgAt, status, links, telem, now });
   for (const [name, health] of Object.entries(seg)) $(`seg-${name}`).dataset.health = health;
+  announce(now, seg);
   $('state').textContent = stateLabel(status, wsOpen(), seg.core === 'ok' || !status?.core);
   $('state').dataset.state = status?.state ?? 'none';
   $('t-battery').textContent = formatBattery(telem.battery);
@@ -517,6 +534,50 @@ function renderDisplay(updateInputs = true) {
 }
 
 function render() { renderDisplay(); requestAnimationFrame(render); }
+
+/** The radio as the link segment confirms it. 'down' needs evidence: the TX module is talking
+ *  and link telemetry was seen but stopped or reports no uplink, or the core failed safe for
+ *  rf_lost. Anything else (no TX, never any telemetry, just reconnected) is 'unknown'. */
+function announcedRadio(seg, now) {
+  if (now < announceSettledAt) return 'unknown';
+  if (seg.drone === 'ok' || seg.drone === 'warn') return 'up';
+  if (status?.state === 'FAILSAFE' && status.reason === 'rf_lost') return 'down';
+  if (seg.tx === 'ok' && telem.link) return 'down';
+  return 'unknown';
+}
+
+/** Feeds the announcer at the status and render cadence (repeats are no-ops). HOLD and LANDING
+ *  keep ARM high in crsf-core (safety.h), so for the spoken state they are still armed. */
+function announce(now, seg = segments({ wsOpen: wsOpen(), lastMsgAt, status, links, telem, now })) {
+  try {
+    const state = status?.state === 'HOLD' || status?.state === 'LANDING' ? 'ARMED' : status?.state;
+    announcer.update({ connected: wsOpen(), coreFresh: seg.core === 'ok', state, reason: status?.reason, radio: announcedRadio(seg, now) });
+  } catch { /* alerts are optional: never into status handling or rendering */ }
+}
+
+function renderAnnouncer() {
+  const state = announcer.enabled ? 'on' : announcer.error === 'audio_blocked' ? 'blocked' : announcer.error ? 'unavailable' : 'off';
+  const help = t({ on: 'announce.on', blocked: 'announce.blocked', unavailable: 'announce.unavailable',
+    off: announcer.preferred ? 'announce.resume' : 'announce.off' }[state]);
+  const button = $('btn-announce');
+  button.dataset.state = state;
+  button.setAttribute('aria-pressed', String(announcer.enabled));
+  button.title = help;
+  button.firstElementChild.textContent = t(state === 'blocked' || state === 'unavailable' ? 'announce.noaudio' : 'announce.label');
+  $('announce-status').textContent = help;
+}
+
+/** Which languages have a complete clip pack. Old deployments without a manifest stay unknown. */
+async function loadClipManifest() {
+  try {
+    const response = await fetch('/audio/announcements/manifest.json');
+    if (!response.ok) return;
+    const manifest = await response.json();
+    const ready = (language) => manifest.available === true || ['armed', 'disarmed', 'signal_lost', 'signal_restored', 'failsafe']
+      .every((event) => manifest.clips?.some((c) => c.language === language && c.event === event && c.available === true));
+    clipsReady = { es: ready('es'), en: ready('en') };
+  } catch { /* unknown: the enable probe still finds missing clips */ }
+}
 
 function renderAuth() {
   if (!signInShown) return;
@@ -587,6 +648,14 @@ if (signInShown) {
   $('btn-logout').addEventListener('click', logout);
   loadMe();
 }
+
+// enable() must start inside the tap: browsers only unlock audio from a user gesture.
+$('btn-announce').addEventListener('click', (ev) => {
+  ev.currentTarget.blur();   // never keeps focus: Space/Enter stay with the flight keys
+  if (announcer.enabled) announcer.mute();
+  else if (clipsReady && !clipsReady[getLanguage()]) announcer.fail();   // reports audio_unavailable, plays nothing
+  else announcer.enable();
+});
 
 $('btn-voice-prepare').addEventListener('click', async () => {
   if (!voiceConfig || role !== 'pilot' || status?.state !== 'DISARMED') return;
@@ -733,7 +802,12 @@ function checkPadLayout() {
 for (const type of ['resize', 'orientationchange', 'fullscreenchange']) window.addEventListener(type, checkPadLayout);
 
 initLanguageUI(document);
-onLanguageChange(() => {
+onLanguageChange((language) => {
+  try {
+    announcer.setLanguage(language);   // stops old-language speech; the current state is not replayed
+    if (announcer.enabled && clipsReady && !clipsReady[language]) announcer.fail();
+  } catch { /* alerts are optional */ }
+  renderAnnouncer();
   voiceDisplay();
   renderLoginError();
   if (!$('toast').hidden && toast.display) $('toast').textContent = toast.display();
@@ -741,6 +815,8 @@ onLanguageChange(() => {
   // Existing pad-layout safety remains active if translated text causes real reflow.
 });
 
+renderAnnouncer();
+loadClipManifest();
 setInputMode(loadInputMode(storage(), matchMedia('(pointer: coarse)').matches), { save: false });
 connect();
 // Video stays on the local network (charter: no video over the internet).

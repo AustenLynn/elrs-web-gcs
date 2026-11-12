@@ -3,7 +3,10 @@
 The dashboard plays five prerecorded MP3 clips in each language. Normal playback
 uses local static files and makes no ElevenLabs request. Generation is separate
 from the gateway, browser, control loop and aircraft. This checkout contains an
-unavailable manifest with ten pending clips; no audio has been generated yet.
+unavailable manifest with ten pending clips; no audio has been generated yet, so the
+pilot page reports announcements as unavailable until an approved pack is committed.
+The gateway serves `.mp3` as `audio/mpeg` (with `nosniff`); deploying that MIME map
+needs a gateway restart, done only under the usual disarmed deployment checks.
 
 ## Generate locally
 
@@ -106,12 +109,48 @@ it never replays suppressed events. All snapshots still update silent baselines
 while muted/recording. Each event has a 3-second cooldown; urgent loss/failsafe
 preempts routine audio, and no event is queued for later playback.
 
+## Pilot page integration
+
+`web/js/app.js` owns one announcer. Beside the header state pill sits a compact
+**Avisos / Alerts** button (`#btn-announce`, `aria-pressed`, `data-state` =
+`off|on|blocked|unavailable`, details in its title and the `#announce-status` live region).
+It has a fixed size no taller than its header row, and the portrait footer buttons have a
+fixed height, so switching
+language or alert state never moves the stick pads (`gateway/e2e/announcer.e2e.js` checks
+this with a held stick at the supported phone sizes; the pad-layout safety is unchanged).
+The button blurs after each tap and is not a flight key target: Space still disarms.
+
+- **Tap**: on → `mute()`; off → `enable()` inside the tap. At load the page reads
+  `manifest.json`; when the selected language's five clips are not all available it reports
+  `audio_unavailable` (button "Sin audio / No audio", via the engine's `fail()`) without
+  requesting any clip. Without a
+  manifest it still probes, so a missing clip gives the same honest result.
+- **Feed**: `update()` runs on every core status and every rendered frame (repeats are no-ops),
+  inside `try/catch`, never in the 50 Hz control loop. `connected` is the WebSocket,
+  `coreFresh` the core segment, `state` the core state with `HOLD`/`LANDING` counted as
+  `ARMED` (the core keeps ARM high in both), `reason` the core reason.
+- **Radio**: `up` when the drone segment is ok/warn. `down` only with evidence: the TX module
+  is talking (TX segment ok) and link telemetry was received but stopped or reports no uplink,
+  or the core is in FAILSAFE for `rf_lost`. Otherwise `unknown`. For 2.5 s after each
+  connection the radio is `unknown`, because the gateway replays its last link telemetry to a
+  new connection and that looks fresh for 2 s.
+- **Reset**: the WebSocket closing calls `reset()`; the next statuses seed silently.
+- **Microphone**: `setRecording()` follows the voice controller's `recording` phase.
+- **Language**: a change calls `setLanguage()` (stops the old clip, no replay). If the new
+  language has no clips while enabled, the announcer reports `audio_unavailable`.
+
 ## Validation
 
 ```sh
 node --test web/test/announcer.test.js scripts/test/generate-announcements.test.mjs
 node --check web/js/announcer.js
 node --check scripts/generate-announcements.mjs
+```
+
+Browser checks (fake gateway socket, fake `Audio`, a test-only manifest; no core, no clips):
+
+```sh
+node --test --test-concurrency=1 gateway/e2e/announcer.e2e.js
 ```
 
 Tests inject audio and fake HTTP responses and never send aircraft commands or
