@@ -814,8 +814,9 @@ for (const type of ['resize', 'orientationchange', 'fullscreenchange']) window.a
 initLanguageUI(document);
 onLanguageChange((language) => {
   try {
-    announcer.setLanguage(language);   // stops old-language speech; the current state is not replayed
-    if (announcer.enabled && clipsReady && !clipsReady[language]) announcer.fail();
+    const wasOn = announcer.enabled || announcer.error === 'audio_unavailable';
+    announcer.setLanguage(language);   // stops old-language speech and clears its missing-clips error
+    if (wasOn && clipsReady && !clipsReady[language]) announcer.fail();   // still missing in this language
   } catch { /* alerts are optional */ }
   renderAnnouncer();
   voiceDisplay();

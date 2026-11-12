@@ -188,7 +188,7 @@ test('announcements: user gesture, silent seeding and reconnect, real transition
   await f.js('fixture.lq = null');   // link telemetry stops while the TX module keeps talking
   await waitFor(async () => (await f.plays()).length >= 4, 4000, 'signal lost');
   assert.equal((await f.plays())[3].src, '/audio/announcements/en/signal_lost.mp3');
-  await sleep(400);   // the loss clip has ended: nothing is queued, so a routine event during it would be dropped
+  await sleep(400);   // the loss clip has ended (a restore during it would be spoken when it ends)
   await f.js('fixture.lq = 80');
   await waitFor(async () => (await f.plays()).length >= 5, 2000, 'signal restored');
   assert.equal((await f.plays())[4].src, '/audio/announcements/en/signal_restored.mp3');
@@ -237,6 +237,10 @@ test('blocked or missing audio is reported and never blocks the controls', { tim
   await f.click();
   await waitFor(async () => (await f.button()).state === 'unavailable', 5000, 'probe fails on missing clip');
   assert.equal((await f.button()).pressed, 'false');
+  await f.setLanguage('en');   // the manifest lists English clips: the Spanish error must not linger
+  assert.equal((await f.button()).state, 'off', 'missing-clips error cleared by a language with clips');
+  await f.setLanguage('es');
+  assert.deepEqual(f.page.errors, [], 'a rejected probe (404) leaves no unhandled error');
 
   await f.js("sessionStorage.setItem('fixture-audio', 'blocked')");
   await f.page.open(f.url);
@@ -249,6 +253,7 @@ test('blocked or missing audio is reported and never blocks the controls', { tim
   await f.js("document.getElementById('btn-take').click()");
   await waitFor(() => f.js("fixture.sent.some((m) => m.t === 'ctl')"), 3000, 'control commands still flow');
   assert.equal(await f.js("document.getElementById('deadman').textContent"), '');
+  assert.deepEqual(f.page.errors, [], 'a NotAllowedError probe leaves no unhandled error');
 });
 
 test('held sticks: language and announcer changes keep pad geometry and control; capture silences; Space still disarms', { timeout: 150000 }, async (t) => {

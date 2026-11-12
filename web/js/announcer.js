@@ -1,9 +1,14 @@
 const COOLDOWN_MS = 3000;
+const STALLED_MS = 8000;   // a clip that never fires ended/error stops counting as playing
 const STATES = new Set(['ARMED', 'DISARMED', 'FAILSAFE']);
 const urgent = event => event === 'signal_lost' || event === 'failsafe';
 const clip = (language, event) => `/audio/announcements/${language}/${event}.mp3`;
 
 // Browser-only observer: no requests, commands, timers or queued announcements.
+// this.state/this.radio are what the pilot last heard (or the silent baseline); this.current is
+// the confirmed telemetry. Whenever they differ and speech is allowed, the current value is
+// spoken once: a change during a clip, or inside its cooldown, waits for it instead of being
+// dropped, so the last thing heard for each dimension always converges on the confirmed state.
 export class FlightAnnouncer {
   constructor({audioFactory = url => new Audio(url), now = () => performance.now(), onState = () => {}, storage} = {}) {
     Object.assign(this, {audioFactory, now, onState});
@@ -16,7 +21,7 @@ export class FlightAnnouncer {
     this.recording = false;
     this.generation = 0;
     this.lastPlayed = new Map();
-    this.state = this.radio = null;
+    this.state = this.radio = this.current = null;
     this.emit();
   }
   emit() {
@@ -38,6 +43,8 @@ export class FlightAnnouncer {
     if (!['es','en'].includes(language) || language === this.language) return;
     this.stop();
     this.language = language;
+    // Missing clips belong to the old language; a browser block does not depend on it.
+    if (this.error === 'audio_unavailable') this.error = null;
     this.emit();
   }
   async enable() {
@@ -88,41 +95,58 @@ export class FlightAnnouncer {
   }
   reset() {
     this.stop();
-    this.state = this.radio = null;
+    this.state = this.radio = this.current = null;
   }
   update({connected, coreFresh, state, reason, radio} = {}) {
     if (!connected || !coreFresh) { this.reset(); return; }
     const nextState = STATES.has(state) ? state : null;
     const nextRadio = radio === 'up' || radio === 'down' ? radio : null;
-    const stateChanged = this.state !== null && nextState !== null && this.state !== nextState;
-    const radioChanged = this.radio !== null && nextRadio !== null && this.radio !== nextRadio;
-    const lost = radioChanged && nextRadio === 'down';
-    const failsafe = stateChanged && nextState === 'FAILSAFE';
-    let event;
-    if (lost && failsafe && reason === 'rf_lost') event = 'signal_lost';
-    else if (failsafe) event = 'failsafe';
-    else if (lost) event = 'signal_lost';
-    else if (stateChanged) event = nextState === 'ARMED' ? 'armed' : 'disarmed';
-    else if (radioChanged) event = 'signal_restored';
+    this.current = {state: nextState, radio: nextRadio, reason};
+    // Unknown values reseed: the next confirmed value is a silent baseline, never an event.
+    if (nextState === null || this.state === null) this.state = nextState;
+    if (nextRadio === null || this.radio === null) this.radio = nextRadio;
+    this.speak();
+  }
+  speak() {
+    if (!this.current) return;
+    const {state, radio, reason} = this.current;
     // Always consume telemetry while muted/recording: obsolete events cannot return.
-    this.state = nextState;
-    this.radio = nextRadio;
-    if (!this.enabled || this.recording || !event) return;
-    const at = this.now(), previous = this.lastPlayed.get(event);
-    if (previous !== undefined && at - previous < COOLDOWN_MS) return;
-    if (this.playing && (!urgent(event) || urgent(this.playing))) return;
-    this.play(event, at);
+    if (!this.enabled || this.recording) { this.state = state; this.radio = radio; return; }
+    const at = this.now();
+    if (this.playing && at - this.startedAt > STALLED_MS) this.stop();
+    const stateChanged = this.state !== null && state !== null && this.state !== state;
+    const radioChanged = this.radio !== null && radio !== null && this.radio !== radio;
+    const lost = radioChanged && radio === 'down';
+    const failsafe = stateChanged && state === 'FAILSAFE';
+    // Candidates by priority, each with the dimensions it tells the pilot about.
+    const candidates = [];
+    if (lost && failsafe && reason === 'rf_lost') candidates.push(['signal_lost', true, true]);
+    if (failsafe) candidates.push(['failsafe', true, false]);
+    if (lost) candidates.push(['signal_lost', false, true]);
+    if (stateChanged && !failsafe) candidates.push([state === 'ARMED' ? 'armed' : 'disarmed', true, false]);
+    if (radioChanged && !lost) candidates.push(['signal_restored', false, true]);
+    for (const [event, saysState, saysRadio] of candidates) {
+      // A change that cannot be spoken yet stays pending: the next update or clip end retries it.
+      if (this.playing && (!urgent(event) || urgent(this.playing))) continue;
+      const previous = this.lastPlayed.get(event);
+      if (previous !== undefined && at - previous < COOLDOWN_MS) continue;
+      if (saysState) this.state = state;
+      if (saysRadio) this.radio = radio;
+      this.play(event, at);
+      return;
+    }
   }
   play(event, at) {
     this.stop();
     const generation = this.generation;
     this.playing = event;
+    this.startedAt = at;
     this.lastPlayed.set(event, at); // At most five event keys, regardless of flight length.
     try {
       this.audio.src = clip(this.language, event);
       this.audio.volume = 1;
       this.audio.muted = false;
-      this.audio.onended = () => { if (generation === this.generation) this.stop(); };
+      this.audio.onended = () => { if (generation === this.generation) { this.stop(); this.speak(); } };
       this.audio.onerror = () => { if (generation === this.generation) this.fail(); };
       Promise.resolve(this.audio.play()).catch(error => {
         if (generation === this.generation) this.fail(error);

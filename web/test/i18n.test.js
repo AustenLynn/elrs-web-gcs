@@ -73,3 +73,11 @@ test('marked labels and accessibility attributes update while user content stays
   i18n.initLanguageUI(doc); // idempotent setup must not duplicate listeners or replace controls
   assert.equal(control.value,'en');
 });
+test('a throwing language listener does not skip the others or the caller', () => {
+  i18n.setLanguage('en');
+  const seen = [];
+  const offBad = i18n.onLanguageChange(() => { throw Error('listener'); });
+  const offGood = i18n.onLanguageChange(language => seen.push(language));
+  try { assert.doesNotThrow(() => i18n.setLanguage('es')); assert.deepEqual(seen, ['es']); }
+  finally { offBad(); offGood(); i18n.setLanguage('en'); }
+});

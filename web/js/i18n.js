@@ -593,7 +593,7 @@ export function setLanguage(next) {
   try { browserStorage()?.setItem(KEY, next); } catch { /* selection remains usable */ }
   if (next === language) return;
   language = next;
-  for (const callback of listeners) callback(language);
+  for (const callback of listeners) { try { callback(language); } catch { /* one listener never skips the rest */ } }
 }
 export function onLanguageChange(callback) {
   listeners.add(callback);

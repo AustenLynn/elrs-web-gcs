@@ -39,11 +39,52 @@ test('simultaneous RF-loss failsafe coalesces into loss; failsafe never claims r
   assert.deepEqual(s.events(),['signal_lost.mp3','signal_restored.mp3']);s.audio.onended();s.time(4000);s.update({state:'ARMED'});s.audio.onended();s.update({state:'FAILSAFE',reason:'pilot_lost'});
   assert.equal(s.events().at(-1),'failsafe.mp3');
 });
-test('urgent loss preempts routine; other speech is discarded without a queue',async()=>{
+test('urgent loss preempts routine; afterwards only the current state is spoken, once, never a stale replay',async()=>{
   const s=await enabled();s.update({});s.update({state:'ARMED'});const routineEnd=s.audio.onended;
   s.update({state:'ARMED',radio:'down'});assert.deepEqual(s.events(),['armed.mp3','signal_lost.mp3']);
-  routineEnd();s.update({state:'DISARMED',radio:'down'});assert.equal(s.events().length,2);
-  s.audio.onended();s.update({state:'DISARMED',radio:'down'});assert.equal(s.events().length,2);
+  routineEnd();s.update({state:'DISARMED',radio:'down'});assert.equal(s.events().length,2,'routine waits for the urgent clip');
+  s.audio.onended();assert.deepEqual(s.events(),['armed.mp3','signal_lost.mp3','disarmed.mp3'],'the interrupted armed is not replayed');
+  s.audio.onended();s.update({state:'DISARMED',radio:'down'});assert.equal(s.events().length,3);
+});
+// Required property: once confirmed transitions settle, the last clip heard for the arm state and
+// for the radio matches the current confirmed state. update() runs at the render cadence.
+const settle=(s,from,v)=>{for(let at=from;at<=from+4000;at+=250){s.time(at);s.update(v);s.audio.onended?.();}};
+test('ARMED then DISARMED 0.5 s later: the change during the armed clip is spoken when it ends',async()=>{
+  const s=await enabled();s.update({});s.update({state:'ARMED'});s.time(500);s.update({state:'DISARMED'});
+  assert.deepEqual(s.events(),['armed.mp3'],'no overlapping speech');
+  s.time(1200);s.audio.onended();assert.deepEqual(s.events(),['armed.mp3','disarmed.mp3']);
+  settle(s,1500,{state:'DISARMED'});assert.deepEqual(s.events(),['armed.mp3','disarmed.mp3']);
+});
+test('ARMED, DISARMED, ARMED one second apart: the last heard is armed',async()=>{
+  const s=await enabled();s.update({});s.update({state:'ARMED'});s.audio.onended();
+  s.time(1000);s.update({state:'DISARMED'});s.audio.onended();
+  s.time(2000);s.update({state:'ARMED'});s.audio.onended?.();
+  settle(s,2250,{state:'ARMED'});assert.deepEqual(s.events(),['armed.mp3','disarmed.mp3','armed.mp3']);
+});
+test('signal lost then restored 0.5 s later: restored is spoken after the loss clip',async()=>{
+  const s=await enabled();s.update({});s.update({radio:'down'});s.time(500);s.update({radio:'up'});
+  assert.deepEqual(s.events(),['signal_lost.mp3'],'restored never cuts the loss clip');
+  s.time(1500);s.audio.onended();assert.deepEqual(s.events(),['signal_lost.mp3','signal_restored.mp3']);
+  settle(s,1750,{radio:'up'});assert.equal(s.events().length,2);
+});
+test('flapping is bounded and still ends on the current state',async()=>{
+  const s=await enabled();s.update({});
+  for(let at=0;at<=10000;at+=100){s.time(at);s.update({radio:at/100%2?'up':'down',state:at/100%3?'ARMED':'DISARMED'});s.audio.onended?.();}
+  assert.ok(s.events().length<=16,`at most one clip per event per cooldown: ${s.events()}`);
+  settle(s,10100,{radio:'down',state:'ARMED'});const heard=s.events();
+  assert.equal(heard.findLast(x=>x.startsWith('signal_')),'signal_lost.mp3');
+  assert.equal(heard.findLast(x=>x==='armed.mp3'||x==='disarmed.mp3'),'armed.mp3');
+  const settled=heard.length;settle(s,15000,{radio:'down',state:'ARMED'});assert.equal(s.events().length,settled,'no chatter once settled');
+});
+test('a clip that never ends or errors stops blocking routine speech after a bounded time',async()=>{
+  const s=await enabled();s.update({});s.update({state:'ARMED'});s.time(1000);s.update({state:'DISARMED'});
+  assert.deepEqual(s.events(),['armed.mp3']);s.time(20000);s.update({state:'DISARMED'});
+  assert.deepEqual(s.events(),['armed.mp3','disarmed.mp3']);
+});
+test('a language switch clears a missing-clips error for the old language, not a browser block',async()=>{
+  const s=setup();s.audio.reject=Object.assign(Error('404'),{name:'NotSupportedError'});await s.c.enable();
+  assert.equal(s.states.at(-1).error,'audio_unavailable');s.c.setLanguage('es');assert.deepEqual(s.states.at(-1),{enabled:false,blocked:false,error:null});
+  const b=setup();b.audio.reject=Object.assign(Error('x'),{name:'NotAllowedError'});await b.c.enable();b.c.setLanguage('es');assert.equal(b.states.at(-1).error,'audio_blocked');
 });
 test('three-second per-event cooldown bounds repeated and flapping telemetry',async()=>{
   const s=await enabled();s.update({});s.update({radio:'down'});s.audio.onended();s.time(100);s.update({radio:'up'});s.audio.onended();s.time(200);s.update({radio:'down'});s.time(2999);s.update({radio:'up'});s.update({radio:'down'});
