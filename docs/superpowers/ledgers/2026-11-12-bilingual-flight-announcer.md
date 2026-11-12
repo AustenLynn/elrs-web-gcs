@@ -70,4 +70,8 @@ Ruling: voice.e2e test5 failure is pre-existing flakiness also present on main (
   "clips missing" error after a language switch, missing `page.errors` assertion, stalled clip
   keeping `playing` set, throwing language listener skipping the others.
 
-Final fix wave: <filled by controller>
+Final fix wave: commits bf412b9..34dfe34 (b8de11f announcer converges on confirmed state + stalled-clip timeout + isolated language listeners; d9853f4 single HTTP byte ranges; ce43cf0 generator tests in gateway suite; ef5cf68 e2e fixture made safe for page-error assertions; 34dfe34 this ledger and HANDOFF §5). Scoped re-review: all findings addressed, no new Critical/Important. Controller rerun: `npm --prefix gateway test` 459/459.
+Ruling: a correction pending when the language changes is spoken once in the new language (convergence kept) — the pilot must end up hearing the confirmed state, discarding it would reintroduce the contradiction the final review found — cost if wrong: one extra clip right after a language switch; docs/setup/announcements.md still says a language change does not replay the current state and needs a one-line update.
+Ruling: mute() then enable() with no telemetry update between can replay a correction pending from before the mute — parked as theoretical (render-cadence updates always consume the baseline between two taps) — cost if wrong: one stale-but-true clip after re-enabling.
+Ruling (fixer): a newer routine event does not cut off a playing routine clip; the correction plays when it ends — keeps clips intelligible — cost if wrong: about 1 s of the stale clip before the correction.
+Still deferred: up→unknown→down radio is a silent seed; generator MP3 check accepts only fixed 128 kbps/44.1 kHz frames (could cost one paid clip on mismatch); real-iPhone playback unverified until clips exist; voice.e2e test 5 flaky on main too.
