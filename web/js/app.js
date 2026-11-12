@@ -93,7 +93,7 @@ const voice = new VoiceController({ trace: voiceTrace, capture, maneuver: new Vo
     normal_unconfirmed:['Confirma Normal','Falta una nueva confirmación de modo Normal. Usa los controles manuales de modo estando desarmado.'],
   };
   const readiness = readinessMessages[state.reason] ?? ['Voz no lista','No se cumplen las condiciones para usar voz en vivo.'];
-  const error = state.error === 'not_ready' ? readiness[0] : state.error;
+  const error = state.error === 'not_ready' ? readiness[0] : state.error === 'interrupted' ? 'Repite el comando' : state.error;
   $('voice-state').title = state.error === 'not_ready' ? readiness[1] : (error ?? '');
   $('voice-state').textContent = error ? `Sin acción: ${error}` : state.dryRun ? 'Simulación: sin movimiento' : state.phase === 'idle' && voicePreviousPhase === 'executing' ? 'Movimiento terminado' : messages[state.phase];
   $('voice-transcript').textContent = state.transcript;
@@ -327,6 +327,7 @@ setInterval(() => {
     armed: !locked && status?.state === 'ARMED',
     mode: mode === 0 && !switches.turtle ? 'Normal' : null,
     voiceReady: status?.voice?.ready === true,
+    voiceEpoch: status?.voice?.epoch,
     statusAt, heldManual: heldFlightKeys.size > 0 || heldFlightPointers.size > 0,
   });
   lastCmd = locked ? lockedCommand(mode) : overlay;

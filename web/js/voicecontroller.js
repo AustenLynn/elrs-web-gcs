@@ -2,6 +2,7 @@ import { CHOICES, validatePresets } from './voicemaneuver.js';
 const LIMITS = Object.freeze({recordingMs:5000,uploadBytes:524288,uploadMs:6000,processingMs:5000,resultMs:6000,statusMs:500});
 const REASONS = new Set(['ready','core_stale','pilot_mismatch','not_armed','unsafe_state','not_normal','turtle_active','link_stale','link_lost','normal_unconfirmed']);
 const neutral = manual => ['roll','pitch','yaw'].every(axis => manual[axis] === 0);
+const validEpoch = value => Number.isSafeInteger(value) && value>=0;
 
 export class VoiceController {
   constructor({capture,maneuver,fetchImpl=(...args)=>globalThis.fetch(...args),now=()=>performance.now(),onState=()=>{},trace=null}) {
@@ -22,10 +23,22 @@ export class VoiceController {
   }
   emit(phase,error=null,extra={}) { this.phase=phase;this.error=error;this.reason=extra.reason??null; this.onState({phase,error,transcript:this.transcript||'',choice:this.choice||'none',...extra}); }
   onReadiness(readiness) {
+    this.readiness=readiness;
+    if(this.config?.execution==='enabled' && this.busy){
+      if(!validEpoch(readiness?.epoch) || readiness.epoch!==this.captureEpoch || (this.captureReady && readiness.ready!==true)){
+        this.interrupt(readiness);return;
+      }
+      if(readiness.ready===true)this.captureReady=true;
+    }
     if (this.phase!=='idle' || this.error!=='not_ready') return;
     if (readiness?.ready===true) {this.emit('idle');return;}
     const reason=REASONS.has(readiness?.reason) && readiness.reason!=='ready' ? readiness.reason : null;
     if (reason!==this.reason) this.emit('idle','not_ready',{reason});
+  }
+  interrupt(readiness) {
+    this.cancel('interrupted');
+    if(readiness?.ready===false)this.emit('idle','not_ready',{reason:REASONS.has(readiness.reason)?readiness.reason:null});
+    else this.emit('idle','interrupted');
   }
   configure(config) {
     if (config !== null) {
@@ -45,6 +58,9 @@ export class VoiceController {
   get busy() { return this.phase !== 'idle' || this.maneuver.busy; }
   async press() {
     if (!this.config || !this.session || this.busy) return;
+    this.captureEpoch=this.readiness?.epoch;
+    this.captureReady=this.readiness?.ready===true;
+    if(this.config.execution==='enabled' && !validEpoch(this.captureEpoch)){this.emit('idle','interrupted');return;}
     const generation=++this.generation;
     this.transcript=''; this.choice='none';
     this.emit('recording');
@@ -65,7 +81,7 @@ export class VoiceController {
       const abort=new AbortController(); this.abort=abort;
       timer=setTimeout(()=>{if(generation===this.generation){this.cancel('timeout');this.emit('idle','timeout');}},LIMITS.resultMs);
       this.trace?.record('recognition_start');
-      const response=await this.fetchImpl('/voice/command',{method:'POST',headers:{'Content-Type':recording.mime,'X-Voice-Request':requestId,'X-Voice-Session':session.session,'X-Voice-Capability':session.capability},body:recording.audio,signal:abort.signal});
+      const response=await this.fetchImpl('/voice/command',{method:'POST',headers:{'Content-Type':recording.mime,'X-Voice-Request':requestId,'X-Voice-Session':session.session,'X-Voice-Capability':session.capability,...(this.config.execution==='enabled'?{'X-Voice-Epoch':String(this.captureEpoch)}:{})},body:recording.audio,signal:abort.signal});
       const data=await response.json();
       if (generation!==this.generation || session.session!==this.session?.session || session.capability!==this.session?.capability) return;
       if (!response.ok) {this.emit('idle',typeof data.error==='string' && /^[a-z_]{1,64}$/.test(data.error)?data.error:'request_failed',{reason:REASONS.has(data.reason)?data.reason:null});return;}
@@ -94,6 +110,9 @@ export class VoiceController {
     const baseSafe=context.role==='pilot' && context.engaged===true && context.visible===true && context.focused===true && context.connected===true && context.heldManual===false && neutral(manual);
     const age=this.now()-context.statusAt;
     const liveSafe=baseSafe && context.voiceReady===true && context.armed===true && context.mode==='Normal' && age>=0 && age<LIMITS.statusMs;
+    if(this.config?.execution==='enabled' && this.busy && (!validEpoch(context.voiceEpoch) || context.voiceEpoch!==this.captureEpoch || (this.captureReady && !liveSafe))){
+      this.interrupt({ready:context.voiceReady,reason:this.readiness?.reason});return {...manual};
+    }
     if ((this.phase!=='idle'||this.maneuver.busy) && !baseSafe) {this.cancel('context');return {...manual};}
     const pending=this.pending;
     if(pending){

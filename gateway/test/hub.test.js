@@ -543,7 +543,7 @@ test('voice status uses the active pilot readiness without capability disclosure
     hub.onCoreTelemetry('link',{upLq:95});hub.onCoreTelemetry('flightMode','S-NORMAL');
     hub.onCoreStatus({session:42,state:'ARMED',out:{mode:0,turtle:0}});
     const message=pilot.last('status');
-    if(enabled){assert.deepEqual(message.voice,{ready:true,reason:'ready'});assert.deepEqual(message.voice,hub.voiceReadiness(42));assert.equal(JSON.stringify(message).includes(pilot.last('voice_ready').capability),false);}
+    if(enabled){assert.deepEqual(message.voice,{ready:true,reason:'ready',epoch:hub.voiceEpoch});assert.deepEqual(message.voice,{...hub.voiceReadiness(42),epoch:hub.voiceEpoch});assert.equal(JSON.stringify(message).includes(pilot.last('voice_ready').capability),false);}
     else assert.equal(Object.hasOwn(message,'voice'),false);
   }
 });
@@ -554,4 +554,12 @@ test('core loss/reconnect invalidates readiness while retaining display telemetr
   hub.onCoreDown();hub.onCoreUp();hub.onCoreStatus(status);hub.onCoreTelemetry('link',{upLq:95});
   assert.equal(hub.telemetry.flightMode,'S-NORMAL');assert.equal(hub.voiceLiveReady(42),false);
   hub.onCoreTelemetry('flightMode','S-NORMAL');assert.equal(hub.voiceLiveReady(42),true);
+});
+test('voice status epoch exposes an RF bounce hidden between status publications',()=>{
+  const hub=new ControlHub({core:fakeCore(),voice:true,now:()=>1000,newSession:()=>42});const pilot=join(hub);
+  const status={session:42,state:'ARMED',out:{mode:0,turtle:0}};
+  hub.onCoreStatus(status);hub.onCoreTelemetry('link',{upLq:95});hub.onCoreTelemetry('flightMode','S-NORMAL');hub.onCoreStatus(status);
+  const before=pilot.last('status').voice;assert.equal(before.ready,true);
+  hub.onCoreTelemetry('link',{upLq:0});hub.onCoreTelemetry('link',{upLq:95});hub.onCoreTelemetry('flightMode','S-NORMAL');hub.onCoreStatus(status);
+  const after=pilot.last('status').voice;assert.equal(after.ready,true);assert.ok(after.epoch>before.epoch);
 });

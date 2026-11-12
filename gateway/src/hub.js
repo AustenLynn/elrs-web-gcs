@@ -104,6 +104,7 @@ export class ControlHub {
   }
 
   voiceLiveReady(session) { return this.voiceReadiness(session).ready; }
+  get voiceEpoch() { return this.voiceFlight.epoch; }
 
   /** Name of the active pilot, or null. */
   activePilotName() {
@@ -391,7 +392,7 @@ export class ControlHub {
       ...(this.lastStatus ?? {}),
       rttMs: pc?.clock.ready ? round1(pc.clock.rtt) : null,
       staleDropped: this.staleDropped,
-      ...(this.voice ? {voice:this.voiceReadiness(pc?.session)} : {}),
+      ...(this.voice ? {voice:{...this.voiceReadiness(pc?.session),epoch:this.voiceEpoch}} : {}),
     };
   }
 

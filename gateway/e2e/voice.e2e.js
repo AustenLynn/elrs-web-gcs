@@ -23,7 +23,7 @@ async function voiceFixture(t, inputMode='keyboard') {
   t.after(()=>page.close());
   await page.call('script.addPreloadScript',{functionDeclaration:`() => {
     document.hasFocus=()=>true;
-    window.fixture={sent:[],requests:0,delay:0,choice:'forward_short',execution:'dry-run',state:'DISARMED',flightMode:'S-NORMAL',modeTelemetry:true,voiceReady:true,reason:'not_armed',clock:0,transcript:'adelante <b>hola</b>',error:null};
+    window.fixture={sent:[],requests:0,delay:0,choice:'forward_short',execution:'dry-run',state:'DISARMED',flightMode:'S-NORMAL',modeTelemetry:true,voiceReady:true,voiceEpoch:1,reason:'not_armed',clock:0,transcript:'adelante <b>hola</b>',error:null};
     const realNow=performance.now.bind(performance);performance.now=()=>fixture.freeze ?? (realNow()+fixture.clock);
     class Recorder {static isTypeSupported(){return true;} constructor(){this.state='inactive';fixture.recorder=this;} start(){this.state='recording';} stop(){this.state='inactive';this.ondataavailable?.({data:new Blob(['fake-audio'],{type:'audio/webm;codecs=opus'})});this.onstop?.();}}
     window.MediaRecorder=Recorder;
@@ -36,7 +36,7 @@ async function voiceFixture(t, inputMode='keyboard') {
       if(url==='/voice/command'){fixture.requests++;await new Promise(r=>setTimeout(r,fixture.delay));if(fixture.error)return {ok:false,json:async()=>({error:fixture.error,reason:fixture.reason})};return answer({requestId:opts.headers['X-Voice-Request'],session:opts.headers['X-Voice-Session'],choice:fixture.choice,transcript:fixture.transcript});}
       return {ok:false,json:async()=>({})};
     };
-    class Socket {static OPEN=1; constructor(){this.readyState=1;fixture.socket=this;setTimeout(()=>this.onopen?.(),0);} send(raw){const m=JSON.parse(raw);fixture.sent.push(m);if(m.t==='hello'){this.emit({t:'welcome',role:'pilot',session:1});this.emit({t:'voice_ready',session:1,capability:'fake-capability'});this.timer=setInterval(()=>{this.emit({t:'status',state:fixture.state,reason:fixture.state==='FAILSAFE'?'rf_lost':'none',voice:fixture.voiceReady===null?undefined:{ready:fixture.voiceReady,reason:fixture.reason}});if(fixture.modeTelemetry)this.emit({t:'telem',flightMode:fixture.flightMode});},50);}} emit(m){this.onmessage?.({data:JSON.stringify(m)});} close(){clearInterval(this.timer);this.readyState=3;this.onclose?.({code:1000});}}
+    class Socket {static OPEN=1; constructor(){this.readyState=1;fixture.socket=this;setTimeout(()=>this.onopen?.(),0);} send(raw){const m=JSON.parse(raw);fixture.sent.push(m);if(m.t==='hello'){this.emit({t:'welcome',role:'pilot',session:1});this.emit({t:'voice_ready',session:1,capability:'fake-capability'});this.timer=setInterval(()=>{this.emit({t:'status',state:fixture.state,reason:fixture.state==='FAILSAFE'?'rf_lost':'none',voice:fixture.voiceReady===null?undefined:{ready:fixture.voiceReady,reason:fixture.reason,epoch:fixture.voiceEpoch}});if(fixture.modeTelemetry)this.emit({t:'telem',flightMode:fixture.flightMode});},50);}} emit(m){this.onmessage?.({data:JSON.stringify(m)});} close(){clearInterval(this.timer);this.readyState=3;this.onclose?.({code:1000});}}
     window.WebSocket=Socket;
     try {localStorage.setItem('gcs-input-mode','${inputMode}');sessionStorage.setItem('gcs-token-demo','fake');} catch {}
   }`});
@@ -182,6 +182,16 @@ test('voice PTT runs on control ticks, dry-run and manual safety lifecycle', {ti
     await utterance();
     await waitFor(()=>page.evaluate("fixture.sent.some(m=>m.t==='ctl'&&m.p===50)"),2000,'live maneuver starts');
   };
+  // A brief gateway interruption may recover before any false-ready status reaches us.
+  await page.evaluate("fixture.delay=300;fixture.sent=[]");
+  await utterance();
+  await waitFor(()=>page.evaluate("document.getElementById('voice-state').dataset.phase==='processing'"),1000,'recognition pending across hidden bounce');
+  await page.evaluate("fixture.voiceEpoch++;fixture.socket.emit({t:'status',state:'ARMED',voice:{ready:true,reason:'ready',epoch:fixture.voiceEpoch}})");
+  await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent==='Sin acción: Repite el comando'"),1000,'epoch bounce discards the old utterance');
+  await sleep(350);
+  assert.equal(await page.evaluate("fixture.sent.filter(m=>m.t==='ctl').every(m=>m.p===0)"),true,'late result after hidden bounce never starts motion');
+  await page.evaluate('fixture.delay=0');await startLive();
+  await waitFor(()=>page.evaluate("document.getElementById('voice-state').dataset.phase==='idle'"),2000,'new utterance after epoch recovery completes');
   // Throttle is manual and survives both completion and local cancellation.
   await page.evaluate("document.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyW',bubbles:true}))");
   await sleep(180);
@@ -319,7 +329,7 @@ test('voice-enabled touch pads stay usable and stable across feedback and held-s
     await page.evaluate("fixture.reason='link_lost'");
     await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent==='Sin acción: Sin enlace RF'"),1000,'idle feedback follows updated readiness reason without recording');
     // A same-string mode confirmation and authoritative status clear only readiness feedback.
-    await page.evaluate("fixture.voiceReady=true;fixture.socket.emit({t:'telem',flightMode:'S-NORMAL'});fixture.socket.emit({t:'status',state:'ARMED',voice:{ready:true,reason:'ready'}})");
+    await page.evaluate("fixture.voiceReady=true;fixture.socket.emit({t:'telem',flightMode:'S-NORMAL'});fixture.socket.emit({t:'status',state:'ARMED',voice:{ready:true,reason:'ready',epoch:fixture.voiceEpoch}})");
     await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent==='Lista' && document.getElementById('voice-state').title===''"),1000,'idle readiness feedback follows same-string confirmation');
     await page.evaluate("fixture.voiceReady=false");
     await page.evaluate("fixture.reason='unsafe_state'");await press();await sleep(40);await release();
@@ -365,7 +375,7 @@ test('idle readiness feedback survives failsafe neutralization and clears on sam
   await waitFor(()=>page.evaluate("!document.getElementById('btn-voice-prepare').disabled"),3000,'preflight ready');
   await page.evaluate("document.getElementById('btn-voice-prepare').click();document.getElementById('btn-take').click()");
   await waitFor(()=>page.evaluate("document.getElementById('btn-take').disabled && !document.getElementById('btn-voice-ptt').disabled"),3000,'prepared and engaged');
-  await page.evaluate("fixture.state='ARMED';fixture.error='not_ready';fixture.voiceReady=false;fixture.reason='link_lost';fixture.socket.emit({t:'status',state:'ARMED',voice:{ready:false,reason:'link_lost'}});document.getElementById('btn-voice-ptt').click()");
+  await page.evaluate("fixture.state='ARMED';fixture.error='not_ready';fixture.voiceReady=false;fixture.reason='link_lost';fixture.socket.emit({t:'status',state:'ARMED',voice:{ready:false,reason:'link_lost',epoch:fixture.voiceEpoch}});document.getElementById('btn-voice-ptt').click()");
   await sleep(80);
   await page.evaluate("document.getElementById('btn-voice-ptt').click()");
   await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent==='Sin acción: Sin enlace RF'"),2000,'idle readiness rejection');
@@ -374,7 +384,7 @@ test('idle readiness feedback survives failsafe neutralization and clears on sam
   await sleep(150);
   assert.equal(await page.evaluate("document.getElementById('voice-state').textContent"),'Sin acción: Recupera el control','per-tick locked neutralization preserves readiness feedback');
   assert.match(await page.evaluate("document.getElementById('voice-state').title"),/recuperación manual/);
-  await page.evaluate("fixture.state='ARMED';fixture.voiceReady=true;fixture.reason='ready';fixture.socket.emit({t:'telem',flightMode:'S-NORMAL'});fixture.socket.emit({t:'status',state:'ARMED',voice:{ready:true,reason:'ready'}})");
+  await page.evaluate("fixture.state='ARMED';fixture.voiceReady=true;fixture.reason='ready';fixture.socket.emit({t:'telem',flightMode:'S-NORMAL'});fixture.socket.emit({t:'status',state:'ARMED',voice:{ready:true,reason:'ready',epoch:fixture.voiceEpoch}})");
   await waitFor(()=>page.evaluate("document.getElementById('voice-state').textContent==='Lista' && document.getElementById('voice-state').title===''"),1000,'authoritative same-string recovery clears feedback without another utterance');
   assert.equal(await page.evaluate('fixture.requests'),1);
   assert.deepEqual(page.errors,[]);

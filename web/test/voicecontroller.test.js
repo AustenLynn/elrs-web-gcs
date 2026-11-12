@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { VoiceCapture } from '../js/voicecapture.js';
 import { VoiceManeuver } from '../js/voicemaneuver.js';
 import { VoiceController } from '../js/voicecontroller.js';
-const context={role:'pilot',engaged:true,visible:true,focused:true,connected:true,armed:true,mode:'Normal',voiceReady:true,statusAt:0,heldManual:false};
-function setup(execution='enabled',trace=null){let t=0,starts=0,presses=0,canceled=0,request,resolve;const states=[];const maneuver={busy:false,configure(){},start(){starts++;this.busy=true;return true;},apply:m=>({...m,pitch:50}),cancel(){this.busy=false;},reset(){this.busy=false;}};const capture={press:async()=>{presses++;},release:async()=>({audio:new Blob(['a']),mime:'audio/webm;codecs=opus'}),cancel:()=>canceled++};const c=new VoiceController({capture,maneuver,trace,now:()=>t,onState:s=>states.push(s),fetchImpl:async(url,options)=>{request=options;return new Promise(r=>resolve=r);}});c.configure({execution,shortMs:250,mediumMs:500,strength:50});c.setSession({session:'s',capability:'c'});return {c,states,time:v=>t=v,get starts(){return starts;},get presses(){return presses;},get request(){return request;},reply(data={},ok=true){resolve({ok,json:async()=>({session:'s',requestId:request.headers['X-Voice-Request'],choice:'forward_short',transcript:'adelante',...data})});}};}
+const context={role:'pilot',engaged:true,visible:true,focused:true,connected:true,armed:true,mode:'Normal',voiceReady:true,voiceEpoch:1,statusAt:0,heldManual:false};
+function setup(execution='enabled',trace=null){let t=0,starts=0,presses=0,canceled=0,request,resolve;const states=[];const maneuver={busy:false,configure(){},start(){starts++;this.busy=true;return true;},apply:m=>({...m,pitch:50}),cancel(){this.busy=false;},reset(){this.busy=false;}};const capture={press:async()=>{presses++;},release:async()=>({audio:new Blob(['a']),mime:'audio/webm;codecs=opus'}),cancel:()=>canceled++};const c=new VoiceController({capture,maneuver,trace,now:()=>t,onState:s=>states.push(s),fetchImpl:async(url,options)=>{request=options;return new Promise(r=>resolve=r);}});c.configure({execution,shortMs:250,mediumMs:500,strength:50});c.setSession({session:'s',capability:'c'});c.onReadiness({ready:true,reason:'ready',epoch:1});return {c,states,time:v=>t=v,get starts(){return starts;},get presses(){return presses;},get request(){return request;},reply(data={},ok=true){resolve({ok,json:async()=>({session:'s',requestId:request.headers['X-Voice-Request'],choice:'forward_short',transcript:'adelante',...data})});}};}
 const manual={roll:0,pitch:0,yaw:0,throttle:0,mode:0};
 async function submitted(s){await s.c.press();const p=s.c.release();await new Promise(r=>setImmediate(r));return {p};}
 test('result starts only inside apply with current context',async()=>{const s=setup();const {p}=await submitted(s);s.reply();await p;assert.equal(s.starts,0);s.c.apply(manual,context);assert.equal(s.starts,1);});
@@ -64,6 +64,7 @@ for (const failure of ['error', 'timeout']) {
     const controller = new VoiceController({capture, maneuver:new VoiceManeuver(), onState:state=>states.push(state), fetchImpl:async()=>{uploads++;throw new Error('unexpected upload');}});
     controller.configure({execution:'enabled',shortMs:250,mediumMs:500,strength:50});
     controller.setSession({session:'s',capability:'c'});
+    controller.onReadiness({ready:true,reason:'ready',epoch:1});
     await controller.press();
     const fail = failure === 'error' ? () => recorders[0].onerror({message:'unsafe recorder detail'}) : timers[0];
     fail();
@@ -123,8 +124,8 @@ test('idle readiness feedback follows authoritative reason and clears without an
   assert.equal(s.states.at(-1).error,null,'cleared feedback stays cleared');
 });
 
-test('readiness status preserves provider errors and active voice phases',async()=>{
-  const s=setup();const {p}=await submitted(s);s.reply({error:'provider_timeout'},false);await p;
+test('readiness status preserves provider errors and dry-run active phases',async()=>{
+  const s=setup('dry-run');const {p}=await submitted(s);s.reply({error:'provider_timeout'},false);await p;
   const count=s.states.length;s.c.onReadiness({ready:true,reason:'ready'});
   assert.equal(s.states.length,count);assert.equal(s.states.at(-1).error,'provider_timeout');
   await s.c.press();s.c.onReadiness({ready:false,reason:'link_lost'});
@@ -133,6 +134,27 @@ test('readiness status preserves provider errors and active voice phases',async(
   s.c.onReadiness({ready:true,reason:'ready'});assert.equal(s.states.at(-1).phase,'processing');
   s.reply();await pending;s.c.onReadiness({ready:false,reason:'link_lost'});
   assert.equal(s.states.at(-1).phase,'ready');s.c.apply(manual,context);
-  s.c.onReadiness({ready:true,reason:'ready'});assert.equal(s.states.at(-1).phase,'executing');
+  s.c.onReadiness({ready:true,reason:'ready'});assert.equal(s.states.at(-1).phase,'idle');
   s.c.cancel('cleanup');
+});
+
+for(const phase of ['recording','processing','ready','executing'])test(`live ${phase} is discarded on a hidden recovered epoch change`,async()=>{
+  const s=setup();s.c.onReadiness({ready:true,reason:'ready',epoch:1});await s.c.press();let p;
+  if(phase!=='recording'){p=s.c.release();await new Promise(r=>setImmediate(r));}
+  if(['ready','executing'].includes(phase)){s.reply();await p;}
+  if(phase==='executing')s.c.apply(manual,{...context,voiceEpoch:1});
+  s.c.onReadiness({ready:true,reason:'ready',epoch:2});
+  assert.equal(s.c.phase,'idle');assert.equal(s.c.maneuver.busy,false);
+  assert.equal(s.states.at(-1).error,'interrupted');
+  if(phase==='processing'){s.reply();await p;assert.equal(s.c.pending,null,'late result ignored');}
+  s.c.cancel('cleanup');
+});
+test('live capture binds its press epoch and false readiness aborts processing',async()=>{
+  const s=setup();s.c.onReadiness({ready:true,reason:'ready',epoch:7});const {p}=await submitted(s);
+  assert.equal(s.request.headers['X-Voice-Epoch'],'7');
+  s.c.onReadiness({ready:false,reason:'link_lost',epoch:8});assert.equal(s.request.signal.aborted,true);
+  s.reply();await p;assert.equal(s.c.pending,null);assert.equal(s.states.at(-1).error,'not_ready');
+  s.c.onReadiness({ready:true,reason:'ready',epoch:8});
+  const fresh=await submitted(s);assert.equal(s.request.headers['X-Voice-Epoch'],'8');s.reply();await fresh.p;
+  s.c.apply(manual,{...context,voiceEpoch:8});assert.equal(s.starts,1,'new utterance after recovery starts');s.c.cancel('cleanup');
 });

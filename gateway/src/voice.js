@@ -57,6 +57,14 @@ export function voiceRoutes({cfg,hub,sessions,provider,now=()=>performance.now()
       const sessionText=req.headers['x-voice-session'],capability=req.headers['x-voice-capability'],requestId=req.headers['x-voice-request'];
       if(typeof sessionText!=='string'||!/^\d{1,10}$/.test(sessionText)||!Number.isInteger(Number(sessionText))||Number(sessionText)<1||Number(sessionText)>0xffffffff)throw fail(400,'invalid_session');
       const session=Number(sessionText);
+      const epochText=req.headers['x-voice-epoch'];
+      const epoch=typeof epochText==='string' && /^\d{1,16}$/.test(epochText) && Number.isSafeInteger(Number(epochText)) ? Number(epochText) : null;
+      const checkLive=()=>{
+        if(cfg.voice.execution!=='enabled')return;
+        const readiness=hub.voiceReadiness(session);
+        if(!readiness.ready)throw fail(409,'not_ready',readiness.reason);
+        if(epoch===null || epoch!==hub.voiceEpoch)throw fail(409,'interrupted');
+      };
       if(typeof requestId!=='string'||!UUID.test(requestId))throw fail(400,'invalid_request');
       if(typeof capability!=='string'||capability.length>128)throw fail(403,'forbidden');
       const client=hub.authorizeVoice({user,session,capability});
@@ -70,7 +78,7 @@ export function voiceRoutes({cfg,hub,sessions,provider,now=()=>performance.now()
       const length=req.headers['content-length'];
       if(length!==undefined&&(typeof length!=='string'||!/^\d{1,10}$/.test(length)))throw fail(400,'invalid_length');
       if(length!==undefined&&Number(length)>VOICE_LIMITS.uploadBytes)throw fail(413,'audio_too_large');
-      if(cfg.voice.execution==='enabled'){const readiness=hub.voiceReadiness(session);if(!readiness.ready)throw fail(409,'not_ready',readiness.reason);}
+      checkLive();
       state=states.get(capability);
       if(!state){state={ids:new Set(),last:-Infinity,busy:false,record:hub.clients.get(client)};states.set(capability,state);}
       if(state.busy||state.ids.has(requestId)||now()-state.last<1000||pipeline)throw fail(409,'busy');
@@ -83,6 +91,7 @@ export function voiceRoutes({cfg,hub,sessions,provider,now=()=>performance.now()
       res.on?.('close',onDisconnect);
       const audio=await readAudio(req,task.controller.signal);
       if(task.controller.signal.aborted)throw task.controller.signal.reason;
+      checkLive();
       if(pipeline)throw fail(409,'busy');
       if(!provider)throw fail(503,'provider_unconfigured');
       pipeline=true;
@@ -96,7 +105,7 @@ export function voiceRoutes({cfg,hub,sessions,provider,now=()=>performance.now()
       });
       const result=await Promise.race([pending,canceled]);
       if(!sessions.get(cookieToken(req))||hub.authorizeVoice({user:sessions.get(cookieToken(req)),session,capability})!==client)throw fail(409,'session_changed');
-      if(cfg.voice.execution==='enabled'){const readiness=hub.voiceReadiness(session);if(!readiness.ready)throw fail(409,'not_ready',readiness.reason);}
+      checkLive();
       if(!CHOICES.includes(result?.choice)||typeof result.transcript!=='string'||result.transcript.length>1000)throw fail(502,'provider_error');
       const timing={};for(const key of ['transcriptionMs','decisionMs']){const v=result.timing?.[key];timing[key]=Number.isFinite(v)&&v>=0?v:0;}
       send(res,200,{requestId,session,choice:result.choice,transcript:result.transcript,timing});

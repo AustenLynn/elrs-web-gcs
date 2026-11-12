@@ -7,12 +7,16 @@ const operational = status => status?.state==='DISARMED' || status?.state==='ARM
 const positiveLink = link => Number.isFinite(link?.upLq) && link.upLq > 0 && link.upLq <= 100;
 
 export class VoiceFlightState {
-  constructor({now = () => performance.now()} = {}) { this.now=now;this.reset(); }
+  constructor({now = () => performance.now()} = {}) { this.now=now;this.epoch=0;this.reset(); }
   reset() {
+    ++this.epoch;
     this.status=null;this.statusAt=null;this.link=null;this.linkAt=null;
     this.mode=null;this.target=null;this.confirmed=false;this.interrupted=false;
   }
-  #invalidate() { this.confirmed=false;this.interrupted=true; }
+  #invalidate() {
+    if (this.confirmed || !this.interrupted) ++this.epoch;
+    this.confirmed=false;this.interrupted=true;
+  }
   #checkGaps(now) {
     if (!Number.isFinite(now) || (this.statusAt!==null && !fresh(now,this.statusAt)) ||
         (this.linkAt!==null && !fresh(now,this.linkAt))) this.#invalidate();

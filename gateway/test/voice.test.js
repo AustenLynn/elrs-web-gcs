@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { voiceRoutes } from '../src/voice.js';
 import { ControlHub } from '../src/hub.js';
 import { Sessions } from '../src/auth.js';
+import { VoiceController } from '../../web/js/voicecontroller.js';
 
 function setup(execution = 'dry-run', recognize = async () => ({ choice:'forward_short', transcript:'adelante', timing:{transcriptionMs:1,decisionMs:2} })) {
  let time=1000, calls=0; const controlCalls=[]; const core = new Proxy({}, {get:(_,key)=>(...args)=>{if(key==='control')controlCalls.push(args);}});
@@ -15,7 +16,7 @@ function setup(execution = 'dry-run', recognize = async () => ({ choice:'forward
  const sessions=new Sessions({now:()=>time,ttlMs:1000000});const token=sessions.create(user);
  const route=voiceRoutes({cfg:{voice:{execution,shortMs:250,mediumMs:500,strength:50}},hub,sessions,now:()=>time,provider:{recognize:async args=>{calls++;return recognize(args);}}});
  function request(headers={},body=Buffer.from('audio'),secure=false) {
-  const req=new PassThrough();Object.assign(req,{url:'/voice/command',method:'POST',socket:{encrypted:secure},headers:{host:'gcs.test',origin:'http://gcs.test',cookie:`gcs_session=${token}`,'content-type':'audio/webm; codecs=opus','x-voice-session':'42','x-voice-capability':ready?.capability,'x-voice-request':randomUUID(),...headers}});
+  const req=new PassThrough();Object.assign(req,{url:'/voice/command',method:'POST',socket:{encrypted:secure},headers:{host:'gcs.test',origin:'http://gcs.test',cookie:`gcs_session=${token}`,'content-type':'audio/webm; codecs=opus','x-voice-session':'42','x-voice-capability':ready?.capability,'x-voice-request':randomUUID(),...(execution==='enabled'?{'x-voice-epoch':String(hub.voiceEpoch)}:{}),...headers}});
   let status,data;const res={writeHead:s=>{status=s;},end:b=>{data=b?JSON.parse(b):null;},destroy:()=>{}};
   const done=route(req,res).then(()=>({status,data})); if(body!==null)req.end(body);return {req,done};
  }
@@ -54,13 +55,13 @@ test('another tab cannot use its queued session and an invented capability',asyn
 
 function live(s){s.hub.onCoreStatus({state:'ARMED',session:42,out:{mode:0,turtle:0}});s.hub.onCoreTelemetry('link',{upLq:95});s.hub.onCoreTelemetry('flightMode','S-NORMAL');}
 test('HTTP admission and status expose the same fixed readiness reason',async()=>{
-  const s=setup('enabled');const response=await s.request().done;assert.deepEqual(response.data,{error:'not_ready',reason:'core_stale'});assert.deepEqual(s.messages.filter(m=>m.t==='status').at(-1).voice,{ready:false,reason:'core_stale'});assert.equal(s.calls,0);s.route.close();
+  const s=setup('enabled');const response=await s.request().done;assert.deepEqual(response.data,{error:'not_ready',reason:'core_stale'});assert.deepEqual(s.messages.filter(m=>m.t==='status').at(-1).voice,{ready:false,reason:'core_stale',epoch:s.hub.voiceEpoch});assert.equal(s.calls,0);s.route.close();
 });
 test('HTTP accepts sparse mode while status/RF stay fresh',async()=>{
   const s=setup('enabled');live(s);for(let t=1100;t<=2500;t+=100){s.setTime(t);s.hub.onCoreStatus({state:'ARMED',session:42,out:{mode:0,turtle:0}});s.hub.onCoreTelemetry('link',{upLq:95});}assert.equal((await s.request().done).status,200);s.route.close();
 });
 test('RF loss during recognition is rejected by the same post-check without execution',async()=>{
-  let finish;const s=setup('enabled',()=>new Promise(r=>{finish=r;}));live(s);const a=s.request();await new Promise(setImmediate);s.hub.onCoreTelemetry('link',{upLq:0});s.hub.onCoreStatus({state:'ARMED',session:42,out:{mode:0,turtle:0}});finish({choice:'forward_short',transcript:'adelante'});assert.deepEqual((await a.done).data,{error:'not_ready',reason:'link_lost'});assert.deepEqual(s.messages.filter(m=>m.t==='status').at(-1).voice,{ready:false,reason:'link_lost'});assert.equal(s.controlCalls.length,0);s.route.close();
+  let finish;const s=setup('enabled',()=>new Promise(r=>{finish=r;}));live(s);const a=s.request();await new Promise(setImmediate);s.hub.onCoreTelemetry('link',{upLq:0});s.hub.onCoreStatus({state:'ARMED',session:42,out:{mode:0,turtle:0}});finish({choice:'forward_short',transcript:'adelante'});assert.deepEqual((await a.done).data,{error:'not_ready',reason:'link_lost'});assert.deepEqual(s.messages.filter(m=>m.t==='status').at(-1).voice,{ready:false,reason:'link_lost',epoch:s.hub.voiceEpoch});assert.equal(s.controlCalls.length,0);s.route.close();
 });
 test('hello cached mode replay never restores invalidated confirmation',()=>{
   const s=setup('enabled');live(s);s.hub.onCoreTelemetry('link',{upLq:0});s.hub.onCoreTelemetry('link',{upLq:95});const other={send(){}};s.hub.attach(other,{user:{name:'other'},relay:false});s.hub.handle(other,{t:'hello',role:'observer'});assert.deepEqual(s.hub.voiceReadiness(42),{ready:false,reason:'normal_unconfirmed'});s.route.close();
@@ -81,4 +82,42 @@ for(const interruption of ['core_stale','link_stale','target','turtle','rf_recov
 
 for(const state of ['FAILSAFE','HOLD','LANDING','UNKNOWN'])test(`HTTP ${state} feedback requires recovery instead of arming`,async()=>{
   const s=setup('enabled');s.hub.onCoreStatus({state,session:42,out:{mode:0,turtle:0}});assert.deepEqual((await s.request().done).data,{error:'not_ready',reason:'unsafe_state'});assert.equal(s.calls,0);s.route.close();
+});
+
+test('R1 real route and controller reject held provider after RF bounce and reconfirmation',async()=>{
+  let finish;const s=setup('enabled',()=>new Promise(resolve=>{finish=resolve;}));live(s);
+  let starts=0;const states=[];
+  const c=new VoiceController({capture:{press:async()=>{},release:async()=>({audio:new Blob(['audio']),mime:'audio/webm'}),cancel(){}},
+    maneuver:{busy:false,configure(){},cancel(){this.busy=false;},start(){starts++;this.busy=true;return true;},apply:m=>({...m,pitch:50})},onState:state=>states.push(state),now:()=>1000,
+    fetchImpl:async(_url,options)=>{const headers=Object.fromEntries(Object.entries(options.headers).map(([k,v])=>[k.toLowerCase(),String(v)]));const reply=await s.request(headers).done;return {ok:reply.status===200,json:async()=>reply.data};}});
+  c.configure({execution:'enabled',shortMs:250,mediumMs:500,strength:50});c.setSession(s.messages.find(m=>m.t==='voice_ready'));
+  const ready=()=>({...s.hub.voiceReadiness(42),epoch:s.hub.voiceEpoch});c.onReadiness(ready());
+  await c.press();const result=c.release();await new Promise(setImmediate);
+  s.hub.onCoreTelemetry('link',{upLq:0});c.onReadiness(ready());
+  s.hub.onCoreTelemetry('link',{upLq:95});s.hub.onCoreTelemetry('flightMode','S-NORMAL');c.onReadiness(ready());
+  finish({choice:'forward_short',transcript:'adelante'});await result;
+  c.apply({roll:0,pitch:0,yaw:0,throttle:0},{role:'pilot',engaged:true,visible:true,focused:true,connected:true,heldManual:false,armed:true,mode:'Normal',statusAt:1000,voiceReady:true,voiceEpoch:s.hub.voiceEpoch});
+  assert.equal(starts,0,'interrupted old utterance must never start even after readiness recovers');
+  assert.equal(c.phase,'idle');s.route.close();
+});
+
+test('live HTTP epoch rejects hidden RF bounce before completion and stale pre-submit capture',async()=>{
+  let finish;const s=setup('enabled',()=>new Promise(resolve=>{finish=resolve;}));live(s);const epoch=s.hub.voiceEpoch;
+  const old=s.request({'x-voice-epoch':String(epoch)});await new Promise(setImmediate);
+  s.hub.onCoreTelemetry('link',{upLq:0});s.hub.onCoreTelemetry('link',{upLq:95});s.hub.onCoreTelemetry('flightMode','S-NORMAL');
+  assert.equal(s.hub.voiceLiveReady(42),true);finish({choice:'forward_short',transcript:'adelante'});
+  assert.deepEqual((await old.done).data,{error:'interrupted'});
+  assert.deepEqual((await s.request({'x-voice-epoch':String(epoch)}).done).data,{error:'interrupted'});
+  assert.equal(s.calls,1,'stale capture rejected before provider');
+  s.setTime(2100);live(s);const fresh=s.request();await new Promise(setImmediate);finish({choice:'forward_short',transcript:'adelante'});
+  assert.equal((await fresh.done).status,200,'new utterance after recovery is admitted');assert.equal(s.calls,2);s.route.close();
+});
+
+for(const epoch of [undefined,'-1','NaN','1.5','9007199254740992'])test(`ready live HTTP rejects missing/invalid capture epoch ${epoch}`,async()=>{
+  const s=setup('enabled');live(s);assert.deepEqual((await s.request({'x-voice-epoch':epoch}).done).data,{error:'interrupted'});assert.equal(s.calls,0);s.route.close();
+});
+test('upload crossing a hidden RF bounce is rejected before provider work',async()=>{
+  const s=setup('enabled');live(s);const pending=s.request({},null);
+  s.hub.onCoreTelemetry('link',{upLq:0});s.hub.onCoreTelemetry('link',{upLq:95});s.hub.onCoreTelemetry('flightMode','S-NORMAL');
+  pending.req.end(Buffer.from('audio'));assert.deepEqual((await pending.done).data,{error:'interrupted'});assert.equal(s.calls,0);s.route.close();
 });

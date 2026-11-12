@@ -79,3 +79,12 @@ for(const time of [999,NaN,Infinity])test(`invalid/backwards time ${time} reject
 test('unknown non-operational core state needs recovery and a new Normal report',()=>{
   const s=setup();s.flight.onStatus(status({state:'UNKNOWN'}));s.flight.onLink({upLq:95});s.flight.onMode('S-NORMAL');assert.equal(s.ready().reason,'unsafe_state');s.flight.onStatus(status());assert.equal(s.ready().reason,'normal_unconfirmed');
 });
+
+test('invalidation epoch survives reconfirmation and resets but not benign transitions',()=>{
+  const s=setup();s.seed();const epoch=s.flight.epoch;assert.ok(Number.isSafeInteger(epoch));
+  s.flight.onStatus(status({state:'DISARMED',session:0}));s.flight.onStatus(status());s.flight.onLink({upLq:95});s.flight.onMode('S-NORMAL');
+  assert.equal(s.flight.epoch,epoch);
+  s.flight.onLink({upLq:0});s.flight.onLink({upLq:95});s.flight.onMode('S-NORMAL');
+  assert.equal(s.ready().ready,true);assert.ok(s.flight.epoch>epoch);
+  const recovered=s.flight.epoch;s.flight.reset();assert.ok(s.flight.epoch>recovered);
+});
